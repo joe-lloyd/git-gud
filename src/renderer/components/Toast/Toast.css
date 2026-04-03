@@ -1,0 +1,89 @@
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  pointer-events: all;
+  opacity: 0;
+  transform: translateX(16px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  backdrop-filter: blur(12px);
+  max-width: 420px;
+}
+.toast.toast-enter {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Type variants */
+.toast-error   { border-left: 3px solid var(--danger); }
+.toast-warning { border-left: 3px solid #f6ad55; }
+.toast-success { border-left: 3px solid var(--success); }
+.toast-info    { border-left: 3px solid var(--lane-0); }
+
+/* Icon badge */
+.toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+.toast-icon-error   { background: rgba(252,129,129,0.2); color: var(--danger); }
+.toast-icon-warning { background: rgba(246,173,85,0.2);  color: #f6ad55; }
+.toast-icon-success { background: rgba(104,211,145,0.2); color: var(--success); }
+.toast-icon-info    { background: rgba(99,179,237,0.2);  color: var(--lane-0); }
+
+.toast-body { flex: 1; min-width: 0; }
+.toast-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.toast-message {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  font-family: 'JetBrains Mono', monospace;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 5px;
+  border-radius: 3px;
+  line-height: 1;
+  align-self: flex-start;
+}
+.toast-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}

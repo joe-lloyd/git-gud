@@ -1,0 +1,202 @@
+.working-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-base);
+  overflow: hidden;
+  position: relative;
+  user-select: none; /* prevent text-select during drag */
+}
+
+/* ── Sections ───────────────────────────────────────────────── */
+.wt-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* each section clips its file list */
+  flex-shrink: 0;
+}
+
+/* The bottom section stretches to fill remaining space after resize */
+.wt-section:last-of-type {
+  flex-shrink: 1;
+  flex-grow: 1;
+  min-height: 60px;
+}
+
+.wt-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.wt-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+}
+
+.wt-header-btn {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 2px 7px;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+}
+.wt-header-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+.wt-refresh-btn {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.wt-refresh-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+/* ── Drag handle ────────────────────────────────────────────── */
+.wt-resize-handle {
+  height: 6px;
+  flex-shrink: 0;
+  cursor: ns-resize;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.wt-resize-handle:hover,
+.wt-resize-handle:active { background: var(--bg-hover); }
+
+.wt-resize-grip {
+  width: 28px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+/* ── File lists ─────────────────────────────────────────────── */
+.wt-files {
+  flex: 1;
+  overflow-y: auto;
+  padding: 3px 0;
+  min-height: 0; /* crucial for scroll inside flex */
+}
+
+.wt-count {
+  background: rgba(99,179,237,0.18);
+  border-radius: 8px;
+  padding: 0 5px;
+  font-size: 10px;
+  color: var(--lane-0);
+  font-weight: 700;
+}
+
+.wt-loading, .wt-empty {
+  padding: 12px 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.wt-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border-radius: 4px;
+  margin: 1px 4px;
+}
+.wt-file-row:hover   { background: var(--bg-hover); }
+.wt-file-row.selected { background: var(--bg-active); }
+
+.wt-status-svg {
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.wt-file-path {
+  flex: 1;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary);
+}
+
+.wt-file-stats {
+  display: flex;
+  gap: 6px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  margin-right: 4px;
+}
+
+.wt-stat-add {
+  color: #68d391;
+  font-weight: 600;
+}
+
+.wt-stat-del {
+  color: #fc8181;
+  font-weight: 600;
+}
+
+.wt-file-action {
+  opacity: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wt-file-row:hover .wt-file-action { opacity: 1; }
+.wt-file-action:hover { background: var(--bg-elevated); color: var(--text-primary); }
+
+/* ── Commit form — always visible at bottom ─────────────────── */
+.wt-commit {
+  padding: 8px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wt-commit-msg {
+  resize: none;
+  min-height: 64px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wt-commit-btn {
+  width: 100%;
+  justify-content: center;
+  font-size: 12px;
+  padding: 7px 12px;
+}
+.wt-commit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.wt-error {
+  font-size: 11px;
+  color: var(--danger);
+  padding: 2px 4px;
+}

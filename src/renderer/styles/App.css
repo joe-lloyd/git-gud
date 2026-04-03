@@ -1,0 +1,132 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-deepest);
+}
+
+/* macOS traffic light drag region */
+.titlebar {
+  height: 38px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.main-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-deepest);
+}
+
+.graph-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.graph-center {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Right panel: commit detail / working tree */
+.right-panel {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-base);
+  overflow: hidden;
+}
+
+.right-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.rpt {
+  flex: 1;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.rpt:hover { color: var(--text-secondary); }
+.rpt.active { color: var(--lane-0); border-bottom-color: var(--lane-0); }
+
+.right-panel-body {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Advanced feature bar — sits below sidebar */
+.advanced-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-base);
+  padding: 4px;
+}
+
+.adv-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-radius: 5px;
+  transition: background 0.1s, color 0.1s;
+  text-align: left;
+}
+.adv-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Welcome screen */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  color: var(--text-secondary);
+}
+.welcome h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); }
+.welcome p  { font-size: 14px; max-width: 380px; text-align: center; line-height: 1.6; }
+
+.welcome-logo {
+  font-size: 64px;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--lane-0), var(--lane-4));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+}

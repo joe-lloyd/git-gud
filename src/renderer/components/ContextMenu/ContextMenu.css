@@ -1,0 +1,31 @@
+.cm-backdrop {
+  position: fixed; inset: 0; z-index: 999;
+}
+.cm-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 180px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.cm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+}
+.cm-item:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.cm-item.danger { color: var(--danger); }
+.cm-item.danger:hover:not(:disabled) { background: rgba(252,129,129,0.12); }
+.cm-item:disabled { opacity: 0.35; cursor: not-allowed; }
+.cm-icon { font-size: 13px; width: 16px; text-align: center; }
+.cm-sep { height: 1px; background: var(--border); margin: 3px 0; }

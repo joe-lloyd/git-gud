@@ -1,0 +1,199 @@
+/* ── Reset & Base ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Core palette — dark, rich, GitKraken-inspired */
+  --bg-deepest:    #0d1117;
+  --bg-base:       #13181f;
+  --bg-elevated:   #1a2030;
+  --bg-panel:      #1e2638;
+  --bg-hover:      #2a3347;
+  --bg-active:     #2e3d57;
+  --border:        rgba(255,255,255,0.07);
+  --border-focus:  rgba(99,179,237,0.5);
+
+  /* Text */
+  --text-primary:   #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted:     #58677a;
+  --text-accent:    #63b3ed;
+
+  /* Branch lane colors — vibrant, distinct */
+  --lane-0: #63b3ed;  /* sky blue */
+  --lane-1: #68d391;  /* green */
+  --lane-2: #f6ad55;  /* amber */
+  --lane-3: #fc8181;  /* red/coral */
+  --lane-4: #b794f4;  /* purple */
+  --lane-5: #76e4f7;  /* cyan */
+  --lane-6: #fbb6ce;  /* pink */
+  --lane-7: #f6e05e;  /* yellow */
+  --lane-8: #9f7aea;  /* indigo-purple */
+  --lane-9: #4fd1c5;  /* teal */
+
+  /* Semantic */
+  --success: #68d391;
+  --danger:  #fc8181;
+  --warning: #f6ad55;
+  --info:    #63b3ed;
+
+  /* Sizing */
+  --sidebar-width: 240px;
+  --detail-width:  340px;
+  --toolbar-height: 48px;
+  --commit-row-height: 36px;
+  --graph-lane-width: 16px;
+
+  /* Typography */
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg-deepest);
+  color: var(--text-primary);
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+/* ── Utilities ────────────────────────────────────────────────────────── */
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.15s, opacity 0.15s;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.btn-primary {
+  background: #2b5bad;
+  color: #fff;
+  border-color: rgba(255,255,255,0.1);
+}
+.btn-primary:hover { background: #3470cc; }
+.btn-ghost {
+  background: rgba(255,255,255,0.04);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+.btn-ghost:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+}
+.btn-danger {
+  background: rgba(252,129,129,0.15);
+  color: var(--danger);
+  border-color: rgba(252,129,129,0.25);
+}
+.btn-danger:hover { background: rgba(252,129,129,0.25); }
+
+/* ── Tags / Ref Pills ─────────────────────────────────────────────────── */
+.ref-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+.ref-local  { background: rgba(99,179,237,0.18); color: #63b3ed; border: 1px solid rgba(99,179,237,0.3); }
+.ref-remote { background: rgba(104,211,145,0.15); color: #68d391; border: 1px solid rgba(104,211,145,0.25); }
+/* local + remote combined */
+.ref-both   { background: rgba(99,179,237,0.15); color: #63b3ed; border: 1px solid rgba(99,179,237,0.3); }
+.ref-tag    { background: rgba(246,173,85,0.15);  color: #f6ad55; border: 1px solid rgba(246,173,85,0.25); }
+.ref-head   { background: rgba(251,182,206,0.2);  color: #fbb6ce; border: 1px solid rgba(251,182,206,0.35); }
+
+/* Icon spans inside a pill */
+.rp-icon {
+  font-size: 9px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+.rp-head    { color: #fbb6ce; font-size: 10px; }
+.rp-local   { color: #63b3ed; }
+.rp-remote  { color: #68d391; font-size: 11px; font-weight: 700; }
+.rp-worktree { color: #f6ad55; font-size: 10px; }
+.rp-name { overflow: hidden; text-overflow: ellipsis; }
+
+
+/* ── Input ────────────────────────────────────────────────────────────── */
+input, textarea {
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--bg-deepest);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+input:focus, textarea:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px rgba(99,179,237,0.15);
+}
+
+/* ── Divider ──────────────────────────────────────────────────────────── */
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0;
+}
+
+/* ── Animations ───────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeIn 0.2s ease; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin { animation: spin 0.7s linear infinite; }
+
+/* ── Welcome / Empty State ────────────────────────────────────────────── */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 20px;
+  color: var(--text-secondary);
+}
+.welcome h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); }
+.welcome p  { font-size: 14px; max-width: 380px; text-align: center; }

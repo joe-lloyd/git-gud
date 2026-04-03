@@ -1,0 +1,143 @@
+.commit-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+  border-left: 1px solid var(--border);
+}
+
+.commit-detail.empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cd-header {
+  padding: 14px 16px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cd-sha {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+}
+
+.cd-author {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cd-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cd-message {
+  padding: 8px 16px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.cd-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 16px 12px;
+}
+
+.cd-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-muted);
+}
+
+.cd-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.cd-files {
+  flex-shrink: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.cd-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 8px 16px 4px;
+}
+
+.cd-file-list {
+  padding: 0 8px 8px;
+}
+
+.cd-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  width: 100%;
+  text-align: left;
+  transition: background 0.1s;
+  cursor: pointer;
+}
+.cd-file-item:hover { background: var(--bg-hover); }
+.cd-file-item.active { background: var(--bg-active); }
+
+.cd-file-status {
+  font-size: 12px;
+  font-weight: 700;
+  width: 16px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.cd-file-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.cd-diff {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cd-diff-content {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 16px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre;
+  tab-size: 2;
+  background: var(--bg-deepest);
+  border-radius: 0;
+}
+
+/* Diff color coding */
+.cd-diff-content {
+  /* CSS-only diff coloring via regex won't work; handled via app-level parsing in future */
+}

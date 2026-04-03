@@ -1,0 +1,154 @@
+.graph-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Column headers */
+.graph-header {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  background: var(--bg-panel);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-right: 12px;
+  flex-shrink: 0;
+  gap: 0;
+}
+
+.gh-message { flex: 1; padding: 0 8px; }
+.gh-author  { width: 140px; flex-shrink: 0; }
+.gh-date    { width: 80px;  flex-shrink: 0; }
+.gh-sha     { width: 58px;  flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+
+/* Scrollable body */
+.graph-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  display: flex;
+}
+
+/* Canvas wrapper — sticky on the left as we scroll */
+.graph-canvas-wrap {
+  position: sticky;
+  left: 0;
+  top: 0;
+  height: 100%;
+  flex-shrink: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.graph-canvas {
+  position: sticky;
+  top: 0;
+  display: block;
+}
+
+/* DOM rows container */
+.graph-rows {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Individual commit row */
+.commit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+  box-sizing: border-box;
+}
+
+.commit-row:hover {
+  background: rgba(255,255,255,0.035);
+}
+
+.commit-row.selected {
+  background: rgba(99, 179, 237, 0.1);
+}
+
+/* Alternating row background */
+.commit-row:nth-child(even) {
+  background: rgba(255,255,255,0.012);
+}
+.commit-row:nth-child(even):hover {
+  background: rgba(255,255,255,0.04);
+}
+.commit-row.selected:nth-child(even) {
+  background: rgba(99, 179, 237, 0.1);
+}
+
+/* Ref pills inline */
+.cr-refs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  max-width: 260px;
+  overflow: hidden;
+}
+
+/* Commit message */
+.cr-message {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1;
+  padding: 0 4px;
+}
+.commit-row.selected .cr-message {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.commit-row:hover .cr-message {
+  color: var(--text-primary);
+}
+
+/* Author */
+.cr-author {
+  width: 140px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Date */
+.cr-date {
+  width: 80px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* SHA */
+.cr-sha {
+  width: 58px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  font-family: 'JetBrains Mono', monospace;
+}
+.commit-row:hover .cr-sha,
+.commit-row.selected .cr-sha {
+  opacity: 1;
+  color: var(--lane-0);
+}
