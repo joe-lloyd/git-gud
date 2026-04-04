@@ -37,6 +37,11 @@ export type RepoStatus = {
   behind: number
 }
 
+export type RemoteInfo = {
+  name: string
+  url: string
+}
+
 export type GitHubUser = {
   login: string
   avatar_url: string
@@ -60,6 +65,7 @@ const gitApi = {
   getTags: (): Promise<TagInfo[]> => ipcRenderer.invoke('git:tags'),
   getStashes: (): Promise<StashInfo[]> => ipcRenderer.invoke('git:stashes'),
   getStatus: (): Promise<RepoStatus | null> => ipcRenderer.invoke('git:status'),
+  getRemotes: (): Promise<RemoteInfo[]> => ipcRenderer.invoke('git:remotes'),
 
   getCommitDiff: (sha: string): Promise<string> => ipcRenderer.invoke('git:commit-diff', sha),
   getCommitFiles: (sha: string): Promise<FileChange[]> => ipcRenderer.invoke('git:commit-files', sha),

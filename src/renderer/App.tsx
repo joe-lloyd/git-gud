@@ -13,7 +13,7 @@ import { ContextMenu, useContextMenu } from './components/ContextMenu/ContextMen
 import { ToastContainer, useToasts } from './components/Toast/Toast'
 import { DiffViewer } from './components/DiffViewer/DiffViewer'
 import { GitHubPanel } from './components/GitHub/GitHubPanel'
-import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo } from '../preload/index'
+import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo } from '../preload/index'
 import './styles/App.css'
 
 type Modal = 'rebase' | 'worktrees' | 'bisect' | 'patch' | 'github' | null
@@ -27,6 +27,7 @@ export default function App() {
   const [stashes, setStashes]         = useState<StashInfo[]>([])
   const [worktrees, setWorktrees]      = useState<WorktreeInfo[]>([])
   const [status, setStatus]            = useState<RepoStatus | null>(null)
+  const [remotes, setRemotes]          = useState<RemoteInfo[]>([])
   const [selectedSha, setSelectedSha] = useState<string | null>(null)
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState<string | null>(null)
@@ -44,6 +45,7 @@ export default function App() {
     setStashes([])
     setWorktrees([])
     setStatus(null)
+    setRemotes([])
     setSelectedSha(null)
     setError(null)
   }, [])
@@ -54,12 +56,13 @@ export default function App() {
       const ok = await window.gitApi.openPath(path)
       if (!ok) throw new Error('Not a valid Git repository or path does not exist.')
       
-      const [log, branchData, stashData, st, wt] = await Promise.all([
+      const [log, branchData, stashData, st, wt, rmts] = await Promise.all([
         window.gitApi.getLog(2000),
         window.gitApi.getBranches(),
         window.gitApi.getStashes(),
         window.gitApi.getStatus(),
         window.gitApi.getWorktrees(),
+        window.gitApi.getRemotes(),
       ])
       window.gitApi.addRecentProject(path)
       setCommits(log)
@@ -67,6 +70,7 @@ export default function App() {
       setStashes(stashData)
       setWorktrees(wt)
       setStatus(st)
+      setRemotes(rmts)
       setRepoPath(path)
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
@@ -179,6 +183,7 @@ export default function App() {
           repoPath={repoPath}
           branches={branches}
           stashes={stashes}
+          remotes={remotes}
           currentBranch={status?.branch ?? ''}
           onCheckout={handleCheckout}
           onOpenRepo={handleOpenRepo}

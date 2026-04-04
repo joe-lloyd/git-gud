@@ -197,16 +197,16 @@ export class GitService {
         staged.push({
           path: file.path,
           status: file.index,
-          add: stagedStats[file.path]?.add,
-          del: stagedStats[file.path]?.del,
+          additions: stagedStats[file.path]?.add,
+          deletions: stagedStats[file.path]?.del,
         })
       }
       if (file.working_dir && file.working_dir !== ' ' && file.working_dir !== '?') {
         unstaged.push({
           path: file.path,
           status: file.working_dir,
-          add: unstagedStats[file.path]?.add,
-          del: unstagedStats[file.path]?.del,
+          additions: unstagedStats[file.path]?.add,
+          deletions: unstagedStats[file.path]?.del,
         })
       }
     }
@@ -253,6 +253,18 @@ export class GitService {
         const [status, ...pathParts] = line.split('\t')
         return { path: pathParts.join('\t'), status: status.trim() }
       })
+  }
+
+  async getRemotes(): Promise<{ name: string; url: string }[]> {
+    try {
+      const raw = await this.git.raw(['remote', '-v'])
+      const remotesMap = new Map<string, string>()
+      for (const line of raw.split('\n')) {
+        const match = line.match(/^(\S+)\s+(.+?)\s+\((fetch|push)\)$/)
+        if (match) remotesMap.set(match[1], match[2])
+      }
+      return Array.from(remotesMap.entries()).map(([name, url]) => ({ name, url }))
+    } catch { return [] }
   }
 
   async checkout(branch: string): Promise<{ success: boolean; error?: string }> {
@@ -312,7 +324,22 @@ export class GitService {
 
   async push(): Promise<{ success: boolean; error?: string }> {
     try {
-      await this.git.push()
+      try {
+        await this.git.push()
+      } catch (err: any) {
+        // If push fails because of no upstream branch, try setting it automatically
+        if (err.message && err.message.includes('has no upstream branch')) {
+          const status = await this.git.status()
+          const currentBranch = status.current
+          if (currentBranch) {
+            await this.git.push(['-u', 'origin', currentBranch])
+          } else {
+            throw err
+          }
+        } else {
+          throw err
+        }
+      }
       return { success: true }
     } catch (e: unknown) {
       return { success: false, error: String(e) }

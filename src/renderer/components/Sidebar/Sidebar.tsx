@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
-import type { BranchData, StashInfo } from '../../../preload/index'
+import type { BranchData, StashInfo, RemoteInfo } from '../../../preload/index'
 import './Sidebar.css'
 
 interface SidebarProps {
   repoPath: string | null
   branches: BranchData
   stashes: StashInfo[]
+  remotes: RemoteInfo[]
   currentBranch: string
   onCheckout: (branch: string) => void
   onOpenRepo: () => void
@@ -18,6 +19,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   repoPath,
   branches,
   stashes,
+  remotes,
   currentBranch,
   onCheckout,
   onOpenRepo,
@@ -82,14 +84,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label="REMOTES"
           open={openSections.has('remotes')}
           onToggle={() => toggle('remotes')}
-          count={branches.remote.length}
+          count={remotes.length + branches.remote.length}
         >
+          {remotes.map((r) => (
+             <SidebarItem
+               key={`remote-${r.name}`}
+               label={r.name}
+               icon="⛅"
+               active={false}
+             />
+          ))}
           {branches.remote.map((b) => (
             <SidebarItem
-              key={b.name}
+              key={`branch-${b.name}`}
               label={b.name}
-              icon="⛅"
+              icon="↳"
               active={false}
+              indent
               onClick={() => {}}
             />
           ))}
@@ -151,18 +162,21 @@ function SidebarItem({
   label,
   icon,
   active,
+  indent,
   onClick,
 }: {
   label: string
   icon: string
   active: boolean
-  onClick: () => void
+  indent?: boolean
+  onClick?: () => void
 }) {
   return (
     <button
       className={`sb-item ${active ? 'active' : ''}`}
       onClick={onClick}
       title={label}
+      style={indent ? { paddingLeft: 32 } : undefined}
     >
       <span className="sb-item-icon">{icon}</span>
       <span className="sb-item-label truncate">{label}</span>

@@ -211,6 +211,11 @@ app.whenReady().then(() => {
     try { return await gitService.getStatus() } catch { return null }
   })
 
+  ipcMain.handle('git:remotes', async () => {
+    if (!gitService) return []
+    try { return await gitService.getRemotes() } catch { return [] }
+  })
+
   // ── Commit Detail ────────────────────────────────────────────────────
   ipcMain.handle('git:commit-diff', async (_event, sha: string) => {
     if (!gitService) return ''
