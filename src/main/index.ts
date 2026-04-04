@@ -134,10 +134,18 @@ app.whenReady().then(() => {
   ipcMain.handle('app:add-recent', async (_event, path: string) => addRecentProject(path))
 
   // ── GitHub Integration ────────────────────────────────────────────────────────
-  ipcMain.handle('github:login', async (_event, token: string) => {
+  ipcMain.handle('github:start-device-flow', async (_event, clientId: string) => {
     if (!githubService) return { success: false, error: 'GitHub service not ready' }
     try {
-      const user = await githubService.loginWithToken(token)
+      const flow = await githubService.startDeviceFlow(clientId)
+      return { success: true, flow }
+    } catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  ipcMain.handle('github:poll-token', async (_event, clientId: string, deviceCode: string) => {
+    if (!githubService) return { success: false, error: 'GitHub service not ready' }
+    try {
+      const user = await githubService.pollForToken(clientId, deviceCode)
       return { success: true, user }
     } catch (e: any) { return { success: false, error: e.message } }
   })

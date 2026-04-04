@@ -67,19 +67,72 @@ export class GitHubService {
     }
   }
 
-  public async loginWithToken(token: string): Promise<GitHubUser> {
+  public async startDeviceFlow(clientId: string): Promise<{ device_code: string; user_code: string; verification_uri: string; interval: number }> {
+    const response = await fetch('https://github.com/login/device/code', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        scope: 'repo'
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.statusText}`)
+    }
+
+    const data = (await response.json()) as any
+    if (data.error) {
+      throw new Error(data.error_description || data.error)
+    }
+
+    return {
+      device_code: data.device_code,
+      user_code: data.user_code,
+      verification_uri: data.verification_uri,
+      interval: data.interval
+    }
+  }
+
+  public async pollForToken(clientId: string, deviceCode: string): Promise<GitHubUser> {
+    const response = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        device_code: deviceCode,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.statusText}`)
+    }
+
+    const data = (await response.json()) as any
+    if (data.error) {
+      throw new Error(data.error) // authorization_pending, slow_down, expired_token, access_denied
+    }
+
+    const token = data.access_token
     const tempOctokit = new Octokit({ auth: token })
     try {
-      const { data } = await tempOctokit.rest.users.getAuthenticated()
+      const { data: user } = await tempOctokit.rest.users.getAuthenticated()
       this.octokit = tempOctokit
       this.saveToken(token)
       return {
-        login: data.login,
-        avatar_url: data.avatar_url,
-        name: data.name,
+        login: user.login,
+        avatar_url: user.avatar_url,
+        name: user.name,
       }
     } catch (e) {
-      throw new Error('Invalid token or GitHub API error')
+      throw new Error('Failed to fetch user data with new token')
     }
   }
 

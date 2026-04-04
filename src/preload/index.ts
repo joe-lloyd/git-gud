@@ -117,8 +117,16 @@ const gitApi = {
   addRemote: (name: string, url: string): Promise<{success: boolean, error?: string}> => ipcRenderer.invoke('git:add-remote', name, url),
 }
 
+export type DeviceFlowConfig = {
+  device_code: string
+  user_code: string
+  verification_uri: string
+  interval: number
+}
+
 const githubApi = {
-  login: (token: string): Promise<{ success: boolean; user?: GitHubUser; error?: string }> => ipcRenderer.invoke('github:login', token),
+  startDeviceFlow: (clientId: string): Promise<{ success: boolean; flow?: DeviceFlowConfig; error?: string }> => ipcRenderer.invoke('github:start-device-flow', clientId),
+  pollToken: (clientId: string, deviceCode: string): Promise<{ success: boolean; user?: GitHubUser; error?: string }> => ipcRenderer.invoke('github:poll-token', clientId, deviceCode),
   logout: (): Promise<boolean> => ipcRenderer.invoke('github:logout'),
   getUser: (): Promise<GitHubUser | null> => ipcRenderer.invoke('github:get-user'),
   createRepo: (name: string, description: string, isPrivate: boolean): Promise<{ success: boolean; repo?: GitHubRepo; error?: string }> => ipcRenderer.invoke('github:create-repo', name, description, isPrivate),

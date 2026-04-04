@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import type { GitHubUser } from '../../../preload'
+import React, { useState, useEffect, useRef } from 'react'
+import type { GitHubUser, DeviceFlowConfig } from '../../../preload'
 import './GitHubPanel.css'
 
 interface GitHubPanelProps {
@@ -12,8 +12,10 @@ export function GitHubPanel({ onClose, onRepoCreated }: GitHubPanelProps) {
   const [loading, setLoading] = useState(true)
   
   // Login State
-  const [token, setToken] = useState('')
+  const [deviceFlow, setDeviceFlow] = useState<DeviceFlowConfig | null>(null)
   const [loginError, setLoginError] = useState('')
+  const [polling, setPolling] = useState(false)
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
   // Create Repo State
   const [repoName, setRepoName] = useState('')
@@ -22,24 +24,57 @@ export function GitHubPanel({ onClose, onRepoCreated }: GitHubPanelProps) {
   const [createError, setCreateError] = useState('')
   const [creating, setCreating] = useState(false)
 
+  // Use the env provided client id, or placeholder if none
+  const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID || 'MISSING_CLIENT_ID'
+
   useEffect(() => {
     window.githubApi.getUser().then((u) => {
       setUser(u)
       setLoading(false)
     })
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
   }, [])
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const startOAuthFlow = async () => {
     setLoginError('')
     setLoading(true)
-    const result = await window.githubApi.login(token)
-    if (result.success && result.user) {
-      setUser(result.user)
-    } else {
-      setLoginError(result.error || 'Login failed')
-    }
+    const result = await window.githubApi.startDeviceFlow(clientId)
     setLoading(false)
+
+    if (result.success && result.flow) {
+      setDeviceFlow(result.flow)
+      startPolling(result.flow)
+    } else {
+      setLoginError(result.error || 'Failed to start device flow')
+    }
+  }
+
+  const startPolling = (flow: DeviceFlowConfig) => {
+    setPolling(true)
+    // The device flow requires polling at the specific interval
+    pollingRef.current = setInterval(async () => {
+      try {
+        const result = await window.githubApi.pollToken(clientId, flow.device_code)
+        if (result.success && result.user) {
+          // Token acquired successfully!
+          if (pollingRef.current) clearInterval(pollingRef.current)
+          setDeviceFlow(null)
+          setPolling(false)
+          setUser(result.user)
+        } else if (result.error && !result.error.includes('authorization_pending')) {
+          // If the error isn't pending, something went wrong (e.g. expired, or internet drop)
+          if (pollingRef.current) clearInterval(pollingRef.current)
+          setLoginError(result.error)
+          setPolling(false)
+          setDeviceFlow(null)
+        }
+      } catch (e: any) {
+         // Silently fail on network disconnects during polling
+      }
+    }, (flow.interval + 1) * 1000) // Poll slightly slower than limit to avoid slow_down blocks
   }
 
   const handleLogout = async () => {
@@ -85,24 +120,38 @@ export function GitHubPanel({ onClose, onRepoCreated }: GitHubPanelProps) {
         {!user ? (
           <div className="gh-body gh-login">
             <p>Connect your GitHub account to create remote repositories directly from Git Gud.</p>
-            <ol className="gh-instructions">
-              <li>Go to <a href="#" onClick={(e) => { e.preventDefault(); require('electron').shell.openExternal('https://github.com/settings/tokens/new?scopes=repo&description=Git%20Gud') }}>GitHub Developer Settings</a></li>
-              <li>Generate a new Personal Access Token (classic) with the <strong>repo</strong> scope.</li>
-              <li>Paste the token below.</li>
-            </ol>
-            <form onSubmit={handleLogin} className="gh-form">
-              <input
-                type="password"
-                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                value={token}
-                onChange={e => setToken(e.target.value)}
-                autoFocus
-              />
-              {loginError && <div className="gh-error">{loginError}</div>}
-              <button type="submit" className="btn btn-primary" disabled={!token || loading}>
-                Connect Account
-              </button>
-            </form>
+            
+            {!deviceFlow ? (
+              <div style={{ textAlign: 'center', marginTop: 30, marginBottom: 30 }}>
+                {clientId === 'MISSING_CLIENT_ID' && (
+                  <div className="gh-error" style={{ marginBottom: 20 }}>
+                    Missing VITE_GITHUB_CLIENT_ID in your `.env` file!
+                  </div>
+                )}
+                <button 
+                  className="btn btn-primary" 
+                  onClick={startOAuthFlow}
+                  disabled={clientId === 'MISSING_CLIENT_ID'}
+                >
+                  Log In with GitHub
+                </button>
+              </div>
+            ) : (
+               <div style={{ textAlign: 'center', marginTop: 20, marginBottom: 20 }}>
+                 <p style={{ fontSize: 16, marginBottom: 20 }}>
+                   Please open <a href="#" onClick={(e) => { e.preventDefault(); require('electron').shell.openExternal(deviceFlow.verification_uri) }}>{deviceFlow.verification_uri}</a> and enter the code below:
+                 </p>
+                 <div style={{ fontSize: 36, fontWeight: 'bold', letterSpacing: 4, background: 'var(--bg-base)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                   {deviceFlow.user_code}
+                 </div>
+                 <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                   <div className="loading-spinner" style={{ fontSize: 18 }}>⟳</div>
+                   <span className="gh-muted" style={{ margin: 0 }}>Waiting for authorization...</span>
+                 </div>
+               </div>
+            )}
+
+            {loginError && <div className="gh-error">{loginError}</div>}
           </div>
         ) : (
           <div className="gh-body gh-dashboard">
