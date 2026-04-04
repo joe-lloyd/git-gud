@@ -67,6 +67,22 @@ export class GitHubService {
     }
   }
 
+  public getToken(): string | null {
+    try {
+      if (fs.existsSync(this.configPath)) {
+        const encryptedToken = fs.readFileSync(this.configPath)
+        if (safeStorage.isEncryptionAvailable()) {
+          return safeStorage.decryptString(encryptedToken)
+        } else {
+          return encryptedToken.toString('utf-8')
+        }
+      }
+    } catch (e) {
+      console.error('Failed to read GitHub token', e)
+    }
+    return null
+  }
+
   public async startDeviceFlow(clientId: string): Promise<{ device_code: string; user_code: string; verification_uri: string; interval: number }> {
     const response = await fetch('https://github.com/login/device/code', {
       method: 'POST',

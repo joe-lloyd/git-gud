@@ -61,10 +61,19 @@ export interface RepoStatus {
 export class GitService {
   private git: SimpleGit
   private repoPath: string
+  private getToken?: () => string | null
 
-  constructor(repoPath: string) {
+  constructor(repoPath: string, getToken?: () => string | null) {
     this.repoPath = repoPath
     this.git = simpleGit(repoPath)
+    this.getToken = getToken
+  }
+
+  private getAuthConfigs(): string[] {
+    const token = this.getToken?.()
+    if (!token) return []
+    const b64 = Buffer.from(`x-access-token:${token}`).toString('base64')
+    return ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${b64}`]
   }
 
   async isRepo(): Promise<boolean> {
@@ -310,12 +319,12 @@ export class GitService {
   }
 
   async fetch(): Promise<void> {
-    await this.git.fetch(['--all', '--prune'])
+    await this.git.raw([...this.getAuthConfigs(), 'fetch', '--all', '--prune'])
   }
 
   async pull(): Promise<{ success: boolean; error?: string }> {
     try {
-      await this.git.pull()
+      await this.git.raw([...this.getAuthConfigs(), 'pull'])
       return { success: true }
     } catch (e: unknown) {
       return { success: false, error: String(e) }
@@ -325,14 +334,14 @@ export class GitService {
   async push(): Promise<{ success: boolean; error?: string }> {
     try {
       try {
-        await this.git.push()
+        await this.git.raw([...this.getAuthConfigs(), 'push'])
       } catch (err: any) {
         // If push fails because of no upstream branch, try setting it automatically
         if (err.message && err.message.includes('has no upstream branch')) {
-          const status = await this.git.status()
-          const currentBranch = status.current
+          const status = await this.getStatus()
+          const currentBranch = status.branch
           if (currentBranch) {
-            await this.git.push(['-u', 'origin', currentBranch])
+            await this.git.raw([...this.getAuthConfigs(), 'push', '-u', 'origin', currentBranch])
           } else {
             throw err
           }

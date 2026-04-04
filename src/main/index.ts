@@ -61,7 +61,7 @@ app.whenReady().then(() => {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     const repoPath = result.filePaths[0]
-    gitService = new GitService(repoPath)
+    gitService = new GitService(repoPath, () => githubService?.getToken() || null)
     const isRepo = await gitService.isRepo()
     if (!isRepo) {
       const { response } = await dialog.showMessageBox(mainWindow!, {
@@ -94,7 +94,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('git:open-path', async (_event, repoPath: string) => {
     try {
-      gitService = new GitService(repoPath)
+      gitService = new GitService(repoPath, () => githubService?.getToken() || null)
       const isRepo = await gitService.isRepo()
       if (!isRepo) { gitService = null; return false }
       return true
