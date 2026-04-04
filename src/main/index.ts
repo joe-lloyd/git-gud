@@ -2,9 +2,11 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import * as fs from 'fs'
 import { GitService } from './git-service'
+import { GitHubService } from './github-service'
 
 let mainWindow: BrowserWindow | null = null
 let gitService: GitService | null = null
+let githubService: GitHubService | null = null
 let gitignoreWatcher: fs.FSWatcher | null = null
 
 function startGitignoreWatcher(repoPath: string) {
@@ -44,6 +46,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  githubService = new GitHubService()
   createWindow()
 
   app.on('activate', () => {
@@ -129,6 +132,49 @@ app.whenReady().then(() => {
 
   ipcMain.handle('app:get-recent', async () => getRecentProjects())
   ipcMain.handle('app:add-recent', async (_event, path: string) => addRecentProject(path))
+
+  // ── GitHub Integration ────────────────────────────────────────────────────────
+  ipcMain.handle('github:login', async (_event, token: string) => {
+    if (!githubService) return { success: false, error: 'GitHub service not ready' }
+    try {
+      const user = await githubService.loginWithToken(token)
+      return { success: true, user }
+    } catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  ipcMain.handle('github:logout', async () => {
+    if (githubService) githubService.clearToken()
+    return true
+  })
+
+  ipcMain.handle('github:get-user', async () => {
+    if (!githubService) return null
+    return githubService.getAuthenticatedUser()
+  })
+
+  ipcMain.handle('github:create-repo', async (_event, name: string, description: string, isPrivate: boolean) => {
+    if (!githubService) return { success: false, error: 'GitHub service not ready' }
+    try {
+      const repo = await githubService.createRepository(name, description, isPrivate)
+      return { success: true, repo }
+    } catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  ipcMain.handle('github:list-repos', async () => {
+    if (!githubService) return { success: false, error: 'GitHub service not ready' }
+    try {
+      const repos = await githubService.listRepositories()
+      return { success: true, repos }
+    } catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  ipcMain.handle('git:add-remote', async (_event, name: string, url: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try {
+      await gitService['git'].addRemote(name, url)
+      return { success: true }
+    } catch (e: any) { return { success: false, error: e.message } }
+  })
 
   // ── Git Service Wrapping ──────────────────────────────────────────────────────
   // ── Graph / Log ──────────────────────────────────────────────────────

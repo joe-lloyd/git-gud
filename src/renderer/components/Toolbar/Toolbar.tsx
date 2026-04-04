@@ -12,6 +12,7 @@ interface ToolbarProps {
   onRefresh: () => void
   onNewBranch: () => void
   onSearchToggle: () => void
+  onGitHubShow?: () => void
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -25,6 +26,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onRefresh,
   onNewBranch,
   onSearchToggle,
+  onGitHubShow,
 }) => {
   const [fetching, setFetching] = useState(false)
   const [pulling, setPulling] = useState(false)
@@ -88,6 +90,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </div>
 
       <div className="tb-right">
+        <button className="tb-icon-btn" title="GitHub" onClick={onGitHubShow}>🐙</button>
         <button className="tb-icon-btn" title="Search commits" onClick={onSearchToggle}>🔍</button>
         <button className="tb-icon-btn" title="Refresh" onClick={onRefresh}>⟳</button>
       </div>

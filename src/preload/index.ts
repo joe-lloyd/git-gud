@@ -37,6 +37,20 @@ export type RepoStatus = {
   behind: number
 }
 
+export type GitHubUser = {
+  login: string
+  avatar_url: string
+  name: string | null
+}
+
+export type GitHubRepo = {
+  name: string
+  full_name: string
+  html_url: string
+  ssh_url: string
+  clone_url: string
+}
+
 const gitApi = {
   openDialog: (): Promise<string | null> => ipcRenderer.invoke('git:open-dialog'),
   openPath: (path: string): Promise<boolean> => ipcRenderer.invoke('git:open-path', path),
@@ -99,9 +113,21 @@ const gitApi = {
 
   getRecentProjects: (): Promise<string[]> => ipcRenderer.invoke('app:get-recent'),
   addRecentProject: (path: string): Promise<void> => ipcRenderer.invoke('app:add-recent', path),
+
+  addRemote: (name: string, url: string): Promise<{success: boolean, error?: string}> => ipcRenderer.invoke('git:add-remote', name, url),
+}
+
+const githubApi = {
+  login: (token: string): Promise<{ success: boolean; user?: GitHubUser; error?: string }> => ipcRenderer.invoke('github:login', token),
+  logout: (): Promise<boolean> => ipcRenderer.invoke('github:logout'),
+  getUser: (): Promise<GitHubUser | null> => ipcRenderer.invoke('github:get-user'),
+  createRepo: (name: string, description: string, isPrivate: boolean): Promise<{ success: boolean; repo?: GitHubRepo; error?: string }> => ipcRenderer.invoke('github:create-repo', name, description, isPrivate),
+  listRepos: (): Promise<{ success: boolean; repos?: GitHubRepo[]; error?: string }> => ipcRenderer.invoke('github:list-repos'),
 }
 
 contextBridge.exposeInMainWorld('gitApi', gitApi)
+contextBridge.exposeInMainWorld('githubApi', githubApi)
 
 // Type helper for renderer
 export type GitApi = typeof gitApi
+export type GitHubApi = typeof githubApi

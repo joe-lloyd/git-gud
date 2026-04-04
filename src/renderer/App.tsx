@@ -12,10 +12,11 @@ import { SearchBar } from './components/Search/SearchBar'
 import { ContextMenu, useContextMenu } from './components/ContextMenu/ContextMenu'
 import { ToastContainer, useToasts } from './components/Toast/Toast'
 import { DiffViewer } from './components/DiffViewer/DiffViewer'
+import { GitHubPanel } from './components/GitHub/GitHubPanel'
 import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo } from '../preload/index'
 import './styles/App.css'
 
-type Modal = 'rebase' | 'worktrees' | 'bisect' | 'patch' | null
+type Modal = 'rebase' | 'worktrees' | 'bisect' | 'patch' | 'github' | null
 
 const EMPTY_BRANCHES: BranchData = { local: [], remote: [] }
 
@@ -50,6 +51,9 @@ export default function App() {
   const loadRepo = useCallback(async (path: string) => {
     setLoading(true); setError(null); setSelectedSha(null)
     try {
+      const ok = await window.gitApi.openPath(path)
+      if (!ok) throw new Error('Not a valid Git repository or path does not exist.')
+      
       const [log, branchData, stashData, st, wt] = await Promise.all([
         window.gitApi.getLog(2000),
         window.gitApi.getBranches(),
@@ -167,6 +171,7 @@ export default function App() {
           if (name) window.gitApi.createBranch(name).then(refresh)
         }}
         onSearchToggle={() => setShowSearch(true)}
+        onGitHubShow={() => setModal('github')}
       />
 
       <div className="app-body">
@@ -273,6 +278,16 @@ export default function App() {
       {modal === 'patch' && (
         <PatchPanel selectedSha={selectedSha} onClose={() => setModal(null)} />
       )}
+      {modal === 'github' && (
+        <GitHubPanel 
+          onClose={() => setModal(null)} 
+          onRepoCreated={async (url) => {
+            await window.gitApi.addRemote('origin', url)
+            toast.success('Repository Created', `Added remote origin to ${url}`)
+            refresh()
+          }} 
+        />
+      )}
 
       {/* Search */}
       {showSearch && (
@@ -305,7 +320,7 @@ function Welcome({ onOpen, onSelectRecent }: { onOpen: () => void, onSelectRecen
   return (
     <div className="welcome fade-in">
       <div className="welcome-logo">⎇</div>
-      <h1>Git GUI</h1>
+      <h1>Git Gud</h1>
       <p>A powerful, beautiful Git client with a GitKraken-inspired commit graph.</p>
       
       <button className="btn btn-primary" style={{ fontSize: 14, padding: '10px 28px', marginTop: 10 }} onClick={onOpen}>

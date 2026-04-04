@@ -1,0 +1,131 @@
+.gh-modal {
+  width: 440px;
+  max-width: 90vw;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.gh-header {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.gh-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.gh-body {
+  padding: 20px;
+}
+
+.gh-instructions {
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px 12px 12px 32px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.gh-instructions a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.gh-instructions a:hover {
+  text-decoration: underline;
+}
+
+.gh-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gh-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.gh-form input[type="text"],
+.gh-form input[type="password"] {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.gh-form input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.gh-error {
+  color: var(--danger);
+  font-size: 13px;
+  background: rgba(248, 81, 73, 0.1);
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(248, 81, 73, 0.2);
+}
+
+.gh-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gh-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.gh-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.gh-handle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gh-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 20px 0;
+}
+
+.gh-muted {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  cursor: pointer;
+}
+
+.w-full {
+  width: 100%;
+}
