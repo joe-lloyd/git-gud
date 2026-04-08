@@ -147,6 +147,48 @@ button {
 .rp-worktree { color: #f6ad55; font-size: 10px; }
 .rp-name { overflow: hidden; text-overflow: ellipsis; }
 
+/* ── Ref pill hover tooltip ───────────────────────────────────────────── */
+.ref-tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-focus);
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: 160px;
+  max-width: 320px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  pointer-events: none;
+  animation: fadeIn 0.12s ease;
+}
+.ref-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 16px;
+  border: 5px solid transparent;
+  border-top-color: var(--border-focus);
+}
+.ref-tooltip-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+.ref-tooltip-line {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.ref-tooltip-raw {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  word-break: break-all;
+}
+
 
 /* ── Input ────────────────────────────────────────────────────────────── */
 input, textarea {

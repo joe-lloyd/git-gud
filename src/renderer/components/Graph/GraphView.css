@@ -33,29 +33,27 @@
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;
-  display: flex;
+  display: block;
 }
 
-/* Canvas wrapper — sticky on the left as we scroll */
+/* Canvas wrapper — absolutely positioned over the graph-gap area (left: REFS_W via inline style) */
 .graph-canvas-wrap {
-  position: sticky;
-  left: 0;
+  position: absolute;
   top: 0;
-  height: 100%;
-  flex-shrink: 0;
   pointer-events: none;
-  z-index: 1;
+  z-index: 2;
 }
 
+/* Canvas sticks in view as you scroll */
 .graph-canvas {
   position: sticky;
   top: 0;
   display: block;
 }
 
-/* DOM rows container */
+/* DOM rows container — full width, rows include refs+gap+message */
 .graph-rows {
-  flex: 1;
+  width: 100%;
   min-width: 0;
 }
 
@@ -78,24 +76,16 @@
   background: rgba(99, 179, 237, 0.1);
 }
 
-/* Alternating row background */
-.commit-row:nth-child(even) {
-  background: rgba(255,255,255,0.012);
-}
-.commit-row:nth-child(even):hover {
-  background: rgba(255,255,255,0.04);
-}
-.commit-row.selected:nth-child(even) {
-  background: rgba(99, 179, 237, 0.1);
-}
 
-/* Ref pills inline */
+
+/* Ref pills — fixed-width column, LEFTMOST in each row (left of tree canvas) */
 .cr-refs {
   display: flex;
   align-items: center;
   gap: 3px;
   flex-shrink: 0;
-  max-width: 260px;
+  width: 180px;
+  padding: 0 4px;
   overflow: hidden;
 }
 

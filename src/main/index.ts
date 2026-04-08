@@ -301,9 +301,31 @@ app.whenReady().then(() => {
     try { await gitService.merge(branch); return true } catch { return false }
   })
 
+  ipcMain.handle('git:merge-current-into', async (_event, targetBranch: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.mergeCurrentInto(targetBranch)
+  })
+
   ipcMain.handle('git:cherry-pick', async (_event, sha: string) => {
     if (!gitService) return false
     try { await gitService.cherryPick(sha); return true } catch { return false }
+  })
+
+  ipcMain.handle('git:reset', async (_event, sha: string, mode: 'soft' | 'mixed' | 'hard') => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.reset(sha, mode); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:rebase-to', async (_event, sha: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.rebaseTo(sha)
+  })
+
+  ipcMain.handle('git:create-tag', async (_event, name: string, sha: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.createTag(name, sha); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   // ── Worktrees ────────────────────────────────────────────────────────

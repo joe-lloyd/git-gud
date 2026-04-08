@@ -62,3 +62,103 @@ export function NewBranchModal({ onClose, onCreate }: { onClose: () => void, onC
     </div>
   )
 }
+
+// ── Generic single-input prompt modal ─────────────────────────────────────────
+
+export interface InputModalProps {
+  title: string
+  placeholder: string
+  confirmLabel?: string
+  onClose: () => void
+  onConfirm: (value: string) => void
+}
+
+export function InputModal({ title, placeholder, confirmLabel = 'Confirm', onClose, onConfirm }: InputModalProps) {
+  const [value, setValue] = useState('')
+  return (
+    <div
+      className="modal-overlay"
+      onClick={onClose}
+      style={{ zIndex: 1100, position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}
+    >
+      <div
+        className="modal-panel fade-in"
+        style={{ width: 340, padding: 24, background: 'var(--bg-elevated)', borderRadius: 10, border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.5)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{title}</h3>
+        <input
+          autoFocus
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && value.trim()) onConfirm(value.trim())
+            if (e.key === 'Escape') onClose()
+          }}
+          placeholder={placeholder}
+          style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', marginBottom: 18, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-deepest)', color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
+        />
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={!value.trim()} onClick={() => value.trim() && onConfirm(value.trim())}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Styled confirmation modal (replaces window.confirm for destructive ops) ────
+
+export interface ConfirmModalProps {
+  title: string
+  message: string
+  detail?: string
+  confirmLabel?: string
+  danger?: boolean
+  onClose: () => void
+  onConfirm: () => void
+}
+
+export function ConfirmModal({
+  title,
+  message,
+  detail,
+  confirmLabel = 'Confirm',
+  danger = false,
+  onClose,
+  onConfirm,
+}: ConfirmModalProps) {
+  return (
+    <div
+      className="modal-overlay"
+      onClick={onClose}
+      style={{ zIndex: 1200, position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}
+    >
+      <div
+        className="modal-panel fade-in"
+        style={{ width: 380, padding: 28, background: 'var(--bg-elevated)', borderRadius: 12, border: `1px solid ${danger ? 'var(--danger)' : 'var(--border)'}`, boxShadow: '0 16px 50px rgba(0,0,0,0.6)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Icon */}
+        <div style={{ fontSize: 30, marginBottom: 12, lineHeight: 1 }}>{danger ? '⚠️' : 'ℹ️'}</div>
+        <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--text-primary)' }}>{title}</h3>
+        <p style={{ margin: '0 0 6px', fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>{message}</p>
+        {detail && <p style={{ margin: '0 0 20px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>{detail}</p>}
+        {!detail && <div style={{ marginBottom: 20 }} />}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            style={danger ? { background: 'var(--danger)', borderColor: 'var(--danger)' } : undefined}
+            onClick={() => { onClose(); onConfirm() }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+

@@ -93,7 +93,15 @@ const gitApi = {
   deleteBranch: (name: string, force?: boolean): Promise<boolean> =>
     ipcRenderer.invoke('git:delete-branch', name, force),
   merge: (branch: string): Promise<boolean> => ipcRenderer.invoke('git:merge', branch),
+  mergeCurrentInto: (targetBranch: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('git:merge-current-into', targetBranch),
   cherryPick: (sha: string): Promise<boolean> => ipcRenderer.invoke('git:cherry-pick', sha),
+  reset: (sha: string, mode: 'soft' | 'mixed' | 'hard'): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('git:reset', sha, mode),
+  rebaseTo: (sha: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('git:rebase-to', sha),
+  createTag: (name: string, sha: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('git:create-tag', name, sha),
 
   getWorktrees: (): Promise<WorktreeInfo[]> => ipcRenderer.invoke('git:worktrees'),
   addWorktree: (path: string, branch: string): Promise<boolean> =>
