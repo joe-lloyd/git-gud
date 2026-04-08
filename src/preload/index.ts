@@ -93,7 +93,7 @@ const gitApi = {
   deleteBranch: (name: string, force?: boolean): Promise<boolean> =>
     ipcRenderer.invoke('git:delete-branch', name, force),
   merge: (branch: string): Promise<boolean> => ipcRenderer.invoke('git:merge', branch),
-  mergeCurrentInto: (targetBranch: string): Promise<{ success: boolean; error?: string }> =>
+  mergeCurrentInto: (targetBranch: string): Promise<{ success: boolean; error?: string; autoStashed?: boolean }> =>
     ipcRenderer.invoke('git:merge-current-into', targetBranch),
   cherryPick: (sha: string): Promise<boolean> => ipcRenderer.invoke('git:cherry-pick', sha),
   reset: (sha: string, mode: 'soft' | 'mixed' | 'hard'): Promise<{ success: boolean; error?: string }> =>

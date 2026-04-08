@@ -116,12 +116,14 @@ export function useCommitActions({
 
   /**
    * Merges the current branch INTO a target branch (by name).
-   * Only available when the clicked commit has a local branch ref.
+   * The service auto-stashes any dirty changes before switching branches
+   * and always restores them when done.
    */
   const mergeCurrentIntoThis = useCallback(async (targetBranch: string) => {
     const result = await window.gitApi.mergeCurrentInto(targetBranch)
     if (result.success) {
-      toast.success('Merge Complete', `Current branch merged into "${targetBranch}".`)
+      const stashNote = result.autoStashed ? ' Changes were auto-stashed and restored.' : ''
+      toast.success('Merge Complete', `Current branch merged into "${targetBranch}".${stashNote}`)
       methods.refresh()
     } else {
       toast.error('Merge Failed', result.error ?? `Could not merge into "${targetBranch}".`)

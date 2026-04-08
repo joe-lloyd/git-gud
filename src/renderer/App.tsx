@@ -89,10 +89,17 @@ export default function App() {
   const handleCommitContextMenu = useCallback((e: React.MouseEvent, sha: string) => {
     const commit = repo.commits.find(c => c.sha === sha)
 
-    // Extract the first local branch name at this commit (used for "merge current into this")
-    const localBranch = commit?.refs.find(
-      r => r !== 'HEAD' && !r.startsWith('tag:') && !r.startsWith('origin/') && !r.includes('/')
-    ) ?? null
+    // Derive a usable branch name for "merge current into this":
+    //   1. Prefer a local branch (no slash) — can be checked out directly
+    //   2. Fall back to a remote-tracking ref (origin/ios → ios) — git will
+    //      auto-create a local tracking branch on checkout if one doesn't exist yet
+    const isLocal  = (r: string) => r !== 'HEAD' && !r.startsWith('tag:') && !r.includes('/')
+    const isRemote = (r: string) => r !== 'HEAD' && !r.startsWith('tag:') &&  r.includes('/')
+    const stripRemote = (r: string) => r.split('/').slice(1).join('/')
+
+    const localBranch =
+      commit?.refs.find(isLocal) ??
+      (commit?.refs.find(isRemote) ? stripRemote(commit!.refs.find(isRemote)!) : null)
 
     openCtx(e, [
       { label: 'Checkout (detached HEAD)',       icon: '⎇',  onClick: () => actions.checkoutSha(sha) },

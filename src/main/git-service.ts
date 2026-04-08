@@ -417,28 +417,45 @@ export class GitService {
    * Merges the currently checked-out branch INTO the target branch,
    * then restores the original branch.
    *
-   * Equivalent to:
-   *   git checkout <targetBranch>
-   *   git merge <currentBranch>
-   *   git checkout <currentBranch>
+   * Auto-stashes any uncommitted changes before switching branches and
+   * always restores them when done (even on failure).
    */
-  async mergeCurrentInto(targetBranch: string): Promise<{ success: boolean; error?: string }> {
+  async mergeCurrentInto(
+    targetBranch: string,
+  ): Promise<{ success: boolean; error?: string; autoStashed?: boolean }> {
     let currentBranch: string | null = null;
+    let autoStashed = false;
     try {
       const status = await this.git.status();
       currentBranch = status.current;
       if (!currentBranch) throw new Error("Not on a branch (detached HEAD).");
 
+      // Auto-stash dirty working tree so checkout won't abort
+      if (status.files.length > 0) {
+        await this.git.stash([
+          "push",
+          "--include-untracked",
+          "-m",
+          `git-gud: auto-stash before merge into ${targetBranch}`,
+        ]);
+        autoStashed = true;
+      }
+
       await this.git.checkout(targetBranch);
       await this.git.merge([currentBranch]);
       await this.git.checkout(currentBranch);
-      return { success: true };
+      return { success: true, autoStashed };
     } catch (e: unknown) {
-      // Always try to restore original branch
+      // Always try to restore original branch on failure
       if (currentBranch) {
         try { await this.git.checkout(currentBranch); } catch { /* best-effort */ }
       }
-      return { success: false, error: String(e) };
+      return { success: false, error: String(e), autoStashed };
+    } finally {
+      // Always pop the auto-stash so changes aren't lost
+      if (autoStashed) {
+        try { await this.git.stash(["pop"]); } catch { /* stash stays if pop conflicts */ }
+      }
     }
   }
 
@@ -452,7 +469,8 @@ export class GitService {
 
   async rebaseTo(sha: string): Promise<{ success: boolean; error?: string }> {
     try {
-      await this.git.raw(["rebase", sha]);
+      // --autostash stashes dirty changes, rebases, then restores — built-in git behaviour
+      await this.git.raw(["rebase", "--autostash", sha]);
       return { success: true };
     } catch (e: unknown) {
       return { success: false, error: String(e) };
