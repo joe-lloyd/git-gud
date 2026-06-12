@@ -1,5 +1,50 @@
 import React, { useState } from 'react'
 
+interface ErrorBoundaryState { err: Error | null }
+
+export class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  ErrorBoundaryState
+> {
+  state: ErrorBoundaryState = { err: null }
+
+  static getDerivedStateFromError(err: Error): ErrorBoundaryState {
+    return { err }
+  }
+
+  componentDidCatch(err: Error, info: React.ErrorInfo): void {
+    console.error('ErrorBoundary caught:', err, info.componentStack)
+  }
+
+  render(): React.ReactNode {
+    if (!this.state.err) return this.props.children
+    return (
+      <div
+        style={{
+          height: '100vh', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32,
+          background: 'var(--bg-deepest)', color: 'var(--text-primary)',
+        }}
+      >
+        <div style={{ fontSize: 36, color: 'var(--danger)' }}>⚠</div>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Something broke in the UI</h2>
+        <pre
+          style={{
+            maxWidth: 720, maxHeight: 240, overflow: 'auto', padding: 12,
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: 6, fontSize: 12, color: 'var(--danger)', whiteSpace: 'pre-wrap',
+          }}
+        >
+          {String(this.state.err.stack ?? this.state.err.message)}
+        </pre>
+        <button className="btn btn-primary" onClick={() => window.location.reload()}>
+          Reload
+        </button>
+      </div>
+    )
+  }
+}
+
 export function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <div className="welcome">

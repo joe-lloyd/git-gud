@@ -49,8 +49,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged, onClos
 
   const applyPatch = async (patch: string) => {
     setLoading(true)
-    const success = await window.gitApi.applyPatch(patch, { cached: true, reverse: staged })
-    if (success) onApplied()
+    const r = await window.gitApi.applyPatch(patch, { cached: true, reverse: staged })
+    if (r.success) onApplied()
     refreshDiff()
   }
 

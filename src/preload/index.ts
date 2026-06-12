@@ -42,6 +42,8 @@ export type RemoteInfo = {
   url: string
 }
 
+export type Result = { success: true } | { success: false; error: string }
+
 export type GitHubUser = {
   login: string
   avatar_url: string
@@ -75,46 +77,57 @@ const gitApi = {
   checkout: (branch: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('git:checkout', branch),
 
-  stage: (files: string[]): Promise<boolean> => ipcRenderer.invoke('git:stage', files),
-  unstage: (files: string[]): Promise<boolean> => ipcRenderer.invoke('git:unstage', files),
-  commit: (message: string): Promise<{ success: boolean; error?: string }> =>
+  stage: (files: string[]): Promise<Result> => ipcRenderer.invoke('git:stage', files),
+  unstage: (files: string[]): Promise<Result> => ipcRenderer.invoke('git:unstage', files),
+  commit: (message: string): Promise<Result> =>
     ipcRenderer.invoke('git:commit', message),
 
-  stashSave: (message?: string): Promise<boolean> => ipcRenderer.invoke('git:stash-save', message),
-  stashPop: (index: number): Promise<boolean> => ipcRenderer.invoke('git:stash-pop', index),
-  stashDrop: (index: number): Promise<boolean> => ipcRenderer.invoke('git:stash-drop', index),
+  stashSave: (message?: string): Promise<Result> => ipcRenderer.invoke('git:stash-save', message),
+  stashPop: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-pop', index),
+  stashDrop: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-drop', index),
 
-  fetch: (): Promise<boolean> => ipcRenderer.invoke('git:fetch'),
-  pull: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('git:pull'),
-  push: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('git:push'),
+  fetch: (): Promise<Result> => ipcRenderer.invoke('git:fetch'),
+  pull: (): Promise<Result> => ipcRenderer.invoke('git:pull'),
+  push: (): Promise<Result> => ipcRenderer.invoke('git:push'),
 
-  createBranch: (name: string, startPoint?: string): Promise<boolean> =>
+  createBranch: (name: string, startPoint?: string): Promise<Result> =>
     ipcRenderer.invoke('git:create-branch', name, startPoint),
-  deleteBranch: (name: string, force?: boolean): Promise<boolean> =>
+  deleteBranch: (name: string, force?: boolean): Promise<Result> =>
     ipcRenderer.invoke('git:delete-branch', name, force),
-  merge: (branch: string): Promise<boolean> => ipcRenderer.invoke('git:merge', branch),
-  mergeCurrentInto: (targetBranch: string): Promise<{ success: boolean; error?: string; autoStashed?: boolean }> =>
+  renameBranch: (oldName: string, newName: string): Promise<Result> =>
+    ipcRenderer.invoke('git:rename-branch', oldName, newName),
+  deleteRemoteBranch: (remote: string, branch: string): Promise<Result> =>
+    ipcRenderer.invoke('git:delete-remote-branch', remote, branch),
+  merge: (branch: string): Promise<Result> => ipcRenderer.invoke('git:merge', branch),
+  mergeCurrentInto: (targetBranch: string): Promise<Result & { autoStashed?: boolean }> =>
     ipcRenderer.invoke('git:merge-current-into', targetBranch),
-  cherryPick: (sha: string): Promise<boolean> => ipcRenderer.invoke('git:cherry-pick', sha),
-  reset: (sha: string, mode: 'soft' | 'mixed' | 'hard'): Promise<{ success: boolean; error?: string }> =>
+  cherryPick: (sha: string): Promise<Result> => ipcRenderer.invoke('git:cherry-pick', sha),
+  revert: (sha: string): Promise<Result> => ipcRenderer.invoke('git:revert', sha),
+  reset: (sha: string, mode: 'soft' | 'mixed' | 'hard'): Promise<Result> =>
     ipcRenderer.invoke('git:reset', sha, mode),
-  rebaseTo: (sha: string): Promise<{ success: boolean; error?: string }> =>
+  rebaseTo: (sha: string): Promise<Result> =>
     ipcRenderer.invoke('git:rebase-to', sha),
-  createTag: (name: string, sha: string): Promise<{ success: boolean; error?: string }> =>
+  createTag: (name: string, sha: string): Promise<Result> =>
     ipcRenderer.invoke('git:create-tag', name, sha),
+  runDragAction: (
+    source: string,
+    target: string,
+    action: 'merge' | 'rebase' | 'checkout',
+  ): Promise<Result & { autoStashed?: boolean }> =>
+    ipcRenderer.invoke('git:run-drag-action', source, target, action),
 
   getWorktrees: (): Promise<WorktreeInfo[]> => ipcRenderer.invoke('git:worktrees'),
-  addWorktree: (path: string, branch: string): Promise<boolean> =>
+  addWorktree: (path: string, branch: string): Promise<Result> =>
     ipcRenderer.invoke('git:worktree-add', path, branch),
-  removeWorktree: (path: string): Promise<boolean> => ipcRenderer.invoke('git:worktree-remove', path),
+  removeWorktree: (path: string): Promise<Result> => ipcRenderer.invoke('git:worktree-remove', path),
 
-  bisectStart: (): Promise<boolean> => ipcRenderer.invoke('git:bisect-start'),
+  bisectStart: (): Promise<Result> => ipcRenderer.invoke('git:bisect-start'),
   bisectGood: (sha?: string): Promise<string> => ipcRenderer.invoke('git:bisect-good', sha),
   bisectBad: (sha?: string): Promise<string> => ipcRenderer.invoke('git:bisect-bad', sha),
-  bisectReset: (): Promise<boolean> => ipcRenderer.invoke('git:bisect-reset'),
+  bisectReset: (): Promise<Result> => ipcRenderer.invoke('git:bisect-reset'),
 
   formatPatch: (sha: string): Promise<string> => ipcRenderer.invoke('git:format-patch', sha),
-  applyPatch: (patchContent: string, opts?: { reverse?: boolean, cached?: boolean }): Promise<boolean> =>
+  applyPatch: (patchContent: string, opts?: { reverse?: boolean, cached?: boolean }): Promise<Result> =>
     ipcRenderer.invoke('git:apply-patch', patchContent, opts),
 
   getReflog: (limit?: number): Promise<CommitNode[]> => ipcRenderer.invoke('git:reflog', limit),
@@ -125,10 +138,16 @@ const gitApi = {
     return () => { ipcRenderer.removeListener('git:gitignore-changed', handler) }
   },
 
+  onRepoChanged: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('git:repo-changed', handler)
+    return () => { ipcRenderer.removeListener('git:repo-changed', handler) }
+  },
+
   getRecentProjects: (): Promise<string[]> => ipcRenderer.invoke('app:get-recent'),
   addRecentProject: (path: string): Promise<void> => ipcRenderer.invoke('app:add-recent', path),
 
-  addRemote: (name: string, url: string): Promise<{success: boolean, error?: string}> => ipcRenderer.invoke('git:add-remote', name, url),
+  addRemote: (name: string, url: string): Promise<Result> => ipcRenderer.invoke('git:add-remote', name, url),
 }
 
 export type DeviceFlowConfig = {

@@ -79,11 +79,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [repo.methods, closeModal, closeCtx])
 
-  // Auto-refresh on window focus
-  useEffect(() => {
-    window.addEventListener('focus', repo.methods.refresh)
-    return () => window.removeEventListener('focus', repo.methods.refresh)
-  }, [repo.methods.refresh])
+  // (focus + FS-watcher refresh handled inside useGitRepo)
 
   // Build context menu entries for a right-clicked commit node
   const handleCommitContextMenu = useCallback((e: React.MouseEvent, sha: string) => {
@@ -108,6 +104,7 @@ export default function App() {
       { separator: true, label: '', onClick: () => {} },
 
       { label: 'Cherry-pick',                    icon: '⊕',  onClick: () => actions.cherryPick(sha) },
+      { label: 'Revert commit',                  icon: '↶',  onClick: () => actions.revert(sha) },
       { label: 'Rebase onto this commit',        icon: '↺',  onClick: () => actions.rebaseTo(sha) },
       { label: 'Interactive rebase from here…',  icon: '↺',  onClick: () => actions.interactiveRebaseFrom(sha) },
 
@@ -263,9 +260,13 @@ export default function App() {
         <GitHubPanel
           onClose={closeModal}
           onRepoCreated={async (url) => {
-            await window.gitApi.addRemote('origin', url)
-            repo.toast.success('Repository Created', `Added remote origin to ${url}`)
-            repo.methods.refresh()
+            const r = await window.gitApi.addRemote('origin', url)
+            if (r.success) {
+              repo.toast.success('Repository Created', `Added remote origin to ${url}`)
+              repo.methods.refresh()
+            } else {
+              repo.toast.error('Add Remote Failed', r.error)
+            }
           }}
         />
       )}
@@ -273,7 +274,11 @@ export default function App() {
         <NewBranchModal
           onClose={closeModal}
           onCreate={async (name) => {
-            if (name) { await window.gitApi.createBranch(name); closeModal(); repo.methods.refresh() }
+            if (!name) return
+            const r = await window.gitApi.createBranch(name)
+            closeModal()
+            if (r.success) { repo.toast.success('Branch Created', name); repo.methods.refresh() }
+            else repo.toast.error('Branch Failed', r.error)
           }}
         />
       )}

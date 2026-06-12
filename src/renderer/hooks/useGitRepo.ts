@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo } from '../../preload/index'
 import { useToasts } from '../components/Toast/Toast'
 
@@ -58,6 +58,23 @@ export function useGitRepo() {
 
   const refresh = useCallback(() => { if (repoPath) loadRepo(repoPath) }, [repoPath, loadRepo])
 
+  // Always call the *latest* refresh from listeners — avoids stale closures
+  const refreshRef = useRef(refresh)
+  useEffect(() => { refreshRef.current = refresh }, [refresh])
+
+  // Refresh on window focus (catches external CLI ops while app was blurred)
+  useEffect(() => {
+    const onFocus = () => refreshRef.current()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+
+  // Refresh on FS-watcher notification from main (debounced 200 ms)
+  useEffect(() => {
+    if (!repoPath) return
+    return window.gitApi.onRepoChanged(() => refreshRef.current())
+  }, [repoPath])
+
   const handleOpenRepo = useCallback(async () => {
     const path = await window.gitApi.openDialog()
     if (path) await loadRepo(path)
@@ -70,9 +87,9 @@ export function useGitRepo() {
   }, [repoPath, loadRepo, toast])
 
   const handleFetch  = useCallback(async () => {
-    const ok = await window.gitApi.fetch()
-    if (ok) refresh()
-    else toast.warning('Fetch failed', 'Could not fetch from remote.')
+    const r = await window.gitApi.fetch()
+    if (r.success) refresh()
+    else toast.warning('Fetch failed', r.error)
   }, [refresh, toast])
 
   const handlePull   = useCallback(async () => {

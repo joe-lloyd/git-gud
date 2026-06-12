@@ -62,8 +62,16 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
   }, [])
 
   // ── Git ops ───────────────────────────────────────────────────────
-  const handleStage   = async (files: string[]) => { await window.gitApi.stage(files);   await silentRefresh() }
-  const handleUnstage = async (files: string[]) => { await window.gitApi.unstage(files); await silentRefresh() }
+  const handleStage   = async (files: string[]) => {
+    const r = await window.gitApi.stage(files)
+    if (!r.success) setError(r.error)
+    await silentRefresh()
+  }
+  const handleUnstage = async (files: string[]) => {
+    const r = await window.gitApi.unstage(files)
+    if (!r.success) setError(r.error)
+    await silentRefresh()
+  }
   const handleStageAll = async () => {
     if (!status) return
     const files = [...status.unstaged.map(f => f.path), ...status.untracked]
@@ -75,7 +83,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
     try {
       const result = await window.gitApi.commit(message.trim())
       if (result.success) { setMessage(''); await refresh(); onCommitted() }
-      else setError(result.error || 'Commit failed')
+      else setError(result.error)
     } finally { setCommitting(false) }
   }
 

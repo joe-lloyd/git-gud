@@ -7,17 +7,67 @@ import { GitHubService } from './github-service'
 let mainWindow: BrowserWindow | null = null
 let gitService: GitService | null = null
 let githubService: GitHubService | null = null
-let gitignoreWatcher: fs.FSWatcher | null = null
+let repoWatchers: fs.FSWatcher[] = []
+let repoChangeTimer: NodeJS.Timeout | null = null
 
-function startGitignoreWatcher(repoPath: string) {
-  // Clean up previous watcher
-  if (gitignoreWatcher) { gitignoreWatcher.close(); gitignoreWatcher = null }
-  // Watch the repo root directory for any .gitignore file changes
-  gitignoreWatcher = fs.watch(repoPath, { persistent: false }, (_evt, filename) => {
-    if (filename && filename.endsWith('.gitignore')) {
-      mainWindow?.webContents.send('git:gitignore-changed')
-    }
-  })
+function stopRepoWatchers() {
+  for (const w of repoWatchers) {
+    try { w.close() } catch { /* ignore */ }
+  }
+  repoWatchers = []
+  if (repoChangeTimer) { clearTimeout(repoChangeTimer); repoChangeTimer = null }
+}
+
+function startRepoWatchers(repoPath: string) {
+  stopRepoWatchers()
+
+  // Coalesce bursts (e.g. checkout fires many ref writes) and ignore events that
+  // arrive while a refresh is in flight — those are echoes of our own reads.
+  // (`git status` reads can touch .git/index even though we don't watch it; the
+  // ref dir gets bumped on `git log --all` packed-refs reads on some setups.)
+  let busyUntil = 0
+  const emit = () => {
+    if (Date.now() < busyUntil) return
+    if (repoChangeTimer) clearTimeout(repoChangeTimer)
+    repoChangeTimer = setTimeout(() => {
+      repoChangeTimer = null
+      busyUntil = Date.now() + 1500  // suppress echoes from the refresh that follows
+      mainWindow?.webContents.send('git:repo-changed')
+    }, 500)
+  }
+
+  // 1) Repo root — .gitignore changes (kept for back-compat)
+  try {
+    repoWatchers.push(
+      fs.watch(repoPath, { persistent: false }, (_evt, filename) => {
+        if (filename && filename.endsWith('.gitignore')) {
+          mainWindow?.webContents.send('git:gitignore-changed')
+        }
+      }),
+    )
+  } catch { /* repo root unwatchable — ignore */ }
+
+  // 2) .git internals — only HEAD + refs/ + packed-refs.
+  // Do NOT watch .git/index or .git/logs — both are touched by read-only ops
+  // (status, log) and would cause infinite refresh loops.
+  // External commits move HEAD, so they're still caught.
+  const gitDir = join(repoPath, '.git')
+  const watchTargets = [
+    join(gitDir, 'HEAD'),
+    join(gitDir, 'refs'),
+    join(gitDir, 'packed-refs'),
+  ]
+  for (const target of watchTargets) {
+    try {
+      if (!fs.existsSync(target)) continue
+      const isDir = fs.statSync(target).isDirectory()
+      repoWatchers.push(
+        fs.watch(target, { persistent: false, recursive: isDir }, () => {
+          emit()
+        }),
+      )
+    } catch { /* macOS rename or transient — fall back to focus-refresh */ }
+  }
 }
 
 function createWindow(): void {
@@ -87,7 +137,7 @@ app.whenReady().then(() => {
         return null
       }
     }
-    startGitignoreWatcher(repoPath)
+    startRepoWatchers(repoPath)
     return repoPath
 
   })
@@ -97,6 +147,7 @@ app.whenReady().then(() => {
       gitService = new GitService(repoPath, () => githubService?.getToken() || null)
       const isRepo = await gitService.isRepo()
       if (!isRepo) { gitService = null; return false }
+      startRepoWatchers(repoPath)
       return true
     } catch { gitService = null; return false }
   })
@@ -239,13 +290,15 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('git:stage', async (_event, files: string[]) => {
-    if (!gitService) return false
-    try { await gitService.stage(files); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.stage(files); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:unstage', async (_event, files: string[]) => {
-    if (!gitService) return false
-    try { await gitService.unstage(files); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.unstage(files); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:commit', async (_event, message: string) => {
@@ -255,23 +308,27 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('git:stash-save', async (_event, message?: string) => {
-    if (!gitService) return false
-    try { await gitService.stashSave(message); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.stashSave(message); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:stash-pop', async (_event, index: number) => {
-    if (!gitService) return false
-    try { await gitService.stashPop(index); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.stashPop(index); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:stash-drop', async (_event, index: number) => {
-    if (!gitService) return false
-    try { await gitService.stashDrop(index); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.stashDrop(index); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:fetch', async () => {
-    if (!gitService) return false
-    try { await gitService.fetch(); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.fetch(); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:pull', async () => {
@@ -287,18 +344,33 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('git:create-branch', async (_event, name: string, startPoint?: string) => {
-    if (!gitService) return false
-    try { await gitService.createBranch(name, startPoint); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.createBranch(name, startPoint); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:delete-branch', async (_event, name: string, force = false) => {
-    if (!gitService) return false
-    try { await gitService.deleteBranch(name, force); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.deleteBranch(name, force); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:rename-branch', async (_event, oldName: string, newName: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.renameBranch(oldName, newName); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:delete-remote-branch', async (_event, remote: string, branch: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.deleteRemoteBranch(remote, branch); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:merge', async (_event, branch: string) => {
-    if (!gitService) return false
-    try { await gitService.merge(branch); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.merge(branch); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:merge-current-into', async (_event, targetBranch: string) => {
@@ -307,8 +379,20 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('git:cherry-pick', async (_event, sha: string) => {
-    if (!gitService) return false
-    try { await gitService.cherryPick(sha); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.cherryPick(sha); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:revert', async (_event, sha: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.revert(sha); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:run-drag-action', async (_event, source: string, target: string, action: 'merge' | 'rebase' | 'checkout') => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.runDragAction(source, target, action)
   })
 
   ipcMain.handle('git:reset', async (_event, sha: string, mode: 'soft' | 'mixed' | 'hard') => {
@@ -335,19 +419,22 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('git:worktree-add', async (_event, path: string, branch: string) => {
-    if (!gitService) return false
-    try { await gitService.addWorktree(path, branch); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.addWorktree(path, branch); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:worktree-remove', async (_event, path: string) => {
-    if (!gitService) return false
-    try { await gitService.removeWorktree(path); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.removeWorktree(path); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   // ── Bisect ───────────────────────────────────────────────────────────
   ipcMain.handle('git:bisect-start', async () => {
-    if (!gitService) return false
-    try { await gitService.bisectStart(); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.bisectStart(); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:bisect-good', async (_event, sha?: string) => {
@@ -361,8 +448,9 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('git:bisect-reset', async () => {
-    if (!gitService) return false
-    try { await gitService.bisectReset(); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.bisectReset(); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   // ── Patch ────────────────────────────────────────────────────────────
@@ -372,8 +460,9 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('git:apply-patch', async (_event, patchContent: string, opts: { reverse?: boolean, cached?: boolean } = {}) => {
-    if (!gitService) return false
-    try { await gitService.applyPatch(patchContent, opts); return true } catch { return false }
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.applyPatch(patchContent, opts); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   // ── Reflog ───────────────────────────────────────────────────────────
@@ -385,5 +474,6 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  stopRepoWatchers()
   if (process.platform !== 'darwin') app.quit()
 })

@@ -66,23 +66,34 @@ export function useCommitActions({
    * Called by the modal once the user has typed a name.
    */
   const createBranchHere = useCallback(async (name: string, sha: string) => {
-    const ok = await window.gitApi.createBranch(name, sha)
-    if (ok) {
+    const r = await window.gitApi.createBranch(name, sha)
+    if (r.success) {
       toast.success('Branch Created', `"${name}" created at ${sha.slice(0, 7)}`)
       methods.refresh()
     } else {
-      toast.error('Branch Failed', `Could not create branch "${name}".`)
+      toast.error('Branch Failed', r.error)
     }
   }, [toast, methods])
 
   /** Cherry-picks a single commit onto the current branch. */
   const cherryPick = useCallback(async (sha: string) => {
-    const ok = await window.gitApi.cherryPick(sha)
-    if (ok) {
+    const r = await window.gitApi.cherryPick(sha)
+    if (r.success) {
       toast.success('Cherry-picked', `Commit ${sha.slice(0, 7)} applied.`)
       methods.refresh()
     } else {
-      toast.error('Cherry-pick Failed', 'Could not cherry-pick this commit.')
+      toast.error('Cherry-pick Failed', r.error)
+    }
+  }, [toast, methods])
+
+  /** Reverts a commit on the current branch. */
+  const revert = useCallback(async (sha: string) => {
+    const r = await window.gitApi.revert(sha)
+    if (r.success) {
+      toast.success('Reverted', `Commit ${sha.slice(0, 7)} reverted on current branch.`)
+      methods.refresh()
+    } else {
+      toast.error('Revert Failed', r.error)
     }
   }, [toast, methods])
 
@@ -105,12 +116,12 @@ export function useCommitActions({
 
   /** Merges the given commit (or its branch) INTO the current branch. */
   const mergeThisIntoCurrent = useCallback(async (sha: string) => {
-    const ok = await window.gitApi.merge(sha)
-    if (ok) {
+    const r = await window.gitApi.merge(sha)
+    if (r.success) {
       toast.success('Merge Complete', `Merged ${sha.slice(0, 7)} into current branch.`)
       methods.refresh()
     } else {
-      toast.error('Merge Failed', 'Could not merge this commit.')
+      toast.error('Merge Failed', r.error)
     }
   }, [toast, methods])
 
@@ -195,6 +206,7 @@ export function useCommitActions({
     requestBranchHere,
     createBranchHere,
     cherryPick,
+    revert,
     rebaseTo,
     interactiveRebaseFrom,
     mergeThisIntoCurrent,

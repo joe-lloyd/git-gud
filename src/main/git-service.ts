@@ -409,6 +409,94 @@ export class GitService {
     await this.git.branch([force ? "-D" : "-d", name]);
   }
 
+  async renameBranch(oldName: string, newName: string): Promise<void> {
+    await this.git.raw(["branch", "-m", oldName, newName]);
+  }
+
+  async deleteRemoteBranch(remote: string, branch: string): Promise<void> {
+    await this.git.raw([
+      ...this.getAuthConfigs(),
+      "push",
+      remote,
+      "--delete",
+      branch,
+    ]);
+  }
+
+  async revert(sha: string): Promise<void> {
+    await this.git.raw(["revert", "--no-edit", sha]);
+  }
+
+  /**
+   * Single entry point for branch-pill drag-and-drop actions.
+   *
+   * - 'checkout': just check out target
+   * - 'merge':    checkout target, merge source, restore (autostash)
+   * - 'rebase':   checkout source, rebase --autostash onto target
+   *
+   * Errors (including merge conflicts) are returned as structured results, never thrown.
+   */
+  async runDragAction(
+    source: string,
+    target: string,
+    action: "merge" | "rebase" | "checkout",
+  ): Promise<{ success: boolean; error?: string; autoStashed?: boolean }> {
+    if (action === "checkout") {
+      try {
+        await this.git.checkout(target);
+        return { success: true };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    }
+
+    if (action === "rebase") {
+      try {
+        const status = await this.git.status();
+        if (status.current !== source) {
+          await this.git.checkout(source);
+        }
+        await this.git.raw(["rebase", "--autostash", target]);
+        return { success: true };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    }
+
+    // action === 'merge': merge source INTO target, restore original branch
+    let originalBranch: string | null = null;
+    let autoStashed = false;
+    try {
+      const status = await this.git.status();
+      originalBranch = status.current;
+      if (!originalBranch) throw new Error("Not on a branch (detached HEAD).");
+
+      if (status.files.length > 0) {
+        await this.git.stash([
+          "push",
+          "--include-untracked",
+          "-m",
+          `git-gud: auto-stash before drag-merge ${source} → ${target}`,
+        ]);
+        autoStashed = true;
+      }
+
+      await this.git.checkout(target);
+      await this.git.merge([source]);
+      await this.git.checkout(originalBranch);
+      return { success: true, autoStashed };
+    } catch (e) {
+      if (originalBranch) {
+        try { await this.git.checkout(originalBranch); } catch { /* best-effort */ }
+      }
+      return { success: false, error: String(e), autoStashed };
+    } finally {
+      if (autoStashed) {
+        try { await this.git.stash(["pop"]); } catch { /* stash stays if pop conflicts */ }
+      }
+    }
+  }
+
   async merge(branch: string): Promise<void> {
     await this.git.merge([branch]);
   }
