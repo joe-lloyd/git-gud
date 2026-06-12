@@ -85,6 +85,7 @@ const gitApi = {
   stashSave: (message?: string): Promise<Result> => ipcRenderer.invoke('git:stash-save', message),
   stashPop: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-pop', index),
   stashDrop: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-drop', index),
+  stashApply: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-apply', index),
 
   fetch: (): Promise<Result> => ipcRenderer.invoke('git:fetch'),
   pull: (): Promise<Result> => ipcRenderer.invoke('git:pull'),

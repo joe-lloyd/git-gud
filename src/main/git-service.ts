@@ -354,6 +354,10 @@ export class GitService {
     await this.git.stash(["drop", `stash@{${index}}`]);
   }
 
+  async stashApply(index: number): Promise<void> {
+    await this.git.stash(["apply", `stash@{${index}}`]);
+  }
+
   async fetch(): Promise<void> {
     await this.git.raw([...this.getAuthConfigs(), "fetch", "--all", "--prune"]);
   }

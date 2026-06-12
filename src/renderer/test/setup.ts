@@ -22,6 +22,7 @@ Object.defineProperty(window, 'gitApi', {
     stashSave: vi.fn().mockResolvedValue({ success: true }),
     stashPop: vi.fn().mockResolvedValue({ success: true }),
     stashDrop: vi.fn().mockResolvedValue({ success: true }),
+    stashApply: vi.fn().mockResolvedValue({ success: true }),
     fetch: vi.fn().mockResolvedValue({ success: true }),
     pull: vi.fn().mockResolvedValue({ success: true }),
     push: vi.fn().mockResolvedValue({ success: true }),

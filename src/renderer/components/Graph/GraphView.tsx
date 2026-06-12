@@ -26,6 +26,10 @@ interface GraphViewProps {
   selectedSha: string | null;
   onSelectCommit: (sha: string) => void;
   onContextMenu?: (e: React.MouseEvent, sha: string) => void;
+  /** Right-click on a branch/tag pill */
+  onRefContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
+  /** A pill was dragged onto another (or onto a sidebar branch) — caller opens the action menu */
+  onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
   /** Branches currently checked out in a worktree (branch name, no remote prefix) */
   worktreeBranches?: Set<string>;
 }
@@ -35,6 +39,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
   selectedSha,
   onSelectCommit,
   onContextMenu,
+  onRefContextMenu,
+  onRefDrop,
   worktreeBranches = new Set(),
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -206,6 +212,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
               isSelected={node.commit.sha === selectedSha}
               onSelect={onSelectCommit}
               onContextMenu={onContextMenu}
+              onRefContextMenu={onRefContextMenu}
+              onRefDrop={onRefDrop}
               worktreeBranches={worktreeBranches}
               graphWidth={graphWidth}
             />
@@ -225,12 +233,14 @@ interface CommitRowProps {
   isSelected: boolean;
   onSelect: (sha: string) => void;
   onContextMenu?: (e: React.MouseEvent, sha: string) => void;
+  onRefContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
+  onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
   worktreeBranches: Set<string>;
   graphWidth: number;
 }
 
 const CommitRow: React.FC<CommitRowProps> = React.memo(
-  ({ node, isSelected, onSelect, onContextMenu, worktreeBranches, graphWidth }) => {
+  ({ node, isSelected, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth }) => {
     const { commit } = node;
     const groups = useMemo(
       () => groupRefs(commit.refs, worktreeBranches),
@@ -249,7 +259,12 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
         {/* Refs — LEFTMOST column, left of the tree canvas */}
         <div className="cr-refs">
           {groups.map((g) => (
-            <RefPill key={g.key} group={g} />
+            <RefPill
+              key={g.key}
+              group={g}
+              onContextMenu={onRefContextMenu}
+              onRefDrop={onRefDrop}
+            />
           ))}
         </div>
 
@@ -388,8 +403,20 @@ function branchBaseName(ref: string): string {
 
 // ── RefPill component ─────────────────────────────────────────────────────────
 
-function RefPill({ group }: { group: RefGroup }) {
+// MIME for our drag payload — distinct from any browser-native DnD
+export const REF_DRAG_MIME = "application/x-git-ref";
+
+function RefPill({
+  group,
+  onContextMenu,
+  onRefDrop,
+}: {
+  group: RefGroup;
+  onContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
+  onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
+}) {
   const [tipPos, setTipPos] = useState<{ x: number; bottom: number } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const handleMouseEnter = (e: React.MouseEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -417,12 +444,59 @@ function RefPill({ group }: { group: RefGroup }) {
     ? "ref-pill ref-remote"
     : "ref-pill ref-local";
 
+  // Tags can't be merge/rebase/checkout sources.
+  // Local branches are draggable; remote branches are draggable (we'll auto-create
+  // a local tracking branch on the action side if needed).
+  const isDraggable = !isTag;
+  const kind: 'local' | 'remote' | 'tag' = isTag ? 'tag' : (group.hasRemote && !group.hasLocal ? 'remote' : 'local');
+  // The full ref name git understands: local branch keeps its name; remote pill
+  // uses the raw "remote/name" form from the tooltip.
+  const refName = isTag
+    ? group.name  // tag name, not used for DnD
+    : (group.hasLocal ? group.name : (group.tooltip.split(',')[0]?.trim() ?? group.name));
+
+  const handleDragStart = (e: React.DragEvent<HTMLElement>) => {
+    if (!isDraggable) return;
+    e.stopPropagation();
+    setTipPos(null);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(REF_DRAG_MIME, refName);
+    e.dataTransfer.setData('text/plain', refName);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
+    if (isTag) return;
+    if (!e.dataTransfer.types.includes(REF_DRAG_MIME)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    if (!dragOver) setDragOver(true);
+  };
+  const handleDragLeave = () => setDragOver(false);
+
+  const handleDrop = (e: React.DragEvent<HTMLElement>) => {
+    setDragOver(false);
+    if (isTag) return;
+    const source = e.dataTransfer.getData(REF_DRAG_MIME);
+    if (!source || source === refName) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onRefDrop?.(e as unknown as React.MouseEvent, source, refName);
+  };
+
   return (
     <>
       <span
-        className={cls}
+        className={`${cls} ${dragOver ? 'ref-drop-target' : ''}`}
+        draggable={isDraggable}
+        onDragStart={isDraggable ? handleDragStart : undefined}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onContextMenu={onContextMenu ? (e) => onContextMenu(e, refName, kind) : undefined}
+        data-ref-name={refName}
       >
         {isTag          && <span className="rp-icon">🏷</span>}
         {group.isHead   && <span className="rp-icon rp-head">◉</span>}

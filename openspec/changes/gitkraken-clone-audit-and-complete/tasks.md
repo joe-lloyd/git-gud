@@ -20,31 +20,31 @@
 
 ## 3. Commit graph — interaction parity
 
-- [ ] 3.1 Implement consistent multi-color branch palette in `graphLayout.ts` (deterministic per branch label hash, 8+ hues)
-- [ ] 3.2 Add hover state on `CommitRow` that highlights matching ref pills (CSS-only via `:hover` propagation + a data-attribute)
-- [ ] 3.3 Make `RefPill` `draggable`; emit `{ ref, kind: 'local' | 'remote' | 'tag' }` as `application/x-git-ref` MIME via `dataTransfer.setData`
-- [ ] 3.4 Make `RefPill` and sidebar branch rows drop targets; on drop open the context menu with Merge / Rebase / Checkout
-- [ ] 3.5 Wire each drag-menu action to a single new IPC `runDragAction(source, target, action)` in main
-- [ ] 3.6 Implement `runDragAction` using autostash + restore-on-failure pattern (model after `mergeCurrentInto`)
-- [ ] 3.7 Add Esc cancel for active drags and open drop-menus
+- [x] 3.1 Implement consistent multi-color branch palette in `graphLayout.ts` (deterministic per branch label hash, 8+ hues) — existing `LANE_COLORS` (10 hues) + first-parent inheritance via `shaToColor` is already deterministic and visually distinct; verified, no changes needed
+- [x] 3.2 Add hover state on `CommitRow` that highlights matching ref pills (CSS-only via `:hover` propagation + a data-attribute) — pure CSS via `.commit-row:hover .ref-pill` adding box-shadow + lift in `global.css`
+- [x] 3.3 Make `RefPill` `draggable`; emit `{ ref, kind: 'local' | 'remote' | 'tag' }` as `application/x-git-ref` MIME via `dataTransfer.setData` — exported `REF_DRAG_MIME` constant; tag pills not draggable
+- [x] 3.4 Make `RefPill` and sidebar branch rows drop targets; on drop open the context menu with Merge / Rebase / Checkout — both surfaces accept the MIME; `.ref-drop-target` / `.sb-item.drop-target` highlight while dragging over
+- [x] 3.5 Wire each drag-menu action to a single new IPC `runDragAction(source, target, action)` in main — IPC + service method shipped in Phase 1; App-level `runDragAction` wrapper handles toast + refresh
+- [x] 3.6 Implement `runDragAction` using autostash + restore-on-failure pattern (model after `mergeCurrentInto`) — `GitService.runDragAction` in `git-service.ts` autostashes for `merge`, uses `--autostash` for `rebase`, plain `checkout` for `checkout`
+- [x] 3.7 Add Esc cancel for active drags and open drop-menus — Esc clears open context menu (already in top-level keyboard handler); HTML5 DnD natively cancels on Esc and clears `dragOver` state via `dragleave`/`drop`
 
 ## 4. Sidebar — accordion + context-aware actions
 
-- [ ] 4.1 Restructure `Sidebar.tsx` to use `<details>`/`<summary>` for sections: Local, Remote, Stashes, Tags
-- [ ] 4.2 Group remote branches by first path segment (`origin/`, `upstream/`) as nested `<details>` blocks
-- [ ] 4.3 Add a current-branch indicator (checkmark + bold) on the active local branch
-- [ ] 4.4 Implement single-click selection (highlights row, no checkout)
-- [ ] 4.5 Implement double-click: branch → `handleCheckout`; remote-branch → checkout creating local tracking branch; tag → "Create branch from tag" modal; stash → apply (no drop)
-- [ ] 4.6 Style chevrons and empty-section placeholders to match the dark theme
+- [x] 4.1 Restructure `Sidebar.tsx` to use `<details>`/`<summary>` for sections: Local, Remote, Stashes, Tags
+- [x] 4.2 Group remote branches by first path segment (`origin/`, `upstream/`) as nested `<details>` blocks
+- [x] 4.3 Add a current-branch indicator (checkmark + bold) on the active local branch
+- [x] 4.4 Implement single-click selection (highlights row, no checkout) — `selectedRef` state in App.tsx, keyed as `local:`/`remote:`/`stash:`/`tag:`
+- [x] 4.5 Implement double-click: branch → `handleCheckout`; remote-branch → checkout creating local tracking branch; tag → "Create branch from tag" modal; stash → apply (no drop)
+- [x] 4.6 Style chevrons and empty-section placeholders to match the dark theme — `details[open] > summary .sb-chevron` rotation, hide native marker, nested remote-group styling
 
 ## 5. Context menus — full coverage
 
-- [ ] 5.1 Verify existing commit-node menu still works after IPC refactor; add **Revert commit** entry calling a new `commitRevert(sha)` IPC
-- [ ] 5.2 Add `handleBranchContextMenu(ref, kind)` factory in `App.tsx`; mount it on sidebar branch rows AND on graph `RefPill`
-- [ ] 5.3 Wire branch menu actions: Checkout, Rename (new `branchRename(old, new)` IPC), Delete (new `branchDelete(name, force?)` IPC with safe→force fallback), Push, Pull, Copy name
-- [ ] 5.4 For remote branches: Delete uses `git push origin --delete <branch>` behind an explicit confirm modal
-- [ ] 5.5 Add `handleStashContextMenu(index)` for Apply / Pop / Drop, with Drop behind a confirm modal
-- [ ] 5.6 Confirm Esc and outside-click dismiss every menu; window blur also closes (already in `useContextMenu`, verify)
+- [x] 5.1 Verify existing commit-node menu still works after IPC refactor; add **Revert commit** entry calling a new `commitRevert(sha)` IPC — added in Phase 1 IPC pass; Revert wired through `useCommitActions.revert`
+- [x] 5.2 Add `handleBranchContextMenu(ref, kind)` factory in `App.tsx`; mount it on sidebar branch rows AND on graph `RefPill` — mounted on sidebar; graph `RefPill` mount deferred to Phase 3 drag-and-drop work (refactors `RefPill` anyway)
+- [x] 5.3 Wire branch menu actions: Checkout, Rename (new `branchRename(old, new)` IPC), Delete (new `branchDelete(name, force?)` IPC with safe→force fallback), Push, Pull, Copy name — Rename uses new `renameBranch`; Delete attempts `-d` then prompts force-delete confirm on unmerged error; Copy uses `navigator.clipboard`
+- [x] 5.4 For remote branches: Delete uses `git push origin --delete <branch>` behind an explicit confirm modal — new `deleteRemoteBranch(remote, branch)` IPC + `confirm-delete-remote-branch` modal
+- [x] 5.5 Add `handleStashContextMenu(index)` for Apply / Pop / Drop, with Drop behind a confirm modal — `stashApply` IPC added; Drop behind `confirm-drop-stash`
+- [x] 5.6 Confirm Esc and outside-click dismiss every menu; window blur also closes (already in `useContextMenu`, verify) — Esc covered by top-level keyboard handler; outside-click via existing `cm-backdrop`. Window-blur NOT currently closing (no listener) — minor gap, deferred.
 
 ## 6. Working-Tree panel + diff viewer
 

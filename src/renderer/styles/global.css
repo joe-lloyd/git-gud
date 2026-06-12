@@ -134,6 +134,25 @@ button {
 .ref-tag    { background: rgba(246,173,85,0.15);  color: #f6ad55; border: 1px solid rgba(246,173,85,0.25); }
 .ref-head   { background: rgba(251,182,206,0.2);  color: #fbb6ce; border: 1px solid rgba(251,182,206,0.35); }
 
+/* Draggable affordance — local/remote/head pills, NOT tags */
+.ref-pill[draggable="true"] { cursor: grab; }
+.ref-pill[draggable="true"]:active { cursor: grabbing; }
+
+/* Drop target highlight while a ref is hovered over this pill */
+.ref-pill.ref-drop-target {
+  outline: 2px solid var(--lane-0, #63b3ed);
+  outline-offset: 1px;
+  transform: scale(1.05);
+  transition: transform 0.08s;
+}
+
+/* Hover commit row → bump the row's own ref pills */
+.commit-row:hover .ref-pill {
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
+  transform: translateY(-0.5px);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
 /* Icon spans inside a pill */
 .rp-icon {
   font-size: 9px;

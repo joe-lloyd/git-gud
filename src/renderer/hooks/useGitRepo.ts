@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo } from '../../preload/index'
+import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo, TagInfo } from '../../preload/index'
 import { useToasts } from '../components/Toast/Toast'
 
 const EMPTY_BRANCHES: BranchData = { local: [], remote: [] }
@@ -9,6 +9,7 @@ export function useGitRepo() {
   const [commits, setCommits]         = useState<CommitNode[]>([])
   const [branches, setBranches]       = useState<BranchData>(EMPTY_BRANCHES)
   const [stashes, setStashes]         = useState<StashInfo[]>([])
+  const [tags, setTags]               = useState<TagInfo[]>([])
   const [worktrees, setWorktrees]     = useState<WorktreeInfo[]>([])
   const [status, setStatus]           = useState<RepoStatus | null>(null)
   const [remotes, setRemotes]         = useState<RemoteInfo[]>([])
@@ -23,6 +24,7 @@ export function useGitRepo() {
     setCommits([])
     setBranches(EMPTY_BRANCHES)
     setStashes([])
+    setTags([])
     setWorktrees([])
     setStatus(null)
     setRemotes([])
@@ -35,11 +37,12 @@ export function useGitRepo() {
     try {
       const ok = await window.gitApi.openPath(path)
       if (!ok) throw new Error('Not a valid Git repository or path does not exist.')
-      
-      const [log, branchData, stashData, st, wt, rmts] = await Promise.all([
+
+      const [log, branchData, stashData, tagData, st, wt, rmts] = await Promise.all([
         window.gitApi.getLog(2000),
         window.gitApi.getBranches(),
         window.gitApi.getStashes(),
+        window.gitApi.getTags(),
         window.gitApi.getStatus(),
         window.gitApi.getWorktrees(),
         window.gitApi.getRemotes(),
@@ -48,6 +51,7 @@ export function useGitRepo() {
       setCommits(log)
       setBranches(branchData)
       setStashes(stashData)
+      setTags(tagData)
       setWorktrees(wt)
       setStatus(st)
       setRemotes(rmts)
@@ -109,6 +113,7 @@ export function useGitRepo() {
     commits, setCommits,
     branches, setBranches,
     stashes, setStashes,
+    tags, setTags,
     worktrees, setWorktrees,
     status, setStatus,
     remotes, setRemotes,

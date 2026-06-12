@@ -325,6 +325,12 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
+  ipcMain.handle('git:stash-apply', async (_event, index: number) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.stashApply(index); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
   ipcMain.handle('git:fetch', async () => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { await gitService.fetch(); return { success: true } }
