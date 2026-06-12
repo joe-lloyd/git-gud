@@ -55,7 +55,14 @@
 - [ ] 6.5 Extend `DiffViewer.tsx` with a side-by-side / inline toggle; default to side-by-side; persist preference in `useState` at panel scope (session-only)
 - [ ] 6.6 Verify untracked-file diff still renders against `/dev/null` (already in `getFileDiff`)
 
-## 7. Definition-of-done verification
+## 6.5 Smoke-test fixes (post-Phase-5)
+
+Tasks added in response to user feedback from the first smoke test:
+
+- [x] 6.5.1 Refresh after focus / FS-watcher / mutation no longer shows a spinner — `useGitRepo` split into `loadRepo` (heavyweight, sets loading) and `refresh`/`fetchAll` (silent). Refresh no longer calls `openPath`, so it doesn't recreate the main-process `GitService` or restart the watcher.
+- [x] 6.5.2 Project-switch bug after commit/branch creation — root cause was `refresh` re-calling `openPath`. Fixed by silent refresh above. Multi-tab architecture also makes the active service explicit so future races can't sneak in.
+- [x] 6.5.3 Multi-repo tabs (GitKraken-style) — main holds `services: Map<path, GitService>` + an active pointer; new IPCs `git:activate-path`, `git:close-tab`, `git:active-path`, `git:open-tabs`. Renderer tracks `openTabs[]`; new `<TabBar>` at the top renders one tab per open repo with close (×) + middle-click close + new (+) buttons.
+- [x] 6.5.4 LOCAL BRANCHES + TAGS sidebar sections compressed to "current + 3 peek + N more →" with a hover popover anchored to the side that shows the overflow without clipping. Current branch always sorted to top.
 
 - [ ] 7.1 Smoke-test: open a real GitHub repo, run end-to-end flow (open → scroll → stage → commit → branch → merge via DnD → close); zero console errors
 - [ ] 7.2 Smoke-test against a 10k-commit fixture repo; confirm 250 ms initial paint and 60 fps scroll (use the Performance tab's FPS meter)

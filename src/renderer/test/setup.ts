@@ -6,6 +6,10 @@ Object.defineProperty(window, 'gitApi', {
   value: {
     openDialog: vi.fn(),
     openPath: vi.fn(),
+    activatePath: vi.fn().mockResolvedValue(true),
+    closeTab: vi.fn().mockResolvedValue(true),
+    getActivePath: vi.fn().mockResolvedValue(null),
+    getOpenTabs: vi.fn().mockResolvedValue([]),
     getLog: vi.fn().mockResolvedValue([]),
     getBranches: vi.fn().mockResolvedValue({ local: [], remote: [] }),
     getTags: vi.fn().mockResolvedValue([]),

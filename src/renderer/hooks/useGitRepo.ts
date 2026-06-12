@@ -6,6 +6,7 @@ const EMPTY_BRANCHES: BranchData = { local: [], remote: [] }
 
 export function useGitRepo() {
   const [repoPath, setRepoPath]       = useState<string | null>(null)
+  const [openTabs, setOpenTabs]       = useState<string[]>([])
   const [commits, setCommits]         = useState<CommitNode[]>([])
   const [branches, setBranches]       = useState<BranchData>(EMPTY_BRANCHES)
   const [stashes, setStashes]         = useState<StashInfo[]>([])
@@ -19,8 +20,8 @@ export function useGitRepo() {
 
   const toast = useToasts()
 
-  const handleGoHome = useCallback(() => {
-    setRepoPath(null)
+  // Clear all repo-scoped state; used when last tab closes or Go Home is pressed.
+  const clearRepoState = useCallback(() => {
     setCommits([])
     setBranches(EMPTY_BRANCHES)
     setStashes([])
@@ -32,35 +33,92 @@ export function useGitRepo() {
     setError(null)
   }, [])
 
+  const handleGoHome = useCallback(() => {
+    // Close every open tab in main so the watcher stops too.
+    for (const t of openTabs) window.gitApi.closeTab(t).catch(() => {})
+    setOpenTabs([])
+    setRepoPath(null)
+    clearRepoState()
+  }, [openTabs, clearRepoState])
+
+  // Fetch every piece of repo state. Used by both initial load and refresh.
+  // Doesn't touch loading state — caller decides whether to show a spinner.
+  const fetchAll = useCallback(async () => {
+    const [log, branchData, stashData, tagData, st, wt, rmts] = await Promise.all([
+      window.gitApi.getLog(2000),
+      window.gitApi.getBranches(),
+      window.gitApi.getStashes(),
+      window.gitApi.getTags(),
+      window.gitApi.getStatus(),
+      window.gitApi.getWorktrees(),
+      window.gitApi.getRemotes(),
+    ])
+    setCommits(log)
+    setBranches(branchData)
+    setStashes(stashData)
+    setTags(tagData)
+    setWorktrees(wt)
+    setStatus(st)
+    setRemotes(rmts)
+  }, [])
+
+  // Open a repo as a new tab (or focus existing). Main is idempotent: openPath
+  // re-activates if already loaded, otherwise creates the GitService.
   const loadRepo = useCallback(async (path: string) => {
     setLoading(true); setError(null); setSelectedSha(null)
     try {
       const ok = await window.gitApi.openPath(path)
       if (!ok) throw new Error('Not a valid Git repository or path does not exist.')
-
-      const [log, branchData, stashData, tagData, st, wt, rmts] = await Promise.all([
-        window.gitApi.getLog(2000),
-        window.gitApi.getBranches(),
-        window.gitApi.getStashes(),
-        window.gitApi.getTags(),
-        window.gitApi.getStatus(),
-        window.gitApi.getWorktrees(),
-        window.gitApi.getRemotes(),
-      ])
+      await fetchAll()
       window.gitApi.addRecentProject(path)
-      setCommits(log)
-      setBranches(branchData)
-      setStashes(stashData)
-      setTags(tagData)
-      setWorktrees(wt)
-      setStatus(st)
-      setRemotes(rmts)
+      setRepoPath(path)
+      setOpenTabs((prev) => prev.includes(path) ? prev : [...prev, path])
+    } catch (e) { setError(String(e)) }
+    finally { setLoading(false) }
+  }, [fetchAll])
+
+  // Switch to an already-open tab (no openPath needed).
+  const switchTab = useCallback(async (path: string) => {
+    if (path === repoPath) return
+    setLoading(true); setError(null); setSelectedSha(null)
+    try {
+      const ok = await window.gitApi.activatePath(path)
+      if (!ok) throw new Error(`Tab "${path}" is not loaded.`)
+      await fetchAll()
       setRepoPath(path)
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
-  }, [])
+  }, [repoPath, fetchAll])
 
-  const refresh = useCallback(() => { if (repoPath) loadRepo(repoPath) }, [repoPath, loadRepo])
+  // Close a tab. If it was active, fall back to another open tab (or Welcome).
+  const closeTab = useCallback(async (path: string) => {
+    await window.gitApi.closeTab(path)
+    setOpenTabs((prev) => {
+      const next = prev.filter(p => p !== path)
+      if (path === repoPath) {
+        const fallback = next[next.length - 1] ?? null
+        if (fallback) {
+          // Fire-and-forget — async swap, UI will catch up on next render
+          window.gitApi.activatePath(fallback).then(() => {
+            setRepoPath(fallback)
+            fetchAll().catch(() => {})
+          })
+        } else {
+          setRepoPath(null)
+          clearRepoState()
+        }
+      }
+      return next
+    })
+  }, [repoPath, fetchAll, clearRepoState])
+
+  // Silent refresh — no spinner, no openPath. Just re-reads state using the
+  // existing gitService in main. Used by focus, FS-watcher, and post-mutation
+  // refresh. Failure leaves the UI on its previous data (no flashes).
+  const refresh = useCallback(async () => {
+    if (!repoPath) return
+    try { await fetchAll() } catch { /* keep prior state on transient failure */ }
+  }, [repoPath, fetchAll])
 
   // Always call the *latest* refresh from listeners — avoids stale closures
   const refreshRef = useRef(refresh)
@@ -86,9 +144,9 @@ export function useGitRepo() {
 
   const handleCheckout = useCallback(async (branch: string) => {
     const result = await window.gitApi.checkout(branch)
-    if (result.success && repoPath) await loadRepo(repoPath)
+    if (result.success) await refresh()
     else if (result.error) toast.error('Checkout failed', result.error)
-  }, [repoPath, loadRepo, toast])
+  }, [refresh, toast])
 
   const handleFetch  = useCallback(async () => {
     const r = await window.gitApi.fetch()
@@ -110,6 +168,7 @@ export function useGitRepo() {
 
   return {
     repoPath, setRepoPath,
+    openTabs,
     commits, setCommits,
     branches, setBranches,
     stashes, setStashes,
@@ -124,6 +183,8 @@ export function useGitRepo() {
     methods: {
       handleGoHome,
       loadRepo,
+      switchTab,
+      closeTab,
       refresh,
       handleOpenRepo,
       handleCheckout,

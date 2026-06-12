@@ -61,6 +61,10 @@ export type GitHubRepo = {
 const gitApi = {
   openDialog: (): Promise<string | null> => ipcRenderer.invoke('git:open-dialog'),
   openPath: (path: string): Promise<boolean> => ipcRenderer.invoke('git:open-path', path),
+  activatePath: (path: string): Promise<boolean> => ipcRenderer.invoke('git:activate-path', path),
+  closeTab: (path: string): Promise<boolean> => ipcRenderer.invoke('git:close-tab', path),
+  getActivePath: (): Promise<string | null> => ipcRenderer.invoke('git:active-path'),
+  getOpenTabs: (): Promise<string[]> => ipcRenderer.invoke('git:open-tabs'),
 
   getLog: (limit?: number): Promise<CommitNode[]> => ipcRenderer.invoke('git:log', limit),
   getBranches: (): Promise<BranchData> => ipcRenderer.invoke('git:branches'),

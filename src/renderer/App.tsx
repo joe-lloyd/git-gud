@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
+import { TabBar } from './components/TabBar/TabBar'
 import { GraphView } from './components/Graph/GraphView'
 import { CommitDetail } from './components/CommitDetail/CommitDetail'
 import { Toolbar } from './components/Toolbar/Toolbar'
@@ -351,6 +352,14 @@ export default function App() {
   return (
     <div className="app">
       <div className="titlebar" />
+
+      <TabBar
+        tabs={repo.openTabs}
+        activePath={repo.repoPath}
+        onActivate={repo.methods.switchTab}
+        onClose={repo.methods.closeTab}
+        onOpen={repo.methods.handleOpenRepo}
+      />
 
       <Toolbar
         repoPath={repo.repoPath}

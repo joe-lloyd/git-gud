@@ -5,7 +5,12 @@ import { GitService } from './git-service'
 import { GitHubService } from './github-service'
 
 let mainWindow: BrowserWindow | null = null
+// All loaded repos — one GitService per open tab.
+const services = new Map<string, GitService>()
+// The active service is what every IPC handler reads/writes against.
+// Renderer flips this via `git:activate-path` when switching tabs.
 let gitService: GitService | null = null
+let activeRepoPath: string | null = null
 let githubService: GitHubService | null = null
 let repoWatchers: fs.FSWatcher[] = []
 let repoChangeTimer: NodeJS.Timeout | null = null
@@ -16,6 +21,20 @@ function stopRepoWatchers() {
   }
   repoWatchers = []
   if (repoChangeTimer) { clearTimeout(repoChangeTimer); repoChangeTimer = null }
+}
+
+// Activate (or create) the GitService for a repo path. Flips the watcher to
+// follow this path. Used by tab-switching and by initial open.
+function activateRepo(repoPath: string): GitService {
+  let svc = services.get(repoPath)
+  if (!svc) {
+    svc = new GitService(repoPath, () => githubService?.getToken() || null)
+    services.set(repoPath, svc)
+  }
+  gitService = svc
+  activeRepoPath = repoPath
+  startRepoWatchers(repoPath)
+  return svc
 }
 
 function startRepoWatchers(repoPath: string) {
@@ -111,8 +130,8 @@ app.whenReady().then(() => {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     const repoPath = result.filePaths[0]
-    gitService = new GitService(repoPath, () => githubService?.getToken() || null)
-    const isRepo = await gitService.isRepo()
+    const candidate = new GitService(repoPath, () => githubService?.getToken() || null)
+    const isRepo = await candidate.isRepo()
     if (!isRepo) {
       const { response } = await dialog.showMessageBox(mainWindow!, {
         type: 'question',
@@ -123,34 +142,59 @@ app.whenReady().then(() => {
         defaultId: 0,
         cancelId: 1,
       })
-      if (response === 1) { gitService = null; return null }
-      // Run git init then reload
+      if (response === 1) return null
       try {
-        await gitService['git'].init()
+        await candidate['git'].init()
       } catch (e) {
         await dialog.showMessageBox(mainWindow!, {
           type: 'error',
           title: 'Git init failed',
           message: String(e),
         })
-        gitService = null
         return null
       }
     }
-    startRepoWatchers(repoPath)
+    services.set(repoPath, candidate)
+    activateRepo(repoPath)
     return repoPath
-
   })
 
   ipcMain.handle('git:open-path', async (_event, repoPath: string) => {
     try {
-      gitService = new GitService(repoPath, () => githubService?.getToken() || null)
-      const isRepo = await gitService.isRepo()
-      if (!isRepo) { gitService = null; return false }
-      startRepoWatchers(repoPath)
+      // Already loaded? Just re-activate.
+      if (services.has(repoPath)) {
+        activateRepo(repoPath)
+        return true
+      }
+      const candidate = new GitService(repoPath, () => githubService?.getToken() || null)
+      const isRepo = await candidate.isRepo()
+      if (!isRepo) return false
+      services.set(repoPath, candidate)
+      activateRepo(repoPath)
       return true
-    } catch { gitService = null; return false }
+    } catch { return false }
   })
+
+  // Flip the active tab. Returns false if the path isn't loaded yet.
+  ipcMain.handle('git:activate-path', async (_event, repoPath: string) => {
+    if (!services.has(repoPath)) return false
+    activateRepo(repoPath)
+    return true
+  })
+
+  // Close a tab — drop the service, stop the watcher if it was active.
+  ipcMain.handle('git:close-tab', async (_event, repoPath: string) => {
+    services.delete(repoPath)
+    if (activeRepoPath === repoPath) {
+      stopRepoWatchers()
+      gitService = null
+      activeRepoPath = null
+    }
+    return true
+  })
+
+  ipcMain.handle('git:active-path', async () => activeRepoPath)
+  ipcMain.handle('git:open-tabs', async () => Array.from(services.keys()))
 
   // ── Settings / Recent Projects ───────────────────────────────────────────────
 

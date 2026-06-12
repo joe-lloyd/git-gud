@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import type { BranchData, StashInfo, RemoteInfo, TagInfo, BranchInfo } from '../../../preload/index'
 import { REF_DRAG_MIME } from '../Graph/GraphView'
 import './Sidebar.css'
@@ -73,25 +73,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="divider" />
 
       <nav className="sb-nav">
-        {/* Local Branches */}
-        <SidebarSection label="LOCAL BRANCHES" count={branches.local.length} defaultOpen>
-          {branches.local.length === 0
-            ? <div className="sb-empty">No local branches</div>
-            : branches.local.map((b) => (
-                <BranchRow
-                  key={b.name}
-                  name={b.name}
-                  fullRef={b.name}
-                  isCurrent={b.current || b.name === currentBranch}
-                  isSelected={selectedRef === `local:${b.name}`}
-                  onSelect={() => onSelectRef(`local:${b.name}`)}
-                  onDoubleClick={() => !b.current && onCheckout(b.name)}
-                  onContextMenu={(e) => onBranchContextMenu(e, b.name, 'local')}
-                  onRefDrop={onRefDrop}
-                />
-              ))
-          }
-        </SidebarSection>
+        {/* Local Branches — current pinned, peek of next 3, hover for full */}
+        <CompactBranchSection
+          label="LOCAL BRANCHES"
+          items={sortBranchesCurrentFirst(branches.local, currentBranch)}
+          currentBranch={currentBranch}
+          selectedRef={selectedRef}
+          onSelectRef={onSelectRef}
+          onCheckout={onCheckout}
+          onContextMenu={(e, name) => onBranchContextMenu(e, name, 'local')}
+          onRefDrop={onRefDrop}
+        />
 
         {/* Remote Branches — grouped by remote */}
         <SidebarSection label="REMOTE BRANCHES" count={branches.remote.length} defaultOpen>
@@ -142,24 +134,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }
         </SidebarSection>
 
-        {/* Tags */}
-        <SidebarSection label="TAGS" count={tags.length} defaultOpen={false}>
-          {tags.length === 0
-            ? <div className="sb-empty">No tags</div>
-            : tags.map((t) => (
-                <SidebarItem
-                  key={t.name}
-                  label={t.name}
-                  icon="🏷"
-                  selected={selectedRef === `tag:${t.name}`}
-                  onClick={() => onSelectRef(`tag:${t.name}`)}
-                  onDoubleClick={() => onCreateBranchFromTag(t.name)}
-                  onContextMenu={(e) => onTagContextMenu(e, t.name)}
-                  title={`${t.name} → ${t.sha.slice(0, 7)}`}
-                />
-              ))
-          }
-        </SidebarSection>
+        {/* Tags — peek of latest 4, hover for full list */}
+        <CompactTagSection
+          label="TAGS"
+          tags={tags}
+          selectedRef={selectedRef}
+          onSelectRef={onSelectRef}
+          onActivate={onCreateBranchFromTag}
+          onContextMenu={onTagContextMenu}
+        />
       </nav>
     </aside>
   )
@@ -330,7 +313,167 @@ function SidebarItem({
   )
 }
 
+// ── Compact peek + hover-overflow sections ────────────────────────────────────
+
+const PEEK_COUNT = 3 // additional rows shown next to the current/latest item
+
+function CompactBranchSection({
+  label,
+  items,
+  currentBranch,
+  selectedRef,
+  onSelectRef,
+  onCheckout,
+  onContextMenu,
+  onRefDrop,
+}: {
+  label: string
+  items: BranchInfo[]
+  currentBranch: string
+  selectedRef: string | null
+  onSelectRef: (ref: string | null) => void
+  onCheckout: (branch: string) => void
+  onContextMenu: (e: React.MouseEvent, name: string) => void
+  onRefDrop: (e: React.MouseEvent, source: string, target: string) => void
+}) {
+  const visible = items.slice(0, 1 + PEEK_COUNT)
+  const overflow = items.slice(1 + PEEK_COUNT)
+  const renderRow = (b: BranchInfo) => (
+    <BranchRow
+      key={b.name}
+      name={b.name}
+      fullRef={b.name}
+      isCurrent={b.current || b.name === currentBranch}
+      isSelected={selectedRef === `local:${b.name}`}
+      onSelect={() => onSelectRef(`local:${b.name}`)}
+      onDoubleClick={() => !b.current && onCheckout(b.name)}
+      onContextMenu={(e) => onContextMenu(e, b.name)}
+      onRefDrop={onRefDrop}
+    />
+  )
+  return (
+    <CompactSection label={label} count={items.length} overflow={overflow.length} overflowChildren={overflow.map(renderRow)}>
+      {items.length === 0
+        ? <div className="sb-empty">No local branches</div>
+        : visible.map(renderRow)}
+    </CompactSection>
+  )
+}
+
+function CompactTagSection({
+  label,
+  tags,
+  selectedRef,
+  onSelectRef,
+  onActivate,
+  onContextMenu,
+}: {
+  label: string
+  tags: TagInfo[]
+  selectedRef: string | null
+  onSelectRef: (ref: string | null) => void
+  onActivate: (tagName: string) => void
+  onContextMenu: (e: React.MouseEvent, tagName: string) => void
+}) {
+  const visible = tags.slice(0, 1 + PEEK_COUNT)
+  const overflow = tags.slice(1 + PEEK_COUNT)
+  const renderRow = (t: TagInfo) => (
+    <SidebarItem
+      key={t.name}
+      label={t.name}
+      icon="🏷"
+      selected={selectedRef === `tag:${t.name}`}
+      onClick={() => onSelectRef(`tag:${t.name}`)}
+      onDoubleClick={() => onActivate(t.name)}
+      onContextMenu={(e) => onContextMenu(e, t.name)}
+      title={`${t.name} → ${t.sha.slice(0, 7)}`}
+    />
+  )
+  return (
+    <CompactSection label={label} count={tags.length} overflow={overflow.length} overflowChildren={overflow.map(renderRow)}>
+      {tags.length === 0
+        ? <div className="sb-empty">No tags</div>
+        : visible.map(renderRow)}
+    </CompactSection>
+  )
+}
+
+/**
+ * Section header + a peek list of items always visible. When the user hovers
+ * the "N more" footer, the rest of the items appear as a popover anchored to
+ * the sidebar, escaping the section so they're not clipped.
+ */
+function CompactSection({
+  label,
+  count,
+  overflow,
+  children,
+  overflowChildren,
+}: {
+  label: string
+  count: number
+  overflow: number
+  children: React.ReactNode
+  overflowChildren: React.ReactNode
+}) {
+  const [hoverPos, setHoverPos] = useState<{ left: number; top: number } | null>(null)
+  const footerRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<number | null>(null)
+
+  const open = () => {
+    if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null }
+    const el = footerRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setHoverPos({ left: r.right + 6, top: r.top })
+  }
+  const scheduleClose = () => {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => setHoverPos(null), 120)
+  }
+
+  return (
+    <div className="sb-section sb-compact">
+      <div className="sb-section-header">
+        <span className="sb-section-label">{label}</span>
+        <span className="sb-count">{count}</span>
+      </div>
+      <div className="sb-section-body">{children}</div>
+      {overflow > 0 && (
+        <div
+          ref={footerRef}
+          className="sb-overflow-line"
+          onMouseEnter={open}
+          onMouseLeave={scheduleClose}
+        >
+          + {overflow} more →
+        </div>
+      )}
+      {hoverPos && (
+        <div
+          className="sb-overflow-popover"
+          style={{ left: hoverPos.left, top: hoverPos.top }}
+          onMouseEnter={open}
+          onMouseLeave={scheduleClose}
+        >
+          {overflowChildren}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function sortBranchesCurrentFirst(items: BranchInfo[], currentBranch: string): BranchInfo[] {
+  return [...items].sort((a, b) => {
+    const aCur = a.current || a.name === currentBranch
+    const bCur = b.current || b.name === currentBranch
+    if (aCur && !bCur) return -1
+    if (!aCur && bCur) return 1
+    return a.name.localeCompare(b.name)
+  })
+}
 
 function groupRemoteBranches(remoteBranches: BranchInfo[]): { remote: string; items: BranchInfo[] }[] {
   const map = new Map<string, BranchInfo[]>()

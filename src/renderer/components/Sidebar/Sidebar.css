@@ -147,6 +147,42 @@ details[open] > summary .sb-chevron { transform: rotate(90deg); }
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* ── Compact section: peek + hover-overflow popover ─────────────────── */
+.sb-overflow-line {
+  margin: 2px 12px 4px 20px;
+  padding: 3px 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: rgba(255,255,255,0.03);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  cursor: default;
+  user-select: none;
+  transition: color 0.1s, background 0.1s, border-color 0.1s;
+}
+.sb-overflow-line:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+
+.sb-overflow-popover {
+  position: fixed;
+  z-index: 9000;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-focus);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55);
+  padding: 4px 0;
+  animation: fadeIn 0.1s ease;
+}
+/* Items inside the popover get a little tighter padding */
+.sb-overflow-popover .sb-item { padding: 4px 12px 4px 12px; }
 .sb-empty-inline {
   margin-left: 6px;
   font-size: 10px;
