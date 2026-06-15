@@ -1,16 +1,19 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import type { RepoStatus, FileChange } from '../../../preload/index'
 import './WorkingTree.css'
 
 interface WorkingTreeProps {
   repoPath: string | null
+  // Live status from App.tsx (`repo.status`) — same object the rest of the UI
+  // sees, so chunk-stage from the center-pane diff updates this panel.
+  status: RepoStatus | null
+  // Trigger an app-wide refresh after a git mutation.
+  onRefresh: () => void
   onCommitted: () => void
   onSelectDiff: (path: string, staged: boolean) => void
 }
 
-export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted, onSelectDiff }) => {
-  const [status, setStatus]           = useState<RepoStatus | null>(null)
-  const [loading, setLoading]         = useState(false)
+export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRefresh, onCommitted, onSelectDiff }) => {
   // Split commit message — subject + (optional) body, the convention git
   // expects. Subject becomes the first `-m`, body the second.
   const [subject, setSubject]         = useState('')
@@ -32,30 +35,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
   const [splitPct, setSplitPct] = useState(50)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
-
-  const refresh = useCallback(async () => {
-    if (!repoPath) return
-    setLoading(true)
-    try {
-      const s = await window.gitApi.getStatus()
-      setStatus(s)
-    } finally { setLoading(false) }
-  }, [repoPath])
-
-  // Silent refresh — no loading spinner, used after stage/unstage
-  const silentRefresh = useCallback(async () => {
-    if (!repoPath) return
-    const s = await window.gitApi.getStatus()
-    if (s) setStatus(s)
-  }, [repoPath])
-
-  useEffect(() => { refresh() }, [refresh])
-
-  useEffect(() => {
-    if (!repoPath) return
-    const unsub = window.gitApi.onGitignoreChanged(() => refresh())
-    return unsub
-  }, [repoPath, refresh])
+  const loading = false
 
   // ── Resize handle drag ────────────────────────────────────────────
   const startDrag = useCallback((e: React.MouseEvent) => {
@@ -74,15 +54,17 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
   }, [])
 
   // ── Git ops ───────────────────────────────────────────────────────
+  // Mutations call onRefresh so App-level status updates and all consumers
+  // (this panel + graph + sidebar) see the new state.
   const handleStage   = async (files: string[]) => {
     const r = await window.gitApi.stage(files)
     if (!r.success) setError(r.error)
-    await silentRefresh()
+    onRefresh()
   }
   const handleUnstage = async (files: string[]) => {
     const r = await window.gitApi.unstage(files)
     if (!r.success) setError(r.error)
-    await silentRefresh()
+    onRefresh()
   }
   const handleStageAll = async () => {
     if (!status) return
@@ -102,7 +84,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
         setNoVerify(false); setSignoff(false)
         setAmend(false)
         setDraftBeforeAmend({ subject: '', body: '' })
-        await refresh()
+        onRefresh()
         onCommitted()
       } else setError(result.error)
     } finally { setCommitting(false) }
@@ -158,8 +140,8 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
       const r = await window.gitApi.discardChanges([row.file.path], { staged: row.staged })
       if (!r.success) setError(r.error)
     }
-    await silentRefresh()
-  }, [silentRefresh])
+    onRefresh()
+  }, [onRefresh])
 
   // Arrow keys + Enter only — Space and letter shortcuts ate keystrokes when
   // focus was in the commit textarea. Stage / discard live on the row buttons
@@ -209,7 +191,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
           {unstagedCount > 0 && (
             <button className="wt-header-btn" onClick={handleStageAll}>Stage all ↓</button>
           )}
-          <button className="wt-refresh-btn" onClick={refresh} title="Refresh">⟳</button>
+          <button className="wt-refresh-btn" onClick={onRefresh} title="Refresh">⟳</button>
         </div>
         <div className="wt-files">
           {loading && <div className="wt-loading">Loading…</div>}

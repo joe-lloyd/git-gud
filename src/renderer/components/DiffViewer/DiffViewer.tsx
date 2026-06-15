@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { useToasts } from '../Toast/Toast'
 import './DiffViewer.css'
 
 interface DiffViewerProps {
@@ -150,13 +151,26 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     return { text, type, i, hunkIndex: currentHunkIndex, oldNo, newNo }
   })
 
+  const toast = useToasts()
+  const [applyError, setApplyError] = useState<string | null>(null)
+
   // cached=true → index (stage/unstage). cached=false → working tree (discard).
   // reverse undoes the patch direction, used for unstage and for discard.
   const applyPatch = async (patch: string, opts: { cached: boolean; reverse: boolean }) => {
     if (isCommitMode) return
     setLoading(true)
+    setApplyError(null)
     const r = await window.gitApi.applyPatch(patch, opts)
-    if (r.success) onApplied?.()
+    if (r.success) {
+      onApplied?.()
+    } else {
+      // Surface the underlying `git apply` error so users see why the chunk
+      // didn't stage (most common cause: hunk context drift after an earlier
+      // partial stage). Banner stays until the next refresh.
+      const msg = (r.error || 'apply failed').replace(/^Error:\s*/i, '').trim()
+      setApplyError(msg)
+      toast.error(opts.cached ? (opts.reverse ? 'Unstage failed' : 'Stage failed') : 'Discard failed', msg)
+    }
     refreshDiff()
   }
 
@@ -237,6 +251,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
         <button className="diff-close" onClick={onClose} title="Close diff (Esc)">✕ Close</button>
       </div>
       {wordDiffError && <div className="diff-banner">{wordDiffError}</div>}
+      {applyError && <div className="diff-banner diff-banner-error">git apply: {applyError}</div>}
 
       {/* Diff body */}
       {loading ? (
@@ -283,13 +298,16 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
             <tbody>
               {lines.map(({ text, type, i, hunkIndex, oldNo, newNo }) => {
                 const lineActionable = !isCommitMode && (type === 'add' || type === 'remove')
+                const lineHint = lineActionable ? (staged ? 'Click to unstage this line' : 'Click to stage this line') : ''
+                const onLineClick = lineActionable ? () => handleStageLine(hunkIndex, i) : undefined
                 return (
-                  <tr key={i} className={`diff-line diff-line-${type}`}>
-                    <td className="diff-gutter diff-gutter-old">{oldNo ?? ''}</td>
-                    <td className="diff-gutter diff-gutter-new">{newNo ?? ''}</td>
+                  <tr key={i} className={`diff-line diff-line-${type} ${lineActionable ? 'diff-line-actionable' : ''}`}>
+                    {/* Gutters and the +/- sign all stage the line — wider hit target. */}
+                    <td className="diff-gutter diff-gutter-old" onClick={onLineClick} title={lineHint}>{oldNo ?? ''}</td>
+                    <td className="diff-gutter diff-gutter-new" onClick={onLineClick} title={lineHint}>{newNo ?? ''}</td>
                     <td className={`diff-sign ${lineActionable ? 'diff-sign-actionable' : ''}`}
-                        onClick={() => lineActionable && handleStageLine(hunkIndex, i)}
-                        title={lineActionable ? (staged ? 'Unstage Line' : 'Stage Line') : ''}>
+                        onClick={onLineClick}
+                        title={lineHint}>
                       {type === 'add' ? '+' : type === 'remove' ? '−' : ''}
                     </td>
                     <td className="diff-content">

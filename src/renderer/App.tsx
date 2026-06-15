@@ -624,6 +624,8 @@ export default function App() {
                   ) : showWorkingTree ? (
                     <WorkingTree
                       repoPath={repo.repoPath}
+                      status={repo.status}
+                      onRefresh={repo.methods.refresh}
                       onCommitted={repo.methods.refresh}
                       onSelectDiff={(path, staged) => setActiveDiff({ path, staged })}
                     />
