@@ -92,7 +92,9 @@ export class GitHubService {
       },
       body: JSON.stringify({
         client_id: clientId,
-        scope: 'repo'
+        // `workflow` is required to push commits that modify .github/workflows/**.
+        // Without it GitHub rejects the push even if `repo` is granted.
+        scope: 'repo workflow'
       })
     })
 
