@@ -1,0 +1,61 @@
+appId: com.joelloyd.gitgud
+productName: Git Gud
+copyright: Copyright © ${author}
+
+# What gets packaged inside the asar bundle. `out/**` is what electron-vite
+# produces; resources/** holds the app icon.
+files:
+  - out/**
+  - resources/**
+  - package.json
+  - "!**/.DS_Store"
+
+# Where the installer artifacts land locally.
+directories:
+  output: dist
+  buildResources: resources
+
+# ── macOS ─────────────────────────────────────────────────────────────────
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+  # `identity: null` disables code-signing. The app installs fine after a
+  # one-time ctrl-click → Open to bypass Gatekeeper. Auto-update on macOS
+  # requires the app to be signed — when you're ready, set up an Apple
+  # Developer ID and remove this line.
+  identity: null
+  target:
+    # DMG for first install, ZIP is what electron-updater downloads for swap.
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
+# ── Windows ───────────────────────────────────────────────────────────────
+win:
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+# ── Linux ─────────────────────────────────────────────────────────────────
+linux:
+  icon: resources/icon.png
+  category: Development
+  target:
+    - target: AppImage
+      arch: [x64]
+
+# ── Publish target ────────────────────────────────────────────────────────
+# Releases land in https://github.com/joe-lloyd/git-gud/releases.
+# `pnpm release` requires GH_TOKEN (or GITHUB_TOKEN in CI) with `repo` scope.
+publish:
+  provider: github
+  owner: joe-lloyd
+  repo: git-gud
+  releaseType: release

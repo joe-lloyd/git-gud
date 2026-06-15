@@ -65,6 +65,16 @@ export type RemoteInfo = {
 }
 
 export type Result = { success: true } | { success: false; error: string }
+
+// Auto-update lifecycle. Emitted by the main process from electron-updater
+// events. `downloaded` is the actionable state — renderer can prompt "Restart
+// to install".
+export type UpdaterStatus =
+  | { state: 'checking' }
+  | { state: 'available'; version: string }
+  | { state: 'none' }
+  | { state: 'downloaded'; version: string }
+  | { state: 'error'; error: string }
 export type CommitOpts = {
   subject: string
   body?: string
@@ -212,6 +222,21 @@ const gitApi = {
     const handler = () => cb()
     ipcRenderer.on('git:repo-changed', handler)
     return () => { ipcRenderer.removeListener('git:repo-changed', handler) }
+  },
+
+  // ── Auto-updater ─────────────────────────────────────────────────────
+  updaterCheck: (): Promise<{ success: boolean; version?: string; error?: string }> =>
+    ipcRenderer.invoke('updater:check'),
+  updaterInstall: (): Promise<void> => ipcRenderer.invoke('updater:install'),
+  onUpdaterStatus: (cb: (s: UpdaterStatus) => void) => {
+    const handler = (_e: unknown, s: UpdaterStatus) => cb(s)
+    ipcRenderer.on('updater:status', handler)
+    return () => { ipcRenderer.removeListener('updater:status', handler) }
+  },
+  onUpdaterProgress: (cb: (p: { percent: number }) => void) => {
+    const handler = (_e: unknown, p: { percent: number }) => cb(p)
+    ipcRenderer.on('updater:progress', handler)
+    return () => { ipcRenderer.removeListener('updater:progress', handler) }
   },
 
   getRecentProjects: (): Promise<string[]> => ipcRenderer.invoke('app:get-recent'),

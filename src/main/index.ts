@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { join } from 'path'
 import * as fs from 'fs'
 import { GitService } from './git-service'
@@ -120,6 +121,41 @@ function createWindow(): void {
   }
 }
 
+// ── Auto-updater ────────────────────────────────────────────────────────
+// Checks GitHub Releases for a newer version, downloads in the background,
+// then asks the user to restart for the swap. No-op in dev (the dev binary
+// isn't packaged so the updater would just fail).
+function setupAutoUpdater(): void {
+  if (process.env['ELECTRON_RENDERER_URL']) return  // dev mode
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  const send = (channel: string, payload?: unknown) => {
+    mainWindow?.webContents.send(channel, payload)
+  }
+
+  autoUpdater.on('checking-for-update', () => send('updater:status', { state: 'checking' }))
+  autoUpdater.on('update-available', (info) => send('updater:status', { state: 'available', version: info.version }))
+  autoUpdater.on('update-not-available', () => send('updater:status', { state: 'none' }))
+  autoUpdater.on('error', (err) => send('updater:status', { state: 'error', error: String(err) }))
+  autoUpdater.on('download-progress', (p) => send('updater:progress', { percent: p.percent }))
+  autoUpdater.on('update-downloaded', (info) => send('updater:status', { state: 'downloaded', version: info.version }))
+
+  // First check happens shortly after launch (give the renderer time to
+  // subscribe). After that the updater polls every 4 hours on its own.
+  setTimeout(() => { autoUpdater.checkForUpdates().catch(() => {}) }, 5_000)
+
+  // Renderer can also trigger a manual check (via toolbar / settings).
+  ipcMain.handle('updater:check', async () => {
+    try { const r = await autoUpdater.checkForUpdates(); return { success: true, version: r?.updateInfo.version } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+  ipcMain.handle('updater:install', () => {
+    // Closes the app and restarts on the new version.
+    autoUpdater.quitAndInstall()
+  })
+}
+
 app.whenReady().then(() => {
   // macOS dock icon — BrowserWindow.icon doesn't change the dock at runtime
   // on Darwin; app.dock.setIcon does. Silently skipped on other platforms.
@@ -129,6 +165,8 @@ app.whenReady().then(() => {
 
   githubService = new GitHubService()
   createWindow()
+
+  setupAutoUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

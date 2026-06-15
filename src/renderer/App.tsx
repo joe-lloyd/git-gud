@@ -436,6 +436,23 @@ export default function App() {
     [openCtx, runDragAction],
   )
 
+  // Auto-update: subscribe once. Informational toasts only — the binary swap
+  // happens automatically on next quit (`autoInstallOnAppQuit = true`), so a
+  // "restart to install" hint is all the user needs.
+  useEffect(() => {
+    const unsub = window.gitApi.onUpdaterStatus((s) => {
+      if (s.state === 'available') {
+        repo.toast.info('Update available', `v${s.version} is downloading…`)
+      } else if (s.state === 'downloaded') {
+        repo.toast.success('Update ready', `v${s.version} — restart Git Gud to install.`)
+      } else if (s.state === 'error') {
+        // Expected during dev runs and on unsigned mac builds. Log only.
+        console.warn('updater error:', s.error)
+      }
+    })
+    return () => { unsub?.() }
+  }, [repo.toast])
+
   // All isolated commit actions live in their own hook
   const actions = useCommitActions({
     toast:          repo.toast,

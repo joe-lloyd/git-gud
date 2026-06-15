@@ -1,0 +1,52 @@
+name: Release
+
+# Tag-driven release. Push a `v*` tag (e.g. `v0.2.0`) and this builds the
+# installers and uploads them to a GitHub Release. electron-updater clients
+# poll that release, so users get the new build in-app.
+#
+# Workflow: bump `version` in package.json → commit → `git tag v0.2.0` →
+#           `git push --follow-tags`. CI takes it from there.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # needed for electron-builder to create the GitHub Release
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build app bundles
+        run: pnpm build
+
+      - name: Build icon (macOS only — needs sips/iconutil)
+        if: matrix.os == 'macos-14'
+        run: pnpm build:icon
+
+      - name: Package + publish
+        env:
+          # electron-builder reads this to attach artifacts to the GitHub
+          # Release. Auto-provided in CI, no secret config needed.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm release

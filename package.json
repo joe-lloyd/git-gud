@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "A beautiful Git Gud inspired by GitKraken",
   "main": "out/main/index.js",
+  "author": {
+    "name": "Joe Lloyd",
+    "email": "joelloyd@codedazur.com"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -10,10 +14,14 @@
     "test": "vitest",
     "test:repos": "bash scripts/build-test-repos.sh",
     "build:icon": "electron scripts/render-icon.cjs && bash scripts/build-icns.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dist": "pnpm build && electron-builder",
+    "dist:mac": "pnpm build && electron-builder --mac",
+    "release": "pnpm build && electron-builder --publish always"
   },
   "dependencies": {
     "@octokit/rest": "^19.0.13",
+    "electron-updater": "^6.3.9",
     "simple-git": "^3.22.0"
   },
   "devDependencies": {
@@ -27,6 +35,7 @@
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
     "electron": "^29.1.0",
+    "electron-builder": "^24.13.3",
     "electron-vite": "^2.1.0",
     "jsdom": "^29.0.1",
     "react": "^18.2.0",
