@@ -7,12 +7,25 @@ interface TabBarProps {
   onActivate: (path: string) => void
   onClose: (path: string) => void
   onOpen: () => void
+  onGoHome: () => void
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onOpen }) => {
+export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onOpen, onGoHome }) => {
   if (tabs.length === 0) return null
   return (
     <div className="tab-bar">
+      <button
+        className="tab-home"
+        onClick={onGoHome}
+        title="Go to start page"
+        aria-label="Home"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 11l9-8 9 8" />
+          <path d="M5 10v10h14V10" />
+          <path d="M10 20v-6h4v6" />
+        </svg>
+      </button>
       {tabs.map((path) => {
         const name = path.split('/').filter(Boolean).pop() ?? path
         const isActive = path === activePath

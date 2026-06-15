@@ -36,6 +36,7 @@
 }
 .diff-badge-staged   { background: rgba(104,211,145,0.18); color: var(--success); }
 .diff-badge-unstaged { background: rgba(246,173,85,0.18);  color: #f6ad55; }
+.diff-badge-commit   { background: rgba(99,179,237,0.18);  color: var(--lane-0, #63b3ed); font-family: 'JetBrains Mono', monospace; }
 
 .diff-filename {
   font-size: 12px;

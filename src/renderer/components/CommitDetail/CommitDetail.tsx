@@ -5,27 +5,23 @@ import './CommitDetail.css'
 interface CommitDetailProps {
   sha: string | null
   commits: CommitNode[]
+  /** Currently-open file diff in the main view (so we can highlight its row) */
+  selectedFile?: string | null
+  /** Click a file row to open its diff in the main view */
+  onSelectFile?: (path: string, sha: string) => void
 }
 
-export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits }) => {
+export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, selectedFile = null, onSelectFile }) => {
   const [files, setFiles] = useState<FileChange[]>([])
-  const [diff, setDiff] = useState<string>('')
   const [loading, setLoading] = useState(false)
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
   const commit = commits.find((c) => c.sha === sha)
 
   const loadDetails = useCallback(async (sha: string) => {
     setLoading(true)
-    setSelectedFile(null)
-    setDiff('')
     try {
-      const [f, d] = await Promise.all([
-        window.gitApi.getCommitFiles(sha),
-        window.gitApi.getCommitDiff(sha),
-      ])
+      const f = await window.gitApi.getCommitFiles(sha)
       setFiles(f)
-      setDiff(d)
     } finally {
       setLoading(false)
     }
@@ -33,7 +29,7 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits }) => {
 
   React.useEffect(() => {
     if (sha) loadDetails(sha)
-    else { setFiles([]); setDiff('') }
+    else { setFiles([]) }
   }, [sha, loadDetails])
 
   if (!commit) {
@@ -84,7 +80,6 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits }) => {
         </div>
       ) : (
         <div className="cd-body">
-          {/* Files */}
           <div className="cd-files">
             <div className="cd-section-title">Files Changed ({files.length})</div>
             <div className="cd-file-list">
@@ -92,7 +87,7 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits }) => {
                 <button
                   key={f.path}
                   className={`cd-file-item ${selectedFile === f.path ? 'active' : ''}`}
-                  onClick={() => setSelectedFile(f.path === selectedFile ? null : f.path)}
+                  onClick={() => sha && onSelectFile?.(f.path, sha)}
                   title={f.path}
                 >
                   <span
@@ -105,12 +100,6 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits }) => {
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Diff */}
-          <div className="cd-diff">
-            <div className="cd-section-title">Diff</div>
-            <pre className="cd-diff-content mono">{diff || 'No diff available'}</pre>
           </div>
         </div>
       )}

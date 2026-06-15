@@ -52,6 +52,9 @@ export function buildGraphLayout(commits: CommitNode[]): GraphNode[] {
   // activeLanes[lane] = sha of commit whose line is currently running through it
   const activeLanes: (string | null)[] = []
 
+  // Lowest currently-free lane. activeLanes[i] === null means no commit's line
+  // is passing through column i, so reuse is safe — keeps the graph compressed
+  // to the left rather than sprawling rightward.
   const findFreeLane = (exclude: Set<number> = new Set()): number => {
     for (let i = 0; i < activeLanes.length; i++) {
       if (!exclude.has(i) && activeLanes[i] === null) return i
@@ -96,14 +99,17 @@ export function buildGraphLayout(commits: CommitNode[]): GraphNode[] {
 
       let parentLane: number
       if (shaToLane.has(parentSha)) {
+        // Another child already claimed this parent — respect that lane
         parentLane = shaToLane.get(parentSha)!
       } else if (pi === 0) {
-        // First parent continues in same lane
+        // First parent continues in this commit's lane (mainline lineage)
         parentLane = lane
         shaToLane.set(parentSha, parentLane)
         shaToColor.set(parentSha, color)
       } else {
-        // Merge parent gets a new lane
+        // Merge parent (second+) — slot into the leftmost truly-free column.
+        // `usedLanes` excludes this commit's own lane and any sibling parent
+        // lanes, so the merged-in branch can't collapse on top of them.
         parentLane = findFreeLane(usedLanes)
         shaToLane.set(parentSha, parentLane)
         shaToColor.set(parentSha, getLaneColor(parentLane))
@@ -124,6 +130,12 @@ export function buildGraphLayout(commits: CommitNode[]): GraphNode[] {
 
       // Mark the parent's lane as active — the line passes through intermediary rows
       if (parentRow > row + 1) {
+        while (activeLanes.length <= parentLane) activeLanes.push(null)
+        activeLanes[parentLane] = parentSha
+      } else if (parentRow === row + 1 && parentLane >= activeLanes.length) {
+        // Parent is the very next row but on a fresh rightmost lane — extend
+        // activeLanes so subsequent findFreeLane calls see this column as
+        // occupied (the parent will free it when reached).
         while (activeLanes.length <= parentLane) activeLanes.push(null)
         activeLanes[parentLane] = parentSha
       }

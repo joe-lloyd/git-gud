@@ -59,7 +59,13 @@ export default function App() {
   const [selectedRef, setSelectedRef]     = useState<string | null>(null)
   const [showSearch, setShowSearch]       = useState(false)
   const [showWorking, setShowWorking]     = useState(true)
-  const [activeDiff, setActiveDiff]       = useState<{ path: string; staged: boolean } | null>(null)
+  const [activeDiff, setActiveDiff]       = useState<{ path: string; staged?: boolean; sha?: string } | null>(null)
+
+  // A commit-mode diff is bound to its commit — if the user picks a different
+  // commit, close the stale diff. Working-tree diffs (no `sha`) stay open.
+  useEffect(() => {
+    setActiveDiff((prev) => (prev?.sha && prev.sha !== repo.selectedSha ? null : prev))
+  }, [repo.selectedSha])
 
   const { menu: ctxMenu, open: openCtx, close: closeCtx } = useContextMenu()
 
@@ -86,6 +92,26 @@ export default function App() {
     if (!localName) return
     await repo.methods.handleCheckout(localName)
   }, [repo.methods])
+
+  // Sidebar ref clicks: track the selection AND, for stashes/branches/tags
+  // backed by a SHA in the current log window, jump the graph to that node.
+  const handleSelectRef = useCallback((ref: string | null) => {
+    setSelectedRef(ref)
+    if (!ref) return
+    const [kind, ...rest] = ref.split(':')
+    const name = rest.join(':')
+    let sha: string | undefined
+    if (kind === 'stash') {
+      sha = repo.stashes.find(s => String(s.index) === name)?.sha
+    } else if (kind === 'local') {
+      sha = repo.branches.local.find(b => b.name === name)?.sha
+    } else if (kind === 'remote') {
+      sha = repo.branches.remote.find(b => b.name === name)?.sha
+    } else if (kind === 'tag') {
+      sha = repo.tags.find(t => t.name === name)?.sha
+    }
+    if (sha) repo.setSelectedSha(sha)
+  }, [repo])
 
   const handleApplyStash = useCallback(async (index: number) => {
     const r = await window.gitApi.stashApply(index)
@@ -359,6 +385,7 @@ export default function App() {
         onActivate={repo.methods.switchTab}
         onClose={repo.methods.closeTab}
         onOpen={repo.methods.handleOpenRepo}
+        onGoHome={repo.methods.handleGoHome}
       />
 
       <Toolbar
@@ -384,7 +411,7 @@ export default function App() {
           remotes={repo.remotes}
           currentBranch={repo.status?.branch ?? ''}
           selectedRef={selectedRef}
-          onSelectRef={setSelectedRef}
+          onSelectRef={handleSelectRef}
           onCheckout={repo.methods.handleCheckout}
           onCheckoutRemote={handleCheckoutRemote}
           onApplyStash={handleApplyStash}
@@ -411,6 +438,7 @@ export default function App() {
                   <DiffViewer
                     filePath={activeDiff.path}
                     staged={activeDiff.staged}
+                    sha={activeDiff.sha ?? null}
                     onClose={() => setActiveDiff(null)}
                     onApplied={repo.methods.refresh}
                   />
@@ -423,6 +451,7 @@ export default function App() {
                     onRefContextMenu={handleRefContextMenu}
                     onRefDrop={handleRefDrop}
                     worktreeBranches={new Set(repo.worktrees.filter(w => !w.isMain).map(w => w.branch))}
+                    stashes={repo.stashes}
                   />
                 )}
               </div>
@@ -444,7 +473,18 @@ export default function App() {
                       onSelectDiff={(path, staged) => { setActiveDiff({ path, staged }); setShowWorking(true) }}
                     />
                   ) : (
-                    <CommitDetail sha={repo.selectedSha} commits={repo.commits} />
+                    <CommitDetail
+                      sha={repo.selectedSha}
+                      commits={repo.commits}
+                      selectedFile={activeDiff?.sha === repo.selectedSha ? activeDiff.path : null}
+                      onSelectFile={(path, sha) => {
+                        setActiveDiff((prev) =>
+                          prev && prev.sha === sha && prev.path === path
+                            ? null
+                            : { path, sha }
+                        )
+                      }}
+                    />
                   )}
                 </div>
               </div>

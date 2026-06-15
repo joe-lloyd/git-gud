@@ -91,3 +91,23 @@
   transition: background 0.1s, color 0.1s;
 }
 .tab-new:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Home button — leftmost; returns to the welcome / repo-picker page */
+.tab-home {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 100%;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: -8px; /* counter the .tab-bar padding so it truly hugs the left */
+  margin-right: 4px;
+  transition: background 0.1s, color 0.1s;
+}
+.tab-home:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tab-home svg { display: block; }

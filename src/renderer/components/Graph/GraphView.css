@@ -6,6 +6,24 @@
   position: relative;
 }
 
+/* Outer horizontal scroller — wraps header + body so they pan in lockstep */
+.graph-h-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+}
+
+/* Inner content sizes to its widest row so the X-scrollbar appears only when needed */
+.graph-h-inner {
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  width: max-content;
+  height: 100%;
+}
+
 /* Column headers */
 .graph-header {
   display: flex;
@@ -22,16 +40,17 @@
   gap: 0;
 }
 
-.gh-message { flex: 1; padding: 0 8px; }
-.gh-author  { width: 140px; flex-shrink: 0; }
-.gh-date    { width: 80px;  flex-shrink: 0; }
-.gh-sha     { width: 58px;  flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+.gh-message { flex: 1; padding: 0 8px; min-width: 720px; }
+.gh-author  { width: 160px; flex-shrink: 0; }
+.gh-date    { width: 90px;  flex-shrink: 0; }
+.gh-sha     { width: 70px;  flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
 
-/* Scrollable body */
+/* Scrollable body — vertical only; X handled by .graph-h-scroll */
 .graph-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: visible;
   position: relative;
   display: block;
 }
@@ -89,9 +108,31 @@
   overflow: hidden;
 }
 
-/* Commit message */
+/* Stash badge — small diamond marker matching the canvas node shape */
+.cr-stash-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0.85;
+  transform: translateY(-0.5px);
+  flex-shrink: 0;
+}
+.commit-row.is-stash .cr-message {
+  font-style: italic;
+  color: var(--text-muted);
+}
+.commit-row.is-stash:hover .cr-message,
+.commit-row.is-stash.selected .cr-message {
+  color: var(--text-secondary);
+}
+
+/* Commit message — wide; row overflows horizontally if window is narrow */
 .cr-message {
   flex: 1;
+  min-width: 720px;
   font-size: 12.5px;
   color: var(--text-secondary);
   overflow: hidden;
@@ -110,7 +151,7 @@
 
 /* Author */
 .cr-author {
-  width: 140px;
+  width: 160px;
   flex-shrink: 0;
   font-size: 11.5px;
   color: var(--text-muted);
@@ -121,7 +162,7 @@
 
 /* Date */
 .cr-date {
-  width: 80px;
+  width: 90px;
   flex-shrink: 0;
   font-size: 11px;
   color: var(--text-muted);
@@ -130,7 +171,7 @@
 
 /* SHA */
 .cr-sha {
-  width: 58px;
+  width: 70px;
   flex-shrink: 0;
   font-size: 11px;
   color: var(--text-muted);

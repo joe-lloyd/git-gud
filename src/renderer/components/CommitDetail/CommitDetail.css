@@ -70,10 +70,8 @@
 }
 
 .cd-files {
-  flex-shrink: 0;
-  max-height: 200px;
+  flex: 1;
   overflow-y: auto;
-  border-bottom: 1px solid var(--border);
 }
 
 .cd-section-title {

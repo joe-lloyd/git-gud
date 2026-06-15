@@ -3,22 +3,30 @@ import './DiffViewer.css'
 
 interface DiffViewerProps {
   filePath: string
-  staged: boolean
+  /** Working-tree mode: read against index. Ignored when `sha` is set. */
+  staged?: boolean
+  /** Commit mode: show the diff this commit introduced for `filePath`. */
+  sha?: string | null
   onClose: () => void
-  onApplied: () => void
+  /** Working-tree mode only: re-fetched after a stage/unstage chunk applies. */
+  onApplied?: () => void
 }
 
-export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged, onClose, onApplied }) => {
+export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false, sha = null, onClose, onApplied }) => {
   const [diff, setDiff] = useState<string>('')
   const [loading, setLoading] = useState(true)
+  const isCommitMode = sha !== null
 
   const refreshDiff = useCallback(() => {
     setLoading(true)
-    window.gitApi.getFileDiff(filePath, staged).then((d) => {
+    const p = isCommitMode
+      ? window.gitApi.getCommitFileDiff(sha!, filePath)
+      : window.gitApi.getFileDiff(filePath, staged)
+    p.then((d) => {
       setDiff(d || '')
       setLoading(false)
     })
-  }, [filePath, staged])
+  }, [filePath, staged, sha, isCommitMode])
 
   useEffect(() => { refreshDiff() }, [refreshDiff])
 
@@ -48,9 +56,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged, onClos
   })
 
   const applyPatch = async (patch: string) => {
+    if (isCommitMode) return // read-only in commit mode
     setLoading(true)
     const r = await window.gitApi.applyPatch(patch, { cached: true, reverse: staged })
-    if (r.success) onApplied()
+    if (r.success) onApplied?.()
     refreshDiff()
   }
 
@@ -80,9 +89,13 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged, onClos
       {/* Header bar */}
       <div className="diff-header">
         <span className="diff-header-label">
-          <span className={`diff-badge ${staged ? 'diff-badge-staged' : 'diff-badge-unstaged'}`}>
-            {staged ? 'Staged' : 'Unstaged'}
-          </span>
+          {isCommitMode ? (
+            <span className="diff-badge diff-badge-commit mono">{sha!.slice(0, 7)}</span>
+          ) : (
+            <span className={`diff-badge ${staged ? 'diff-badge-staged' : 'diff-badge-unstaged'}`}>
+              {staged ? 'Staged' : 'Unstaged'}
+            </span>
+          )}
           <span className="diff-filename">{filePath}</span>
         </span>
         <button className="diff-close" onClick={onClose} title="Close diff (Esc)">✕ Close</button>
@@ -97,24 +110,27 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged, onClos
         <div className="diff-body">
           <table className="diff-table">
             <tbody>
-              {lines.map(({ text, type, i, hunkIndex }) => (
-                <tr key={i} className={`diff-line diff-line-${type}`}>
-                  <td className="diff-gutter">{type !== 'hunk' && type !== 'header' ? i + 1 : ''}</td>
-                  <td className={`diff-sign ${type === 'add' || type === 'remove' ? 'diff-sign-actionable' : ''}`}
-                      onClick={() => (type === 'add' || type === 'remove') && handleStageLine(hunkIndex, i)}
-                      title={type === 'add' || type === 'remove' ? (staged ? 'Unstage Line' : 'Stage Line') : ''}>
-                    {type === 'add' ? '+' : type === 'remove' ? '−' : ''}
-                  </td>
-                  <td className="diff-content">
-                    {text.slice(type === 'context' ? 0 : 1)}
-                    {type === 'hunk' && (
-                      <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
-                        {staged ? 'Unstage Chunk ↑' : 'Stage Chunk ↓'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {lines.map(({ text, type, i, hunkIndex }) => {
+                const lineActionable = !isCommitMode && (type === 'add' || type === 'remove')
+                return (
+                  <tr key={i} className={`diff-line diff-line-${type}`}>
+                    <td className="diff-gutter">{type !== 'hunk' && type !== 'header' ? i + 1 : ''}</td>
+                    <td className={`diff-sign ${lineActionable ? 'diff-sign-actionable' : ''}`}
+                        onClick={() => lineActionable && handleStageLine(hunkIndex, i)}
+                        title={lineActionable ? (staged ? 'Unstage Line' : 'Stage Line') : ''}>
+                      {type === 'add' ? '+' : type === 'remove' ? '−' : ''}
+                    </td>
+                    <td className="diff-content">
+                      {text.slice(type === 'context' ? 0 : 1)}
+                      {type === 'hunk' && !isCommitMode && (
+                        <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
+                          {staged ? 'Unstage Chunk ↑' : 'Stage Chunk ↓'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

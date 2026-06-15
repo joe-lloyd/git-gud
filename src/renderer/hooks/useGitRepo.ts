@@ -34,12 +34,16 @@ export function useGitRepo() {
   }, [])
 
   const handleGoHome = useCallback(() => {
-    // Close every open tab in main so the watcher stops too.
-    for (const t of openTabs) window.gitApi.closeTab(t).catch(() => {})
-    setOpenTabs([])
+    // Keep the tabs (services + persisted list) intact — user just wants to
+    // visit the welcome screen. Closing tabs would lose the session. We
+    // deactivate in main by closing only the ACTIVE service's watcher, via
+    // the close-tab IPC on a no-op… actually we leave services alone too;
+    // worst case the watcher keeps polling a repo while the user is on home,
+    // which is cheap.
     setRepoPath(null)
-    clearRepoState()
-  }, [openTabs, clearRepoState])
+    setSelectedSha(null)
+    setError(null)
+  }, [])
 
   // Fetch every piece of repo state. Used by both initial load and refresh.
   // Doesn't touch loading state — caller decides whether to show a spinner.
@@ -136,6 +140,37 @@ export function useGitRepo() {
     if (!repoPath) return
     return window.gitApi.onRepoChanged(() => refreshRef.current())
   }, [repoPath])
+
+  // Restore the previous session's tabs on first mount. Each path is loaded
+  // headlessly via addTab; only the last-active one is activated so the user
+  // lands exactly where they left off. Stale paths (repo deleted/moved) are
+  // silently dropped from the restored list.
+  const didRestoreRef = useRef(false)
+  useEffect(() => {
+    if (didRestoreRef.current) return
+    didRestoreRef.current = true
+    ;(async () => {
+      const saved = await window.gitApi.getSavedTabs().catch(() => null)
+      if (!saved || saved.tabs.length === 0) return
+      setLoading(true)
+      try {
+        const loaded: string[] = []
+        for (const path of saved.tabs) {
+          const ok = await window.gitApi.addTab(path).catch(() => false)
+          if (ok) loaded.push(path)
+        }
+        if (loaded.length === 0) return
+        setOpenTabs(loaded)
+        const target = saved.active && loaded.includes(saved.active) ? saved.active : loaded[loaded.length - 1]
+        const ok = await window.gitApi.activatePath(target).catch(() => false)
+        if (!ok) return
+        setRepoPath(target)
+        await fetchAll().catch(() => {})
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [fetchAll])
 
   const handleOpenRepo = useCallback(async () => {
     const path = await window.gitApi.openDialog()

@@ -156,6 +156,7 @@ app.whenReady().then(() => {
     }
     services.set(repoPath, candidate)
     activateRepo(repoPath)
+    saveTabState()
     return repoPath
   })
 
@@ -164,6 +165,7 @@ app.whenReady().then(() => {
       // Already loaded? Just re-activate.
       if (services.has(repoPath)) {
         activateRepo(repoPath)
+        saveTabState()
         return true
       }
       const candidate = new GitService(repoPath, () => githubService?.getToken() || null)
@@ -171,6 +173,7 @@ app.whenReady().then(() => {
       if (!isRepo) return false
       services.set(repoPath, candidate)
       activateRepo(repoPath)
+      saveTabState()
       return true
     } catch { return false }
   })
@@ -179,6 +182,7 @@ app.whenReady().then(() => {
   ipcMain.handle('git:activate-path', async (_event, repoPath: string) => {
     if (!services.has(repoPath)) return false
     activateRepo(repoPath)
+    saveTabState()
     return true
   })
 
@@ -190,11 +194,61 @@ app.whenReady().then(() => {
       gitService = null
       activeRepoPath = null
     }
+    saveTabState()
     return true
   })
 
   ipcMain.handle('git:active-path', async () => activeRepoPath)
   ipcMain.handle('git:open-tabs', async () => Array.from(services.keys()))
+
+  // ── Session: persisted tabs ─────────────────────────────────────────────────
+  // We persist the list of open tabs (and the active one) so a relaunch restores
+  // the workspace the user had open. Writes happen after every mutation that
+  // affects either list — open, activate, close. Reads happen once on renderer
+  // mount via `app:get-saved-tabs`.
+
+  const tabsFile = join(app.getPath('userData'), 'open-tabs.json')
+
+  function getSavedTabs(): { tabs: string[]; active: string | null } {
+    try {
+      if (fs.existsSync(tabsFile)) {
+        const parsed = JSON.parse(fs.readFileSync(tabsFile, 'utf8'))
+        const tabs = Array.isArray(parsed?.tabs) ? parsed.tabs.filter((p: unknown): p is string => typeof p === 'string') : []
+        const active = typeof parsed?.active === 'string' ? parsed.active : null
+        return { tabs, active }
+      }
+    } catch (e) {
+      console.error('Failed to read saved tabs', e)
+    }
+    return { tabs: [], active: null }
+  }
+
+  function saveTabState() {
+    try {
+      const tabs = Array.from(services.keys())
+      const active = activeRepoPath
+      fs.writeFileSync(tabsFile, JSON.stringify({ tabs, active }, null, 2))
+    } catch (e) {
+      console.error('Failed to save tabs', e)
+    }
+  }
+
+  // Open a tab WITHOUT making it active — used at startup to restore a session
+  // of N tabs and only activate one at the end. Returns false if the path is
+  // no longer a valid repo (silently dropped from the restored list).
+  ipcMain.handle('git:add-tab', async (_event, repoPath: string) => {
+    try {
+      if (services.has(repoPath)) return true
+      const candidate = new GitService(repoPath, () => githubService?.getToken() || null)
+      const isRepo = await candidate.isRepo()
+      if (!isRepo) return false
+      services.set(repoPath, candidate)
+      saveTabState()
+      return true
+    } catch { return false }
+  })
+
+  ipcMain.handle('app:get-saved-tabs', async () => getSavedTabs())
 
   // ── Settings / Recent Projects ───────────────────────────────────────────────
 
@@ -324,6 +378,10 @@ app.whenReady().then(() => {
   ipcMain.handle('git:file-diff', async (_event, filePath: string, staged: boolean) => {
     if (!gitService) return ''
     try { return await gitService.getFileDiff(filePath, staged) } catch { return '' }
+  })
+  ipcMain.handle('git:commit-file-diff', async (_event, sha: string, filePath: string) => {
+    if (!gitService) return ''
+    try { return await gitService.getCommitFileDiff(sha, filePath) } catch { return '' }
   })
 
   // ── Basic Operations ─────────────────────────────────────────────────

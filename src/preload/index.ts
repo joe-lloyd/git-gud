@@ -61,10 +61,13 @@ export type GitHubRepo = {
 const gitApi = {
   openDialog: (): Promise<string | null> => ipcRenderer.invoke('git:open-dialog'),
   openPath: (path: string): Promise<boolean> => ipcRenderer.invoke('git:open-path', path),
+  addTab: (path: string): Promise<boolean> => ipcRenderer.invoke('git:add-tab', path),
   activatePath: (path: string): Promise<boolean> => ipcRenderer.invoke('git:activate-path', path),
   closeTab: (path: string): Promise<boolean> => ipcRenderer.invoke('git:close-tab', path),
   getActivePath: (): Promise<string | null> => ipcRenderer.invoke('git:active-path'),
   getOpenTabs: (): Promise<string[]> => ipcRenderer.invoke('git:open-tabs'),
+  getSavedTabs: (): Promise<{ tabs: string[]; active: string | null }> =>
+    ipcRenderer.invoke('app:get-saved-tabs'),
 
   getLog: (limit?: number): Promise<CommitNode[]> => ipcRenderer.invoke('git:log', limit),
   getBranches: (): Promise<BranchData> => ipcRenderer.invoke('git:branches'),
@@ -76,6 +79,7 @@ const gitApi = {
   getCommitDiff: (sha: string): Promise<string> => ipcRenderer.invoke('git:commit-diff', sha),
   getCommitFiles: (sha: string): Promise<FileChange[]> => ipcRenderer.invoke('git:commit-files', sha),
   getFileDiff: (filePath: string, staged: boolean): Promise<string> => ipcRenderer.invoke('git:file-diff', filePath, staged),
+  getCommitFileDiff: (sha: string, filePath: string): Promise<string> => ipcRenderer.invoke('git:commit-file-diff', sha, filePath),
 
 
   checkout: (branch: string): Promise<{ success: boolean; error?: string }> =>

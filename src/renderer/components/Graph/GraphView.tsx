@@ -9,7 +9,7 @@
 
 import React, { useRef, useState, useCallback, useMemo } from "react";
 import { buildGraphLayout, GraphNode } from "./graphLayout";
-import type { CommitNode } from "../../../preload/index";
+import type { CommitNode, StashInfo } from "../../../preload/index";
 import "./GraphView.css";
 
 const ROW_H = 36; // px per commit row
@@ -32,6 +32,8 @@ interface GraphViewProps {
   onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
   /** Branches currently checked out in a worktree (branch name, no remote prefix) */
   worktreeBranches?: Set<string>;
+  /** Stashes — used to render stash nodes with a distinct icon and dashed parent links */
+  stashes?: StashInfo[];
 }
 
 export const GraphView: React.FC<GraphViewProps> = ({
@@ -42,6 +44,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   onRefContextMenu,
   onRefDrop,
   worktreeBranches = new Set(),
+  stashes = [],
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,6 +53,12 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
   // Build graph layout (memoized — only recalculates when commits change)
   const nodes = useMemo(() => buildGraphLayout(commits), [commits]);
+
+  // Stash SHA lookup — drives diamond node + dashed parent links
+  const stashShaSet = useMemo(
+    () => new Set(stashes.map((s) => s.sha)),
+    [stashes],
+  );
 
   const numLanes = useMemo(
     () => nodes.reduce((m, n) => Math.max(m, n.lane), 0) + 1,
@@ -64,6 +73,28 @@ export const GraphView: React.FC<GraphViewProps> = ({
     nodes.length - 1,
     Math.ceil((scrollTop + viewHeight) / ROW_H) + OVERSCAN,
   );
+
+  // sha → row index, used to scroll the selected commit into view when a
+  // sidebar ref (e.g. a stash) jumps the selection from outside the graph.
+  const shaToRow = useMemo(() => {
+    const m = new Map<string, number>();
+    nodes.forEach((n) => m.set(n.commit.sha, n.row));
+    return m;
+  }, [nodes]);
+
+  React.useEffect(() => {
+    if (!selectedSha) return;
+    const row = shaToRow.get(selectedSha);
+    if (row === undefined) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const target = row * ROW_H;
+    // Only scroll if the row is outside the visible band — avoids fighting
+    // the user when they click a row already on screen.
+    const inView = target >= el.scrollTop && target + ROW_H <= el.scrollTop + el.clientHeight;
+    if (inView) return;
+    el.scrollTo({ top: Math.max(0, target - el.clientHeight / 2 + ROW_H / 2), behavior: "smooth" });
+  }, [selectedSha, shaToRow]);
 
   // Track container size
   const containerRef = useRef<HTMLDivElement>(null);
@@ -105,6 +136,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
       const cy = r * ROW_H + ROW_H / 2 - scrollTop;
       const cx = GRAPH_PAD + node.lane * LANE_W + NODE_R;
+      const fromStash = stashShaSet.has(node.commit.sha);
 
       for (const conn of node.parentConnections) {
         const pr = conn.parentRow;
@@ -113,11 +145,17 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const py = pr * ROW_H + ROW_H / 2 - scrollTop;
         const px = GRAPH_PAD + conn.parentLane * LANE_W + NODE_R;
 
+        // Lines hanging off a stash node (to index/untracked/HEAD parents) are
+        // dashed to mark them as off-history dangles, not real commit lineage.
+        const toStash = stashShaSet.has(conn.parentSha);
+        const dashed = fromStash || toStash;
+
         ctx.strokeStyle = conn.color;
         ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.85;
+        ctx.globalAlpha = dashed ? 0.7 : 0.85;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
+        if (dashed) ctx.setLineDash([4, 3]);
         ctx.beginPath();
         ctx.moveTo(cx, cy);
 
@@ -125,14 +163,20 @@ export const GraphView: React.FC<GraphViewProps> = ({
           // Same lane — straight vertical
           ctx.lineTo(px, py);
         } else {
-          // Different lane — elbow with soft rounded corners (radius 4px)
+          // Different lane — single 90° elbow so one end enters its node from
+          // the SIDE (clear merge/fork visual), the other from straight on.
+          //   merge:  start node → horizontal → bend → vertical → parent
+          //   fork :  start node → vertical   → bend → horizontal → parent
           const r = 4;
-          const midY = Math.round((cy + py) / 2);
-          ctx.arcTo(cx, midY, px, midY, r); // corner 1: vertical→horizontal
-          ctx.arcTo(px, midY, px, py, r); // corner 2: horizontal→vertical
+          if (conn.type === "merge") {
+            ctx.arcTo(px, cy, px, py, r); // corner at (px, cy)
+          } else {
+            ctx.arcTo(cx, py, px, py, r); // corner at (cx, py)
+          }
           ctx.lineTo(px, py);
         }
         ctx.stroke();
+        if (dashed) ctx.setLineDash([]);
         ctx.globalAlpha = 1;
       }
     }
@@ -145,33 +189,67 @@ export const GraphView: React.FC<GraphViewProps> = ({
       const cy = r * ROW_H + ROW_H / 2 - scrollTop;
       const cx = GRAPH_PAD + node.lane * LANE_W + NODE_R;
       const isSelected = node.commit.sha === selectedSha;
+      const isStash = stashShaSet.has(node.commit.sha);
       const radius = isSelected ? NODE_R + 1.5 : NODE_R;
 
       if (isSelected) {
         ctx.beginPath();
-        ctx.arc(cx, cy, radius + 3, 0, Math.PI * 2);
+        if (isStash) {
+          const g = radius + 3;
+          ctx.moveTo(cx, cy - g);
+          ctx.lineTo(cx + g, cy);
+          ctx.lineTo(cx, cy + g);
+          ctx.lineTo(cx - g, cy);
+          ctx.closePath();
+        } else {
+          ctx.arc(cx, cy, radius + 3, 0, Math.PI * 2);
+        }
         ctx.fillStyle = `${node.color}30`;
         ctx.fill();
       }
 
-      // Outer circle
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.fillStyle = node.color;
       if (isSelected) {
         ctx.shadowColor = node.color;
         ctx.shadowBlur = 10;
       }
-      ctx.fill();
-      ctx.shadowBlur = 0;
 
-      // Inner dot
-      ctx.beginPath();
-      ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(0,0,0,0.45)";
-      ctx.fill();
+      if (isStash) {
+        // Diamond (rotated square) — distinguishes stash from real commits
+        const g = radius + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - g);
+        ctx.lineTo(cx + g, cy);
+        ctx.lineTo(cx, cy + g);
+        ctx.lineTo(cx - g, cy);
+        ctx.closePath();
+        ctx.fillStyle = node.color;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Outline
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = "rgba(0,0,0,0.55)";
+        ctx.stroke();
+
+        // Inner "S" mark via a small horizontal bar to read as "stack"
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillRect(cx - 2.2, cy - 0.8, 4.4, 1.6);
+      } else {
+        // Outer circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = node.color;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Inner dot
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,0.45)";
+        ctx.fill();
+      }
     }
-  }, [nodes, scrollTop, viewHeight, graphWidth, selectedSha, startRow, endRow]);
+  }, [nodes, scrollTop, viewHeight, graphWidth, selectedSha, startRow, endRow, stashShaSet]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop);
@@ -183,43 +261,49 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
   return (
     <div className="graph-view" ref={containerRef}>
-      {/* Column headers */}
-      <div className="graph-header">
-        <div style={{ width: REFS_W, flexShrink: 0, padding: "0 4px" }}>Branches / Tags</div>
-        <div style={{ width: graphWidth, flexShrink: 0 }} />
-        <div className="gh-message">Commit Message</div>
-        <div className="gh-author">Author</div>
-        <div className="gh-date">Date</div>
-        <div className="gh-sha">SHA</div>
-      </div>
-      <div className="divider" />
+      {/* One horizontal scroller wraps header + body so they pan in lockstep */}
+      <div className="graph-h-scroll">
+        <div className="graph-h-inner">
+          {/* Column headers */}
+          <div className="graph-header">
+            <div style={{ width: REFS_W, flexShrink: 0, padding: "0 4px" }}>Branches / Tags</div>
+            <div style={{ width: graphWidth, flexShrink: 0 }} />
+            <div className="gh-message">Commit Message</div>
+            <div className="gh-author">Author</div>
+            <div className="gh-date">Date</div>
+            <div className="gh-sha">SHA</div>
+          </div>
+          <div className="divider" />
 
-      {/* Scrollable body */}
-      <div className="graph-scroll" ref={scrollRef} onScroll={handleScroll}>
-        {/* Canvas — absolutely overlaid on the graph-gap zone at left: REFS_W */}
-        <div className="graph-canvas-wrap" style={{ left: REFS_W, width: graphWidth, height: totalHeight }}>
-          <canvas ref={canvasRef} className="graph-canvas" />
-        </div>
+          {/* Scrollable body — vertical only; horizontal handled by outer wrapper */}
+          <div className="graph-scroll" ref={scrollRef} onScroll={handleScroll}>
+            {/* Canvas — absolutely overlaid on the graph-gap zone at left: REFS_W */}
+            <div className="graph-canvas-wrap" style={{ left: REFS_W, width: graphWidth, height: totalHeight }}>
+              <canvas ref={canvasRef} className="graph-canvas" />
+            </div>
 
-        {/* Virtualized full-width rows: [refs][gap][message][author][date][sha] */}
-        <div className="graph-rows">
-          {topSpacerH > 0 && <div style={{ height: topSpacerH }} />}
+            {/* Virtualized full-width rows: [refs][gap][message][author][date][sha] */}
+            <div className="graph-rows">
+              {topSpacerH > 0 && <div style={{ height: topSpacerH }} />}
 
-          {visibleNodes.map((node) => (
-            <CommitRow
-              key={node.commit.sha}
-              node={node}
-              isSelected={node.commit.sha === selectedSha}
-              onSelect={onSelectCommit}
-              onContextMenu={onContextMenu}
-              onRefContextMenu={onRefContextMenu}
-              onRefDrop={onRefDrop}
-              worktreeBranches={worktreeBranches}
-              graphWidth={graphWidth}
-            />
-          ))}
+              {visibleNodes.map((node) => (
+                <CommitRow
+                  key={node.commit.sha}
+                  node={node}
+                  isSelected={node.commit.sha === selectedSha}
+                  isStash={stashShaSet.has(node.commit.sha)}
+                  onSelect={onSelectCommit}
+                  onContextMenu={onContextMenu}
+                  onRefContextMenu={onRefContextMenu}
+                  onRefDrop={onRefDrop}
+                  worktreeBranches={worktreeBranches}
+                  graphWidth={graphWidth}
+                />
+              ))}
 
-          {bottomSpacerH > 0 && <div style={{ height: bottomSpacerH }} />}
+              {bottomSpacerH > 0 && <div style={{ height: bottomSpacerH }} />}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -231,6 +315,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 interface CommitRowProps {
   node: GraphNode;
   isSelected: boolean;
+  isStash: boolean;
   onSelect: (sha: string) => void;
   onContextMenu?: (e: React.MouseEvent, sha: string) => void;
   onRefContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
@@ -240,7 +325,7 @@ interface CommitRowProps {
 }
 
 const CommitRow: React.FC<CommitRowProps> = React.memo(
-  ({ node, isSelected, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth }) => {
+  ({ node, isSelected, isStash, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth }) => {
     const { commit } = node;
     const groups = useMemo(
       () => groupRefs(commit.refs, worktreeBranches),
@@ -249,7 +334,7 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
 
     return (
       <div
-        className={`commit-row ${isSelected ? "selected" : ""}`}
+        className={`commit-row ${isSelected ? "selected" : ""} ${isStash ? "is-stash" : ""}`}
         style={{ height: ROW_H }}
         onClick={() => onSelect(commit.sha)}
         onContextMenu={
@@ -258,6 +343,7 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
       >
         {/* Refs — LEFTMOST column, left of the tree canvas */}
         <div className="cr-refs">
+          {isStash && <span className="cr-stash-badge" title="Stash">◆</span>}
           {groups.map((g) => (
             <RefPill
               key={g.key}

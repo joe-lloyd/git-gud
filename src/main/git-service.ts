@@ -97,12 +97,27 @@ export class GitService {
     // Use ASCII unit-separator \x1f between fields so empty %D never collapses
     // into the message line (which happens with newline-only separators).
     const FS = "\x1f";
+
+    // Older stashes live only in the reflog of refs/stash, so --all wouldn't
+    // pick them up. Pass each stash SHA explicitly to include the whole stack.
+    let extraRefs: string[] = [];
+    try {
+      const stashRaw = await this.git.raw(["stash", "list", "--format=%H"]);
+      extraRefs = stashRaw.trim().split("\n").filter(Boolean);
+    } catch {
+      /* no stashes */
+    }
+
     const rawOutput = await this.git.raw([
       "log",
       `--max-count=${limit}`,
       "--all",
       "--parents",
+      // Strict children-before-parents — the lane algorithm relies on each
+      // commit's children being assigned before the commit itself is reached.
+      "--topo-order",
       `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}%s`,
+      ...extraRefs,
     ]);
     return parseRawLog(rawOutput);
   }
@@ -252,6 +267,47 @@ export class GitService {
     return this.git.raw(["show", "--stat", "-p", "--format=", sha]);
   }
 
+  /**
+   * Parent SHAs for a commit. Merge commits have ≥ 2; everything else has ≤ 1.
+   * Used to decide whether to compare against the first parent (merge view).
+   */
+  private async getParents(sha: string): Promise<string[]> {
+    try {
+      const out = await this.git.raw(["show", "-s", "--format=%P", sha]);
+      return out.trim().split(/\s+/).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  async getCommitFileDiff(sha: string, filePath: string): Promise<string> {
+    try {
+      const parents = await this.getParents(sha);
+      if (parents.length > 1) {
+        // Merge commit — `git show` collapses to nothing by default. Diff the
+        // first parent vs the merge so we see what mainline gained.
+        return await this.git.raw([
+          "diff",
+          "--unified=5",
+          `${sha}^1`,
+          sha,
+          "--",
+          filePath,
+        ]);
+      }
+      return await this.git.raw([
+        "show",
+        "--format=",
+        "--unified=5",
+        sha,
+        "--",
+        filePath,
+      ]);
+    } catch {
+      return "";
+    }
+  }
+
   async getFileDiff(filePath: string, staged: boolean): Promise<string> {
     try {
       const args = staged
@@ -276,13 +332,22 @@ export class GitService {
   }
 
   async getCommitFiles(sha: string): Promise<FileChange[]> {
-    const raw = await this.git.raw([
-      "diff-tree",
-      "--no-commit-id",
-      "-r",
-      "--name-status",
-      sha,
-    ]);
+    const parents = await this.getParents(sha);
+    // For a merge commit, the default diff-tree output is empty. Compare
+    // against the first parent so the user sees exactly what this merge
+    // brought into the destination branch.
+    const args =
+      parents.length > 1
+        ? [
+            "diff-tree",
+            "--no-commit-id",
+            "-r",
+            "--name-status",
+            `${sha}^1`,
+            sha,
+          ]
+        : ["diff-tree", "--no-commit-id", "-r", "--name-status", sha];
+    const raw = await this.git.raw(args);
     return raw
       .trim()
       .split("\n")
@@ -685,6 +750,17 @@ function parseRawLog(raw: string): CommitNode[] {
     const date     = parts[4]?.trim() || "";
     const refsRaw  = parts[5]?.trim() || "";
     const message  = parts.slice(6).join(FS).trim();
+
+    // Stash internals: parent2/parent3 of a stash commit ("index on …",
+    // "untracked files on …") get walked by --topo-order and show up as
+    // ghost nodes. The stash top itself stays — graph renders it as a
+    // dotted stash node and the sidebar links into it.
+    if (
+      /^index on /.test(message) ||
+      /^untracked files on /.test(message)
+    ) {
+      continue;
+    }
 
     // Parse refs: e.g. "HEAD -> main, origin/main, tag: v1.0"
     const refs: string[] = [];
