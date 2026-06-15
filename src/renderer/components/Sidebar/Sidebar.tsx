@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react'
-import type { BranchData, StashInfo, RemoteInfo, TagInfo, BranchInfo } from '../../../preload/index'
+import type { BranchData, StashInfo, RemoteInfo, TagInfo, BranchInfo, WorktreeInfo } from '../../../preload/index'
 import { REF_DRAG_MIME } from '../Graph/GraphView'
 import './Sidebar.css'
 
@@ -9,6 +9,7 @@ interface SidebarProps {
   stashes: StashInfo[]
   tags: TagInfo[]
   remotes: RemoteInfo[]
+  worktrees: WorktreeInfo[]
   currentBranch: string
   selectedRef: string | null
   onSelectRef: (ref: string | null) => void
@@ -21,6 +22,9 @@ interface SidebarProps {
   onBranchContextMenu: (e: React.MouseEvent, branchName: string, kind: 'local' | 'remote') => void
   onStashContextMenu: (e: React.MouseEvent, index: number) => void
   onTagContextMenu: (e: React.MouseEvent, tagName: string) => void
+  onWorktreeClick: (path: string) => void
+  onWorktreeContextMenu: (e: React.MouseEvent, path: string, isMain: boolean) => void
+  onWorktreeManage: () => void
   /** Drop a ref pill (from graph) onto a sidebar branch row */
   onRefDrop: (e: React.MouseEvent, source: string, target: string) => void
 }
@@ -31,6 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   stashes,
   tags,
   remotes,
+  worktrees,
   currentBranch,
   selectedRef,
   onSelectRef,
@@ -43,6 +48,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onBranchContextMenu,
   onStashContextMenu,
   onTagContextMenu,
+  onWorktreeClick,
+  onWorktreeContextMenu,
+  onWorktreeManage,
   onRefDrop,
 }) => {
   const repoName = repoPath ? repoPath.split('/').pop() : null
@@ -134,6 +142,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }
         </SidebarSection>
 
+        {/* Worktrees — list all checkouts, click to switch, right-click to manage */}
+        <SidebarSection
+          label="WORKTREES"
+          count={worktrees.length}
+          defaultOpen
+          action={{ label: '+', title: 'Manage worktrees…', onClick: onWorktreeManage }}
+        >
+          {worktrees.length === 0
+            ? <div className="sb-empty">No worktrees</div>
+            : worktrees.map((w) => {
+                const name = w.path.split('/').pop() || w.path
+                const isCurrent = w.path === repoPath
+                return (
+                  <SidebarItem
+                    key={w.path}
+                    label={`${w.branch || 'detached'}${w.isMain ? '  (main)' : ''}`}
+                    icon={isCurrent ? '◉' : '⊞'}
+                    selected={isCurrent}
+                    onClick={() => onWorktreeClick(w.path)}
+                    onContextMenu={(e) => onWorktreeContextMenu(e, w.path, w.isMain)}
+                    title={`${name}\n${w.path}\n→ ${w.branch || 'detached'} @ ${w.sha.slice(0, 7)}`}
+                  />
+                )
+              })
+          }
+        </SidebarSection>
+
         {/* Tags — peek of latest 4, hover for full list */}
         <CompactTagSection
           label="TAGS"
@@ -154,11 +189,13 @@ function SidebarSection({
   label,
   count,
   defaultOpen = true,
+  action,
   children,
 }: {
   label: string
   count: number
   defaultOpen?: boolean
+  action?: { label: string; title: string; onClick: () => void }
   children: React.ReactNode
 }) {
   return (
@@ -167,6 +204,15 @@ function SidebarSection({
         <span className="sb-chevron">›</span>
         <span className="sb-section-label">{label}</span>
         <span className="sb-count">{count}</span>
+        {action && (
+          <button
+            className="sb-section-action"
+            title={action.title}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); action.onClick() }}
+          >
+            {action.label}
+          </button>
+        )}
       </summary>
       <div className="sb-section-body">{children}</div>
     </details>

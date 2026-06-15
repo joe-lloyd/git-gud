@@ -9,6 +9,7 @@
     "preview": "electron-vite preview",
     "test": "vitest",
     "test:repos": "bash scripts/build-test-repos.sh",
+    "build:icon": "electron scripts/render-icon.cjs && bash scripts/build-icns.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

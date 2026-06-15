@@ -40,7 +40,7 @@
   gap: 0;
 }
 
-.gh-message { flex: 1; padding: 0 8px; min-width: 720px; }
+.gh-message { flex: 1 1 0; padding: 0 8px; min-width: 200px; max-width: 800px; }
 .gh-author  { width: 160px; flex-shrink: 0; }
 .gh-date    { width: 90px;  flex-shrink: 0; }
 .gh-sha     { width: 70px;  flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
@@ -141,10 +141,13 @@
   opacity: 1;
 }
 
-/* Commit message — wide; row overflows horizontally if window is narrow */
+/* Commit message — flexes to fill available space, capped so it doesn't push
+   the author/date/sha columns off-screen. Longer text truncates with ellipsis;
+   the full message is visible in CommitDetail when the commit is selected. */
 .cr-message {
-  flex: 1;
-  min-width: 720px;
+  flex: 1 1 0;
+  min-width: 200px;
+  max-width: 800px;
   font-size: 12.5px;
   color: var(--text-secondary);
   overflow: hidden;

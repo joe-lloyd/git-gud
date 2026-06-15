@@ -1,8 +1,13 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
 import { join } from 'path'
 import * as fs from 'fs'
 import { GitService } from './git-service'
 import { GitHubService } from './github-service'
+
+// App icon — resources/icon.png is rasterized from icon.svg by scripts/render-icon.cjs.
+// In dev `__dirname` is out/main, in prod it's inside the bundle; both sit one
+// level under the project root, so ../../resources resolves either way.
+const ICON_PATH = join(__dirname, '..', '..', 'resources', 'icon.png')
 
 let mainWindow: BrowserWindow | null = null
 // All loaded repos — one GitService per open tab.
@@ -98,6 +103,7 @@ function createWindow(): void {
     backgroundColor: '#0d1117',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
+    icon: ICON_PATH,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -115,6 +121,12 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // macOS dock icon — BrowserWindow.icon doesn't change the dock at runtime
+  // on Darwin; app.dock.setIcon does. Silently skipped on other platforms.
+  if (process.platform === 'darwin' && app.dock) {
+    try { app.dock.setIcon(nativeImage.createFromPath(ICON_PATH)) } catch { /* ignore */ }
+  }
+
   githubService = new GitHubService()
   createWindow()
 

@@ -1,0 +1,38 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c2532"/>
+      <stop offset="1" stop-color="#0b0f15"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="6" result="off"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="220" ry="220" fill="url(#bg)"/>
+
+  <g filter="url(#shadow)">
+    <!-- main lane (vertical) -->
+    <line x1="360" y1="200" x2="360" y2="824"
+          stroke="#63b3ed" stroke-width="40" stroke-linecap="round"/>
+
+    <!-- branch curve: forks at middle, has its own node, merges back to top -->
+    <path d="M 360 512 C 360 412, 664 456, 664 356 C 664 256, 460 200, 360 200"
+          fill="none" stroke="#f6ad55" stroke-width="40" stroke-linecap="round"/>
+
+    <!-- nodes -->
+    <circle cx="360" cy="824" r="84" fill="#63b3ed" stroke="#0b0f15" stroke-width="16"/>
+    <circle cx="360" cy="512" r="84" fill="#63b3ed" stroke="#0b0f15" stroke-width="16"/>
+    <circle cx="664" cy="356" r="84" fill="#f6ad55" stroke="#0b0f15" stroke-width="16"/>
+    <circle cx="360" cy="200" r="84" fill="#63b3ed" stroke="#0b0f15" stroke-width="16"/>
+
+    <!-- inner dots for "filled commit" look matching GraphView -->
+    <circle cx="360" cy="824" r="22" fill="rgba(0,0,0,0.55)"/>
+    <circle cx="360" cy="512" r="22" fill="rgba(0,0,0,0.55)"/>
+    <circle cx="664" cy="356" r="22" fill="rgba(0,0,0,0.55)"/>
+    <circle cx="360" cy="200" r="22" fill="rgba(0,0,0,0.55)"/>
+  </g>
+</svg>

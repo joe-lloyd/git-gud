@@ -30,7 +30,6 @@ import './styles/App.css'
 // All modal types that App.tsx manages.
 // Actions that need user interaction set one of these before displaying.
 type AppModal =
-  | 'rebase'
   | 'worktrees'
   | 'bisect'
   | 'patch'
@@ -276,6 +275,33 @@ export default function App() {
     [openCtx, handleCreateBranchFromTag],
   )
 
+  const handleWorktreeContextMenu = useCallback(
+    (e: React.MouseEvent, path: string, isMain: boolean) => {
+      const name = path.split('/').pop() || path
+      const isCurrent = path === repo.repoPath
+      openCtx(e, [
+        { label: `Switch to "${name}"`, icon: '⎇', disabled: isCurrent, onClick: () => repo.methods.loadRepo(path) },
+        { separator: true, label: '', onClick: () => {} },
+        { label: 'Manage worktrees…', icon: '⊞', onClick: () => setModal('worktrees') },
+        { separator: true, label: '', onClick: () => {} },
+        {
+          label: `Remove worktree`,
+          icon: '🗑',
+          danger: true,
+          disabled: isMain || isCurrent,
+          onClick: async () => {
+            const r = await window.gitApi.removeWorktree(path)
+            if (r.success) { repo.toast.success('Worktree Removed', name); repo.methods.refresh() }
+            else repo.toast.error('Remove Failed', r.error)
+          },
+        },
+        { separator: true, label: '', onClick: () => {} },
+        { label: 'Copy path', icon: '⎘', onClick: () => navigator.clipboard.writeText(path) },
+      ])
+    },
+    [openCtx, repo.repoPath, repo.methods, repo.toast],
+  )
+
   // Right-click on a branch pill in the graph — reuse the sidebar factory
   const handleRefContextMenu = useCallback(
     (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => {
@@ -447,6 +473,7 @@ export default function App() {
           stashes={repo.stashes}
           tags={repo.tags}
           remotes={repo.remotes}
+          worktrees={repo.worktrees}
           currentBranch={repo.status?.branch ?? ''}
           selectedRef={selectedRef}
           onSelectRef={handleSelectRef}
@@ -459,6 +486,9 @@ export default function App() {
           onBranchContextMenu={handleBranchContextMenu}
           onStashContextMenu={handleStashContextMenu}
           onTagContextMenu={handleTagContextMenu}
+          onWorktreeClick={repo.methods.loadRepo}
+          onWorktreeContextMenu={handleWorktreeContextMenu}
+          onWorktreeManage={() => setModal('worktrees')}
           onRefDrop={handleRefDrop}
         />
 
@@ -496,7 +526,12 @@ export default function App() {
 
               <div className="right-panel">
                 <div className="right-panel-body">
-                  {showWorkingTree ? (
+                  {modal === 'bisect' ? (
+                    <BisectWizard
+                      commits={repo.commits}
+                      onClose={() => { closeModal(); repo.methods.refresh() }}
+                    />
+                  ) : showWorkingTree ? (
                     <WorkingTree
                       repoPath={repo.repoPath}
                       onCommitted={repo.methods.refresh}
@@ -524,8 +559,6 @@ export default function App() {
 
         {repo.repoPath && (
           <div className="advanced-bar">
-            <button className="adv-btn" title="Interactive Rebase" onClick={() => setModal('rebase')}>↺ Rebase</button>
-            <button className="adv-btn" title="Worktrees" onClick={() => setModal('worktrees')}><TreeIcon /> Trees</button>
             <button className="adv-btn" title="Bisect" onClick={() => setModal('bisect')}>⊘ Bisect</button>
             <button className="adv-btn" title="Patch" onClick={() => setModal('patch')}>⊠ Patch</button>
           </div>
@@ -534,7 +567,7 @@ export default function App() {
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
 
-      {(modal === 'rebase' || modal === 'interactive-rebase') && (
+      {modal === 'interactive-rebase' && (
         <InteractiveRebase
           commits={rebaseCommits.map(c => ({ sha: c.sha, shortSha: c.shortSha, message: c.message }))}
           onClose={() => { closeModal(); repo.methods.refresh() }}
@@ -542,9 +575,6 @@ export default function App() {
       )}
       {modal === 'worktrees' && (
         <Worktrees currentPath={repo.repoPath} onClose={closeModal} onSwitch={repo.methods.loadRepo} />
-      )}
-      {modal === 'bisect' && (
-        <BisectWizard commits={repo.commits} onClose={() => { closeModal(); repo.methods.refresh() }} />
       )}
       {modal === 'patch' && (
         <PatchPanel selectedSha={repo.selectedSha} onClose={closeModal} />

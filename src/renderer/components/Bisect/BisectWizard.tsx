@@ -58,15 +58,14 @@ export const BisectWizard: React.FC<BisectWizardProps> = ({ commits, onClose }) 
   const visibleCommits = commits.slice(0, 50)
 
   return (
-    <div className="ir-overlay">
-      <div className="bisect-panel fade-in">
-        <div className="ir-header">
-          <h2>Git Bisect</h2>
-          <span className="ir-hint">Binary search for the first bad commit</span>
-          <button className="ir-close" onClick={onClose}>✕</button>
-        </div>
+    <div className="bisect-panel">
+      <div className="bisect-header">
+        <h2>Git Bisect</h2>
+        <span className="bisect-hint">Binary search for the first bad commit</span>
+        <button className="bisect-close" onClick={onClose}>✕</button>
+      </div>
 
-        <div className="bisect-body">
+      <div className="bisect-body">
           {state === 'idle' && (
             <div className="bisect-setup">
               <div className="bisect-field">
@@ -127,10 +126,9 @@ export const BisectWizard: React.FC<BisectWizardProps> = ({ commits, onClose }) 
           )}
         </div>
 
-        <div className="ir-footer">
-          <button className="btn btn-ghost" onClick={handleReset}>Reset Bisect</button>
-          <button className="btn btn-ghost" onClick={onClose}>Close</button>
-        </div>
+      <div className="bisect-footer">
+        <button className="btn btn-ghost" onClick={handleReset}>Reset Bisect</button>
+        <button className="btn btn-ghost" onClick={onClose}>Close</button>
       </div>
     </div>
   )
