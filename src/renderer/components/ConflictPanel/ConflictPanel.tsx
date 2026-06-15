@@ -54,9 +54,12 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
     else toast.error('Abort failed', r.error)
   }, [mode, onRefresh, toast])
 
-  // Arrow keys move focus; Enter opens diff; r marks resolved.
+  // Arrow keys + Enter only. Letter shortcuts ate keystrokes when an editable
+  // element happened to be focused, so we drop them and guard the rest.
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (conflictedFiles.length === 0) return
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
     const focus = (idx: number) => {
       const clamped = Math.max(0, Math.min(conflictedFiles.length - 1, idx))
       setFocusedIdx(clamped)
@@ -67,8 +70,7 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
     const cur = conflictedFiles[focusedIdx]
     if (!cur) return
     if (e.key === 'Enter')     { e.preventDefault(); onSelectDiff(cur); return }
-    if (e.key === 'r')         { e.preventDefault(); handleMarkResolved(cur); return }
-  }, [conflictedFiles, focusedIdx, handleMarkResolved, onSelectDiff])
+  }, [conflictedFiles, focusedIdx, onSelectDiff])
 
   rowRefs.current.length = conflictedFiles.length
 
@@ -98,7 +100,7 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
               <br />
               <span className="conflict-step">1.</span> Open each file in your editor and resolve the {'<<<<<<<'} markers.
               <br />
-              <span className="conflict-step">2.</span> Click <em>Mark resolved</em> (or press <kbd>r</kbd>) to stage it.
+              <span className="conflict-step">2.</span> Click <em>Mark resolved</em> to stage it.
               <br />
               <span className="conflict-step">3.</span> Continue when all files are marked resolved.
             </div>

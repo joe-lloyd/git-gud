@@ -147,10 +147,14 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
     await silentRefresh()
   }, [silentRefresh])
 
-  // Arrow keys move focus + selection; Enter/Space have row-specific actions.
-  // Bound to the container so it works as long as focus is anywhere inside.
+  // Arrow keys + Enter only — Space and letter shortcuts ate keystrokes when
+  // focus was in the commit textarea. Stage / discard live on the row buttons
+  // instead. Skip the handler entirely when focus is in any editable element
+  // so typing always wins.
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (rows.length === 0) return
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
     const focusRow = (idx: number) => {
       const clamped = Math.max(0, Math.min(rows.length - 1, idx))
       setFocusedIdx(clamped)
@@ -165,17 +169,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
     const cur = rows[focusedIdx]
     if (!cur) return
     if (e.key === 'Enter')     { e.preventDefault(); onSelectDiff(cur.file.path, cur.staged); return }
-    if (e.key === ' ')         {
-      e.preventDefault()
-      if (cur.staged) handleUnstage([cur.file.path])
-      else handleStage([cur.file.path])
-      return
-    }
-    if (e.key === 'd' || e.key === 'Delete' || e.key === 'Backspace') {
-      e.preventDefault()
-      handleDiscard(cur)
-    }
-  }, [rows, focusedIdx, onSelectDiff, handleDiscard])
+  }, [rows, focusedIdx, onSelectDiff])
 
   const statusLabel: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', '?': 'Untracked' }
   const statusColor: Record<string, string> = {
@@ -341,7 +335,7 @@ function FileRow({ file, statusCode, label, color, actionIcon, onAction, onDisca
         role="button"
         tabIndex={-1}
         onClick={(e) => { e.stopPropagation(); onDiscard() }}
-        title="Discard (d)"
+        title="Discard"
       >
         ✗
       </span>
@@ -350,7 +344,7 @@ function FileRow({ file, statusCode, label, color, actionIcon, onAction, onDisca
         role="button"
         tabIndex={-1}
         onClick={(e) => { e.stopPropagation(); onAction() }}
-        title={actionIcon === '↓' ? 'Stage (Space)' : 'Unstage (Space)'}
+        title={actionIcon === '↓' ? 'Stage' : 'Unstage'}
       >
         {actionIcon}
       </span>
