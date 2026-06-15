@@ -449,9 +449,9 @@ app.whenReady().then(() => {
     return gitService.getHeadAuthor()
   })
 
-  ipcMain.handle('git:head-message', async () => {
+  ipcMain.handle('git:commit-message', async (_event, sha?: string) => {
     if (!gitService) return ''
-    return gitService.getHeadMessage()
+    return gitService.getCommitMessage(sha)
   })
 
   ipcMain.handle('git:log-pickaxe', async (_event, query: string, limit: number) => {

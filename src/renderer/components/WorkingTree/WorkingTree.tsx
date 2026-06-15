@@ -115,7 +115,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
     if (next) {
       setDraftBeforeAmend({ subject, body })
       try {
-        const full = await window.gitApi.getHeadMessage()
+        const full = await window.gitApi.getCommitMessage()
         if (full) {
           // Subject = first line. Body = everything after the first blank line
           // (or after the first line if there's no blank separator).

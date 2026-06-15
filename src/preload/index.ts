@@ -134,7 +134,7 @@ const gitApi = {
   setHeadAuthor: (author: string): Promise<Result> =>
     ipcRenderer.invoke('git:set-head-author', author),
   getHeadAuthor: (): Promise<string> => ipcRenderer.invoke('git:head-author'),
-  getHeadMessage: (): Promise<string> => ipcRenderer.invoke('git:head-message'),
+  getCommitMessage: (sha?: string): Promise<string> => ipcRenderer.invoke('git:commit-message', sha),
   logPickaxe: (query: string, limit: number): Promise<CommitNode[]> =>
     ipcRenderer.invoke('git:log-pickaxe', query, limit),
 

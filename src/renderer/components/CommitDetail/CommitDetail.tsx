@@ -14,14 +14,22 @@ interface CommitDetailProps {
 export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, selectedFile = null, onSelectFile }) => {
   const [files, setFiles] = useState<FileChange[]>([])
   const [loading, setLoading] = useState(false)
+  // Full message (subject + body) — fetched on demand because the log payload
+  // only carries the subject (`%s`). Empty until loaded; we fall back to the
+  // commit's subject if the fetch fails.
+  const [fullMessage, setFullMessage] = useState<string>('')
 
   const commit = commits.find((c) => c.sha === sha)
 
   const loadDetails = useCallback(async (sha: string) => {
     setLoading(true)
     try {
-      const f = await window.gitApi.getCommitFiles(sha)
+      const [f, msg] = await Promise.all([
+        window.gitApi.getCommitFiles(sha),
+        window.gitApi.getCommitMessage(sha),
+      ])
       setFiles(f)
+      setFullMessage(msg)
     } finally {
       setLoading(false)
     }
@@ -29,7 +37,7 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
 
   React.useEffect(() => {
     if (sha) loadDetails(sha)
-    else { setFiles([]) }
+    else { setFiles([]); setFullMessage('') }
   }, [sha, loadDetails])
 
   if (!commit) {
@@ -55,7 +63,22 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
         <div className="cd-author">{commit.author}</div>
         <div className="cd-date">{new Date(commit.date).toLocaleString()}</div>
       </div>
-      <div className="cd-message">{commit.message}</div>
+      {(() => {
+        // First line of the fetched %B is the subject; everything after the
+        // first blank line is the body. Fall back to commit.message (subject
+        // only) while the fetch is in flight.
+        const source = fullMessage || commit.message
+        const lines = source.split('\n')
+        const subject = lines[0] ?? ''
+        const sep = lines.findIndex((l, i) => i > 0 && l.trim() === '')
+        const body = sep >= 0 ? lines.slice(sep + 1).join('\n') : lines.slice(1).join('\n')
+        return (
+          <>
+            <div className="cd-message">{subject}</div>
+            {body.trim() && <pre className="cd-body-msg">{body}</pre>}
+          </>
+        )
+      })()}
 
       {/* Refs */}
       {commit.refs.length > 0 && (

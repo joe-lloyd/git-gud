@@ -648,11 +648,12 @@ export class GitService {
     } catch { return ""; }
   }
 
-  // Full HEAD commit message (subject + body). `%B` gives the raw message
-  // including blank lines; `%s` would only give the subject.
-  async getHeadMessage(): Promise<string> {
+  // Full commit message (subject + body) for `sha` — defaults to HEAD. `%B`
+  // gives the raw message including blank lines; `%s` would only give the
+  // subject. Used by amend pre-fill (HEAD) and CommitDetail (any commit).
+  async getCommitMessage(sha = "HEAD"): Promise<string> {
     try {
-      const raw = await this.git.raw(["log", "-1", "--format=%B", "HEAD"]);
+      const raw = await this.git.raw(["log", "-1", "--format=%B", sha]);
       return raw.replace(/\n$/, "");
     } catch {
       return "";

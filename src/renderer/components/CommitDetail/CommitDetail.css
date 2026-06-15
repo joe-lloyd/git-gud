@@ -40,11 +40,28 @@
 }
 
 .cd-message {
-  padding: 8px 16px 12px;
+  padding: 8px 16px 6px;
   font-size: 13px;
   color: var(--text-primary);
-  line-height: 1.5;
-  font-weight: 500;
+  line-height: 1.4;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+/* Commit description / body — wrapped + scrollable, capped so a long
+   description doesn't push the file list off-screen. Mono so trailers
+   (`Co-authored-by:` etc.) line up. */
+.cd-body-msg {
+  margin: 0;
+  padding: 0 16px 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .cd-refs {
