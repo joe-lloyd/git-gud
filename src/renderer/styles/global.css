@@ -227,6 +227,20 @@ input:focus, textarea:focus {
   box-shadow: 0 0 0 2px rgba(99,179,237,0.15);
 }
 
+/* ── Focus indicator ──────────────────────────────────────────────────────
+   Distinct from .selected (which is a persistent background): focus shows
+   keyboard position only. Visible on Tab / arrow navigation, hidden on
+   mouse click (browser native :focus-visible behavior). Kept subtle on
+   purpose — single-pixel ring with the brand blue. */
+:focus { outline: none; }
+:focus-visible {
+  outline: 1.5px solid var(--border-focus);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+/* Inputs already have their own focus styling — don't double-ring. */
+input:focus-visible, textarea:focus-visible { outline: none; }
+
 /* ── Divider ──────────────────────────────────────────────────────────── */
 .divider {
   height: 1px;
@@ -253,8 +267,10 @@ input:focus, textarea:focus {
   align-items: center;
   justify-content: center;
   height: 100%;
-  gap: 20px;
+  gap: 14px;
+  padding: 24px;
   color: var(--text-secondary);
+  overflow: hidden;
 }
 .welcome h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); }
 .welcome p  { font-size: 14px; max-width: 380px; text-align: center; }

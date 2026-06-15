@@ -13,8 +13,15 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
   const [loading, setLoading]         = useState(false)
   const [message, setMessage]         = useState('')
   const [committing, setCommitting]   = useState(false)
-  const [selectedDiff, setSelectedDiff] = useState<string | null>(null)
   const [error, setError]             = useState<string | null>(null)
+  // Amend mode pre-fills HEAD's message and changes the submit op to
+  // `commit --amend`. Stashed previous draft so toggling back restores it.
+  const [amend, setAmend] = useState(false)
+  const [draftBeforeAmend, setDraftBeforeAmend] = useState<string>('')
+  // Single sequential focus index across [unstaged..., untracked..., staged...]
+  // so arrow keys walk the full list regardless of section.
+  const [focusedIdx, setFocusedIdx] = useState(0)
+  const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
 
   // Drag-to-resize: top section height as a percentage (default 50%)
   const [splitPct, setSplitPct] = useState(50)
@@ -81,22 +88,109 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
     if (!message.trim()) { setError('Commit message required'); return }
     setCommitting(true); setError(null)
     try {
-      const result = await window.gitApi.commit(message.trim())
-      if (result.success) { setMessage(''); await refresh(); onCommitted() }
-      else setError(result.error)
+      const result = amend
+        ? await window.gitApi.commitAmend(message.trim())
+        : await window.gitApi.commit(message.trim())
+      if (result.success) {
+        setMessage('')
+        setAmend(false)
+        setDraftBeforeAmend('')
+        await refresh()
+        onCommitted()
+      } else setError(result.error)
     } finally { setCommitting(false) }
   }
 
+  // Toggle amend: ON → save draft, pull HEAD's message, prefill.
+  //               OFF → restore the draft we had before toggling.
+  const toggleAmend = useCallback(async (next: boolean) => {
+    if (next === amend) return
+    if (next) {
+      setDraftBeforeAmend(message)
+      // %B-formatted message includes body; getLog returns subject-only.
+      try {
+        const full = await window.gitApi.getHeadMessage()
+        if (full) setMessage(full)
+      } catch { /* leave message untouched if log read fails */ }
+      setAmend(true)
+    } else {
+      setAmend(false)
+      setMessage(draftBeforeAmend)
+      setDraftBeforeAmend('')
+    }
+  }, [amend, message, draftBeforeAmend])
+
   const stagedCount   = status?.staged.length ?? 0
   const unstagedCount = (status?.unstaged.length ?? 0) + (status?.untracked.length ?? 0)
+
+  // Flatten the three lists into one sequence the keyboard handler can walk.
+  // Each entry knows its source so Space/d can apply the right git op.
+  type Row = { key: string; file: FileChange; staged: boolean; isUntracked: boolean }
+  const rows: Row[] = []
+  status?.unstaged.forEach((f) => rows.push({ key: `u:${f.path}`, file: f, staged: false, isUntracked: false }))
+  status?.untracked.forEach((p) => rows.push({ key: `t:${p}`, file: { path: p, status: '?' }, staged: false, isUntracked: true }))
+  status?.staged.forEach((f) => rows.push({ key: `s:${f.path}`, file: f, staged: true, isUntracked: false }))
+
+  // Discard reverts the working tree (and index if staged) back to HEAD for
+  // that file. Two-step confirm via the same path: window.confirm keeps the
+  // surface area small for now — destructive enough that a prompt is right.
+  const handleDiscard = useCallback(async (row: Row) => {
+    const label = row.staged ? 'discard staged + working changes' : 'discard changes'
+    if (!window.confirm(`${label} for ${row.file.path}?\n\nThis cannot be undone.`)) return
+    if (row.isUntracked) {
+      const r = await window.gitApi.discardUntracked([row.file.path])
+      if (!r.success) setError(r.error)
+    } else {
+      const r = await window.gitApi.discardChanges([row.file.path], { staged: row.staged })
+      if (!r.success) setError(r.error)
+    }
+    await silentRefresh()
+  }, [silentRefresh])
+
+  // Arrow keys move focus + selection; Enter/Space have row-specific actions.
+  // Bound to the container so it works as long as focus is anywhere inside.
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (rows.length === 0) return
+    const focusRow = (idx: number) => {
+      const clamped = Math.max(0, Math.min(rows.length - 1, idx))
+      setFocusedIdx(clamped)
+      rowRefs.current[clamped]?.focus()
+      const r = rows[clamped]
+      if (r) onSelectDiff(r.file.path, r.staged)
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(focusedIdx + 1); return }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); focusRow(focusedIdx - 1); return }
+    if (e.key === 'Home')      { e.preventDefault(); focusRow(0); return }
+    if (e.key === 'End')       { e.preventDefault(); focusRow(rows.length - 1); return }
+    const cur = rows[focusedIdx]
+    if (!cur) return
+    if (e.key === 'Enter')     { e.preventDefault(); onSelectDiff(cur.file.path, cur.staged); return }
+    if (e.key === ' ')         {
+      e.preventDefault()
+      if (cur.staged) handleUnstage([cur.file.path])
+      else handleStage([cur.file.path])
+      return
+    }
+    if (e.key === 'd' || e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault()
+      handleDiscard(cur)
+    }
+  }, [rows, focusedIdx, onSelectDiff, handleDiscard])
 
   const statusLabel: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', '?': 'Untracked' }
   const statusColor: Record<string, string> = {
     M: '#f6ad55', A: '#68d391', D: '#fc8181', R: '#b794f4', '?': '#8b949e',
   }
 
+  rowRefs.current.length = rows.length
+
   return (
-    <div className="working-tree" ref={containerRef}>
+    <div
+      className="working-tree"
+      ref={containerRef}
+      onKeyDown={handleKeyDown}
+      title=""
+    >
 
       {/* ── Top: Unstaged ────────────────────────────── */}
       <div className="wt-section" style={{ height: `${splitPct}%` }}>
@@ -112,26 +206,21 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
         <div className="wt-files">
           {loading && <div className="wt-loading">Loading…</div>}
           {unstagedCount === 0 && !loading && <div className="wt-empty">Working tree clean</div>}
-          {status?.unstaged.map((f) => {
-            const isUntracked = f.status === '?'
-            return (
-              <FileRow key={f.path} file={f}
-                statusCode={f.status}
-                label={statusLabel[f.status] ?? (isUntracked ? 'Untracked' : 'Unknown')}
-                color={statusColor[f.status] ?? (isUntracked ? '#68d391' : '#8b949e')}
-                actionIcon="↓"
-                onAction={() => handleStage([f.path])}
-                onSelect={() => onSelectDiff(f.path, false)}
-              />
-            )
-          })}
-          {status?.untracked.map((path) => (
-            <FileRow key={path} file={{ path, status: '?' }}
-              statusCode="?" label="Untracked" color="#68d391" actionIcon="↓"
-              onAction={() => handleStage([path])}
-              onSelect={() => onSelectDiff(path, false)}
+          {rows.map((r, idx) => !r.staged ? (
+            <FileRow
+              key={r.key}
+              file={r.file}
+              rowRef={(el) => { rowRefs.current[idx] = el }}
+              focused={focusedIdx === idx}
+              statusCode={r.file.status}
+              label={statusLabel[r.file.status] ?? (r.isUntracked ? 'Untracked' : 'Unknown')}
+              color={statusColor[r.file.status] ?? (r.isUntracked ? '#68d391' : '#8b949e')}
+              actionIcon="↓"
+              onAction={() => handleStage([r.file.path])}
+              onDiscard={() => handleDiscard(r)}
+              onSelect={() => { setFocusedIdx(idx); onSelectDiff(r.file.path, false) }}
             />
-          ))}
+          ) : null)}
         </div>
       </div>
 
@@ -155,14 +244,19 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
         </div>
         <div className="wt-files">
           {stagedCount === 0 && !loading && <div className="wt-empty">Nothing staged</div>}
-          {status?.staged.map((f) => (
-            <FileRow key={f.path} file={f}
-              statusCode={f.status} label={statusLabel[f.status] ?? 'Unknown'} color={statusColor[f.status] ?? '#8b949e'}
+          {rows.map((r, idx) => r.staged ? (
+            <FileRow
+              key={r.key}
+              file={r.file}
+              rowRef={(el) => { rowRefs.current[idx] = el }}
+              focused={focusedIdx === idx}
+              statusCode={r.file.status} label={statusLabel[r.file.status] ?? 'Unknown'} color={statusColor[r.file.status] ?? '#8b949e'}
               actionIcon="↑"
-              onAction={() => handleUnstage([f.path])}
-              onSelect={() => onSelectDiff(f.path, true)}
+              onAction={() => handleUnstage([r.file.path])}
+              onDiscard={() => handleDiscard(r)}
+              onSelect={() => { setFocusedIdx(idx); onSelectDiff(r.file.path, true) }}
             />
-          ))}
+          ) : null)}
         </div>
       </div>
 
@@ -170,20 +264,41 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
 
       {/* ── Commit box — always visible ───────────────── */}
       <div className="wt-commit">
+        <label className="wt-amend-toggle">
+          <input
+            type="checkbox"
+            checked={amend}
+            onChange={(e) => toggleAmend(e.target.checked)}
+          />
+          <span>Amend last commit</span>
+        </label>
+        {amend && (status?.ahead ?? 0) === 0 && (
+          <div className="wt-amend-warn">
+            ⚠ This commit has been pushed — amending will require force-push.
+          </div>
+        )}
         <textarea
           className="wt-commit-msg"
-          placeholder="Commit message…"
+          placeholder={amend ? 'Amend message (or keep existing)…' : 'Commit message…'}
           value={message}
           onChange={(e) => { setMessage(e.target.value); setError(null) }}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault()
+              handleCommit()
+            }
+          }}
           rows={3}
         />
         {error && <div className="wt-error">{error}</div>}
         <button
           className="btn btn-primary wt-commit-btn"
           onClick={handleCommit}
-          disabled={committing || !message.trim() || stagedCount === 0}
+          disabled={committing || !message.trim() || (!amend && stagedCount === 0)}
         >
-          {committing ? 'Committing…' : `Commit to ${status?.branch ?? 'branch'}`}
+          {committing
+            ? (amend ? 'Amending…' : 'Committing…')
+            : (amend ? `Amend on ${status?.branch ?? 'branch'}` : `Commit to ${status?.branch ?? 'branch'}`)}
         </button>
       </div>
     </div>
@@ -192,21 +307,28 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
 
 // ── FileRow ───────────────────────────────────────────────────────────────────
 
-function FileRow({ file, statusCode, label, color, actionIcon, onAction, selected, onSelect }: {
+function FileRow({ file, statusCode, label, color, actionIcon, onAction, onDiscard, focused, onSelect, rowRef }: {
   file: FileChange
   statusCode: string
   label: string
   color: string
   actionIcon: string
   onAction: () => void
-  selected?: boolean
+  onDiscard: () => void
+  focused?: boolean
   onSelect: () => void
+  rowRef?: (el: HTMLButtonElement | null) => void
 }) {
   return (
-    <div className={`wt-file-row ${selected ? 'selected' : ''}`} onClick={onSelect}>
+    <button
+      ref={rowRef}
+      type="button"
+      className={`wt-file-row ${focused ? 'selected' : ''}`}
+      onClick={onSelect}
+    >
       <FileStatusIcon status={statusCode} color={color} label={label} />
       <span className="wt-file-path truncate" title={file.path}>{file.path}</span>
-      
+
       {(typeof file.add === 'number' || typeof file.del === 'number') && (
         <span className="wt-file-stats">
           {file.add ? <span className="wt-stat-add">+{file.add}</span> : null}
@@ -214,14 +336,25 @@ function FileRow({ file, statusCode, label, color, actionIcon, onAction, selecte
         </span>
       )}
 
-      <button
+      <span
+        className="wt-file-action wt-file-discard"
+        role="button"
+        tabIndex={-1}
+        onClick={(e) => { e.stopPropagation(); onDiscard() }}
+        title="Discard (d)"
+      >
+        ✗
+      </span>
+      <span
         className="wt-file-action"
+        role="button"
+        tabIndex={-1}
         onClick={(e) => { e.stopPropagation(); onAction() }}
-        title={actionIcon === '↓' ? 'Stage' : 'Unstage'}
+        title={actionIcon === '↓' ? 'Stage (Space)' : 'Unstage (Space)'}
       >
         {actionIcon}
-      </button>
-    </div>
+      </span>
+    </button>
   )
 }
 

@@ -35,7 +35,29 @@ export type RepoStatus = {
   branch: string
   ahead: number
   behind: number
+  conflict?: ConflictState
 }
+
+// Snapshot of in-flight merge/rebase. Empty conflictedFiles + inMerge/inRebase
+// true means git is awaiting `--continue` (resolutions all staged). When all
+// three are falsy/empty, the repo is in a normal state.
+export type ConflictState = {
+  inMerge: boolean
+  inRebase: boolean
+  rebaseKind?: 'apply' | 'merge'   // --rebase-apply for non-interactive, --rebase-merge for -i
+  conflictedFiles: string[]
+}
+
+// Parsed conflicted file — sections in order. Shared sections come straight
+// from the file; conflict sections carry the rival texts so the UI can offer
+// "take current" / "take incoming" / hand-edit.
+export type ConflictFile = {
+  path: string
+  sections: ConflictSection[]
+}
+export type ConflictSection =
+  | { kind: 'shared';   text: string }
+  | { kind: 'conflict'; current: string; incoming: string; currentLabel: string; incomingLabel: string }
 
 export type RemoteInfo = {
   name: string
@@ -43,6 +65,12 @@ export type RemoteInfo = {
 }
 
 export type Result = { success: true } | { success: false; error: string }
+// Pull carries an extra classifier so the renderer can offer targeted recovery
+// (stash + retry for dirty trees, merge/rebase choice for diverged history).
+export type PullErrorKind = 'dirty' | 'diverged' | 'untracked' | 'conflict' | 'auth' | 'unknown'
+export type PullResult =
+  | { success: true }
+  | { success: false; error: string; kind?: PullErrorKind }
 
 export type GitHubUser = {
   login: string
@@ -78,8 +106,10 @@ const gitApi = {
 
   getCommitDiff: (sha: string): Promise<string> => ipcRenderer.invoke('git:commit-diff', sha),
   getCommitFiles: (sha: string): Promise<FileChange[]> => ipcRenderer.invoke('git:commit-files', sha),
-  getFileDiff: (filePath: string, staged: boolean): Promise<string> => ipcRenderer.invoke('git:file-diff', filePath, staged),
-  getCommitFileDiff: (sha: string, filePath: string): Promise<string> => ipcRenderer.invoke('git:commit-file-diff', sha, filePath),
+  getFileDiff: (filePath: string, staged: boolean, opts?: { wordDiff?: boolean }): Promise<string> =>
+    ipcRenderer.invoke('git:file-diff', filePath, staged, opts),
+  getCommitFileDiff: (sha: string, filePath: string, opts?: { wordDiff?: boolean }): Promise<string> =>
+    ipcRenderer.invoke('git:commit-file-diff', sha, filePath, opts),
 
 
   checkout: (branch: string): Promise<{ success: boolean; error?: string }> =>
@@ -87,16 +117,28 @@ const gitApi = {
 
   stage: (files: string[]): Promise<Result> => ipcRenderer.invoke('git:stage', files),
   unstage: (files: string[]): Promise<Result> => ipcRenderer.invoke('git:unstage', files),
+  discardChanges: (files: string[], opts: { staged: boolean }): Promise<Result> =>
+    ipcRenderer.invoke('git:discard-changes', files, opts),
+  discardUntracked: (files: string[]): Promise<Result> =>
+    ipcRenderer.invoke('git:discard-untracked', files),
   commit: (message: string): Promise<Result> =>
     ipcRenderer.invoke('git:commit', message),
+  commitAmend: (message: string): Promise<Result> =>
+    ipcRenderer.invoke('git:commit-amend', message),
+  getHeadMessage: (): Promise<string> => ipcRenderer.invoke('git:head-message'),
+  logPickaxe: (query: string, limit: number): Promise<CommitNode[]> =>
+    ipcRenderer.invoke('git:log-pickaxe', query, limit),
 
   stashSave: (message?: string): Promise<Result> => ipcRenderer.invoke('git:stash-save', message),
   stashPop: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-pop', index),
   stashDrop: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-drop', index),
   stashApply: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-apply', index),
+  stashBranch: (name: string, index: number): Promise<Result> =>
+    ipcRenderer.invoke('git:stash-branch', name, index),
 
   fetch: (): Promise<Result> => ipcRenderer.invoke('git:fetch'),
-  pull: (): Promise<Result> => ipcRenderer.invoke('git:pull'),
+  pull: (opts?: { rebase?: boolean; autoStash?: boolean }): Promise<PullResult> =>
+    ipcRenderer.invoke('git:pull', opts),
   push: (): Promise<Result> => ipcRenderer.invoke('git:push'),
 
   createBranch: (name: string, startPoint?: string): Promise<Result> =>
@@ -116,6 +158,14 @@ const gitApi = {
     ipcRenderer.invoke('git:reset', sha, mode),
   rebaseTo: (sha: string): Promise<Result> =>
     ipcRenderer.invoke('git:rebase-to', sha),
+  rebaseContinue: (): Promise<Result> => ipcRenderer.invoke('git:rebase-continue'),
+  rebaseAbort:    (): Promise<Result> => ipcRenderer.invoke('git:rebase-abort'),
+  rebaseSkip:     (): Promise<Result> => ipcRenderer.invoke('git:rebase-skip'),
+  mergeContinue:  (): Promise<Result> => ipcRenderer.invoke('git:merge-continue'),
+  mergeAbort:     (): Promise<Result> => ipcRenderer.invoke('git:merge-abort'),
+  markResolved:   (files: string[]): Promise<Result> => ipcRenderer.invoke('git:mark-resolved', files),
+  getConflictFile: (filePath: string): Promise<ConflictFile> => ipcRenderer.invoke('git:conflict-file', filePath),
+  writeFile:      (filePath: string, content: string): Promise<Result> => ipcRenderer.invoke('git:write-file', filePath, content),
   createTag: (name: string, sha: string): Promise<Result> =>
     ipcRenderer.invoke('git:create-tag', name, sha),
   runDragAction: (

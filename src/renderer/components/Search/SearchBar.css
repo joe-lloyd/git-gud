@@ -51,3 +51,31 @@
 .search-msg { flex: 1; font-size: 12px; color: var(--text-secondary); }
 .search-author { font-size: 11px; color: var(--text-muted); flex-shrink: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 .search-empty { padding: 16px; font-size: 12px; color: var(--text-muted); text-align: center; }
+
+.search-mode-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+.search-mode {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.search-mode:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.search-mode.active { color: var(--lane-0); border-bottom-color: var(--lane-0); }
+
+.search-footer {
+  padding: 6px 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--border);
+  font-style: italic;
+}

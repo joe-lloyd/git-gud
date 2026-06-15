@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import './DiffViewer.css'
 
 interface DiffViewerProps {
@@ -15,20 +15,91 @@ interface DiffViewerProps {
 export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false, sha = null, onClose, onApplied }) => {
   const [diff, setDiff] = useState<string>('')
   const [loading, setLoading] = useState(true)
+  // Discard is destructive — first click arms the button on that hunk, second
+  // click within 3s commits. Auto-disarms when the hunk index changes or on
+  // timeout. Keeps the inline UI without a separate modal.
+  const [discardArmed, setDiscardArmed] = useState<number | null>(null)
+  // Word-diff toggle — re-fetches with --word-diff=porcelain when on. Disables
+  // stage/discard per-hunk and per-line in this mode since the porcelain output
+  // doesn't map cleanly back to the index.
+  const [wordDiff, setWordDiff] = useState(false)
+  const [wordDiffError, setWordDiffError] = useState<string | null>(null)
   const isCommitMode = sha !== null
 
   const refreshDiff = useCallback(() => {
     setLoading(true)
+    setWordDiffError(null)
     const p = isCommitMode
-      ? window.gitApi.getCommitFileDiff(sha!, filePath)
-      : window.gitApi.getFileDiff(filePath, staged)
+      ? window.gitApi.getCommitFileDiff(sha!, filePath, { wordDiff })
+      : window.gitApi.getFileDiff(filePath, staged, { wordDiff })
     p.then((d) => {
       setDiff(d || '')
       setLoading(false)
     })
-  }, [filePath, staged, sha, isCommitMode])
+  }, [filePath, staged, sha, isCommitMode, wordDiff])
 
   useEffect(() => { refreshDiff() }, [refreshDiff])
+
+  // ── Word-diff porcelain parse ──────────────────────────────────────────────
+  // Format spec (`man git-diff`):
+  //   ` text`  unchanged run
+  //   `+text`  added run
+  //   `-text`  removed run
+  //   `~`      end-of-line marker (separates logical lines)
+  // Runs accumulate until `~`, at which point we emit a "wdLine" with the
+  // run sequence. Headers and hunk markers stay as their own line types so
+  // the layout looks consistent with line-diff mode.
+  type WdRun = { kind: 'ctx' | 'add' | 'rem'; text: string }
+  type WdLine =
+    | { kind: 'header' | 'hunk'; text: string }
+    | { kind: 'content'; runs: WdRun[]; rowKind: 'add' | 'rem' | 'mixed' | 'ctx' }
+  const wordDiffLines: WdLine[] | null = useMemo(() => {
+    if (!wordDiff) return null
+    try {
+      const out: WdLine[] = []
+      let inHunk = false
+      let runs: WdRun[] = []
+      const flush = () => {
+        let hasAdd = false, hasRem = false, hasCtx = false
+        for (const r of runs) {
+          if (r.kind === 'add') hasAdd = true
+          else if (r.kind === 'rem') hasRem = true
+          else hasCtx = true
+        }
+        const rowKind = hasAdd && hasRem ? 'mixed'
+          : hasAdd ? 'add'
+          : hasRem ? 'rem'
+          : 'ctx'
+        out.push({ kind: 'content', runs, rowKind })
+        runs = []
+      }
+      for (const raw of diff.split('\n')) {
+        if (raw.startsWith('@@')) { if (runs.length) flush(); inHunk = true; out.push({ kind: 'hunk', text: raw }); continue }
+        if (!inHunk) { out.push({ kind: 'header', text: raw }); continue }
+        if (raw === '~') { flush(); continue }
+        if (raw.startsWith('+')) runs.push({ kind: 'add', text: raw.slice(1) })
+        else if (raw.startsWith('-')) runs.push({ kind: 'rem', text: raw.slice(1) })
+        else if (raw.startsWith(' ')) runs.push({ kind: 'ctx', text: raw.slice(1) })
+        else if (raw === '') { /* trailing newline */ }
+        else throw new Error(`unknown porcelain token: ${raw[0]}`)
+      }
+      if (runs.length) flush()
+      return out
+    } catch (e) {
+      // Surface to the user but don't blow up — caller will fall back.
+      console.warn('word-diff parse failed', e)
+      return null
+    }
+  }, [diff, wordDiff])
+
+  // If word-diff parse failed and we got here with wordDiff=true, fall back
+  // gracefully: turn the toggle off and surface a one-shot message.
+  useEffect(() => {
+    if (wordDiff && diff && wordDiffLines === null && !wordDiffError) {
+      setWordDiffError('Word diff parse failed — showing line diff.')
+      setWordDiff(false)
+    }
+  }, [wordDiff, diff, wordDiffLines, wordDiffError])
 
   // Close on Escape
   useEffect(() => {
@@ -79,33 +150,67 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     return { text, type, i, hunkIndex: currentHunkIndex, oldNo, newNo }
   })
 
-  const applyPatch = async (patch: string) => {
-    if (isCommitMode) return // read-only in commit mode
+  // cached=true → index (stage/unstage). cached=false → working tree (discard).
+  // reverse undoes the patch direction, used for unstage and for discard.
+  const applyPatch = async (patch: string, opts: { cached: boolean; reverse: boolean }) => {
+    if (isCommitMode) return
     setLoading(true)
-    const r = await window.gitApi.applyPatch(patch, { cached: true, reverse: staged })
+    const r = await window.gitApi.applyPatch(patch, opts)
     if (r.success) onApplied?.()
     refreshDiff()
   }
 
-  const handleStageChunk = (hunkStart: number) => {
+  // Build a patch containing the whole hunk at `hunkStart`. Used for both
+  // stage/unstage and discard — the destination just differs in `opts`.
+  const buildChunkPatch = (hunkStart: number): string => {
     const patchLines = lines.filter(l => l.type === 'header').map(l => l.text)
     for (let i = hunkStart; i < lines.length; i++) {
       if (i > hunkStart && lines[i].type === 'hunk') break
+      // Skip the trailing empty string from diff.split('\n') so we don't emit
+      // an extra context line that git apply may reject.
+      if (i === lines.length - 1 && lines[i].text === '') continue
       patchLines.push(lines[i].text)
     }
-    applyPatch(patchLines.join('\n') + '\n')
+    return patchLines.join('\n') + '\n'
   }
 
-  const handleStageLine = (hunkStart: number, targetIdx: number) => {
+  // Build a single-line patch — flips the other +/- lines back to context so
+  // the hunk still applies cleanly with just `targetIdx` taking effect.
+  const buildLinePatch = (hunkStart: number, targetIdx: number): string => {
     const patchLines = lines.filter(l => l.type === 'header').map(l => l.text)
     for (let i = hunkStart; i < lines.length; i++) {
       if (i > hunkStart && lines[i].type === 'hunk') break
+      if (i === lines.length - 1 && lines[i].text === '') continue
       const l = lines[i]
       if (l.type === 'hunk' || i === targetIdx) patchLines.push(l.text)
       else if (l.type === 'context') patchLines.push(l.text)
       else if (l.type === 'remove') patchLines.push(' ' + l.text.slice(1))
     }
-    applyPatch(patchLines.join('\n') + '\n')
+    return patchLines.join('\n') + '\n'
+  }
+
+  const handleStageChunk = (hunkStart: number) => {
+    applyPatch(buildChunkPatch(hunkStart), { cached: true, reverse: staged })
+  }
+  const handleStageLine = (hunkStart: number, targetIdx: number) => {
+    applyPatch(buildLinePatch(hunkStart, targetIdx), { cached: true, reverse: staged })
+  }
+
+  // Discard nukes the chunk from the working tree (unstaged) or from both
+  // index + working tree (staged). Two-click confirm keeps an accident from
+  // wiping work.
+  const handleDiscardChunk = (hunkStart: number) => {
+    if (discardArmed !== hunkStart) {
+      setDiscardArmed(hunkStart)
+      window.setTimeout(() => setDiscardArmed((cur) => (cur === hunkStart ? null : cur)), 3000)
+      return
+    }
+    setDiscardArmed(null)
+    // Working-tree reverse-apply throws the change away.
+    applyPatch(buildChunkPatch(hunkStart), { cached: false, reverse: true })
+    // If the chunk was staged, also drop it from the index so it doesn't
+    // re-appear on the next refresh.
+    if (staged) applyPatch(buildChunkPatch(hunkStart), { cached: true, reverse: true })
   }
 
   return (
@@ -122,14 +227,56 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
           )}
           <span className="diff-filename">{filePath}</span>
         </span>
+        <button
+          className={`diff-toggle ${wordDiff ? 'on' : ''}`}
+          onClick={() => setWordDiff((v) => !v)}
+          title="Toggle word-level diff"
+        >
+          Word diff
+        </button>
         <button className="diff-close" onClick={onClose} title="Close diff (Esc)">✕ Close</button>
       </div>
+      {wordDiffError && <div className="diff-banner">{wordDiffError}</div>}
 
       {/* Diff body */}
       {loading ? (
         <div className="diff-loading">Loading diff…</div>
       ) : diff.trim() === '' ? (
         <div className="diff-loading">No diff available for this file.</div>
+      ) : wordDiff && wordDiffLines ? (
+        <div className="diff-body">
+          <table className="diff-table diff-table-word">
+            <tbody>
+              {wordDiffLines.map((l, i) => {
+                if (l.kind === 'header') {
+                  return (
+                    <tr key={i} className="diff-line diff-line-header">
+                      <td className="diff-content" colSpan={3}>{l.text}</td>
+                    </tr>
+                  )
+                }
+                if (l.kind === 'hunk') {
+                  return (
+                    <tr key={i} className="diff-line diff-line-hunk">
+                      <td className="diff-content" colSpan={3}>{l.text}</td>
+                    </tr>
+                  )
+                }
+                return (
+                  <tr key={i} className={`diff-line diff-line-${l.rowKind === 'add' ? 'add' : l.rowKind === 'rem' ? 'remove' : 'context'}`}>
+                    <td className="diff-content" colSpan={3}>
+                      {l.runs.map((r, j) => {
+                        if (r.kind === 'add') return <ins key={j} className="wd-add">{r.text}</ins>
+                        if (r.kind === 'rem') return <del key={j} className="wd-rem">{r.text}</del>
+                        return <span key={j}>{r.text}</span>
+                      })}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="diff-body">
           <table className="diff-table">
@@ -148,9 +295,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                     <td className="diff-content">
                       {text.slice(type === 'context' ? 0 : 1)}
                       {type === 'hunk' && !isCommitMode && (
-                        <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
-                          {staged ? 'Unstage Chunk ↑' : 'Stage Chunk ↓'}
-                        </button>
+                        <span className="diff-chunk-actions">
+                          <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
+                            {staged ? 'Unstage chunk ↑' : 'Stage chunk ↓'}
+                          </button>
+                          <button
+                            className={`diff-chunk-btn diff-chunk-btn-danger ${discardArmed === i ? 'armed' : ''}`}
+                            onClick={() => handleDiscardChunk(i)}
+                            title={discardArmed === i ? 'Click again within 3s to confirm' : 'Discard this chunk (irreversible)'}
+                          >
+                            {discardArmed === i ? 'Click again to discard ✗' : 'Discard chunk ✗'}
+                          </button>
+                        </span>
                       )}
                     </td>
                   </tr>

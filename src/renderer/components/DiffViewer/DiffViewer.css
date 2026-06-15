@@ -58,6 +58,50 @@
 }
 .diff-close:hover { background: var(--bg-hover); color: var(--text-primary); }
 
+.diff-toggle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: transparent;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  flex-shrink: 0;
+}
+.diff-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+.diff-toggle.on {
+  background: rgba(99,179,237,0.18);
+  color: var(--lane-0);
+  border-color: rgba(99,179,237,0.35);
+}
+
+.diff-banner {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--warning);
+  background: rgba(246,173,85,0.08);
+  border-bottom: 1px solid rgba(246,173,85,0.2);
+  flex-shrink: 0;
+}
+
+/* Word-diff rendering — inline ins/del spans inside content cells. */
+.diff-table-word .diff-content { white-space: pre-wrap; }
+.wd-add {
+  background: rgba(104,211,145,0.22);
+  color: #c1f1ce;
+  text-decoration: none;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+.wd-rem {
+  background: rgba(252,129,129,0.22);
+  color: #ffd6d6;
+  text-decoration: line-through;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
 /* ── Body ───────────────────────────────────────────────────── */
 .diff-loading {
   padding: 32px;
@@ -136,6 +180,11 @@
 .diff-line-hunk   .diff-content { color: var(--lane-0); font-style: italic; display: flex; justify-content: space-between; align-items: center; }
 .diff-line-header .diff-content { color: var(--text-muted); }
 
+.diff-chunk-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
 .diff-chunk-btn {
   font-size: 10px;
   font-family: inherit;
@@ -147,7 +196,20 @@
   border-radius: 4px;
   cursor: pointer;
   pointer-events: auto;
-  transition: background 0.1s;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
   font-style: normal;
 }
 .diff-chunk-btn:hover { background: var(--bg-active); }
+.diff-chunk-btn-danger {
+  color: var(--danger);
+  border-color: rgba(252,129,129,0.25);
+}
+.diff-chunk-btn-danger:hover {
+  background: rgba(252,129,129,0.12);
+  color: var(--danger);
+}
+.diff-chunk-btn-danger.armed {
+  background: rgba(252,129,129,0.22);
+  color: #ffd6d6;
+  border-color: var(--danger);
+}

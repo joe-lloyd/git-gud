@@ -120,6 +120,8 @@
   transition: background 0.1s;
   border-radius: 4px;
   margin: 1px 4px;
+  width: calc(100% - 8px);
+  text-align: left;
 }
 .wt-file-row:hover   { background: var(--bg-hover); }
 .wt-file-row.selected { background: var(--bg-active); }
@@ -168,8 +170,10 @@
   align-items: center;
   justify-content: center;
 }
-.wt-file-row:hover .wt-file-action { opacity: 1; }
+.wt-file-row:hover .wt-file-action,
+.wt-file-row.selected .wt-file-action { opacity: 1; }
 .wt-file-action:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.wt-file-discard:hover { background: rgba(252,129,129,0.15); color: var(--danger); }
 
 /* ── Commit form — always visible at bottom ─────────────────── */
 .wt-commit {
@@ -194,6 +198,27 @@
   padding: 7px 12px;
 }
 .wt-commit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.wt-amend-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.wt-amend-toggle input { width: auto; }
+.wt-amend-toggle:hover { color: var(--text-secondary); }
+
+.wt-amend-warn {
+  font-size: 11px;
+  color: var(--warning);
+  background: rgba(246,173,85,0.08);
+  border: 1px solid rgba(246,173,85,0.2);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
 
 .wt-error {
   font-size: 11px;

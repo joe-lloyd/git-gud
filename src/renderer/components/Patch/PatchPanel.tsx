@@ -39,19 +39,18 @@ export const PatchPanel: React.FC<PatchPanelProps> = ({ selectedSha, onClose }) 
   }
 
   return (
-    <div className="ir-overlay">
-      <div className="patch-panel fade-in">
-        <div className="ir-header">
-          <h2>Patch</h2>
-          <div className="patch-tabs">
-            <button className={`patch-tab ${mode === 'export' ? 'active' : ''}`} onClick={() => setMode('export')}>Export</button>
-            <button className={`patch-tab ${mode === 'apply'  ? 'active' : ''}`} onClick={() => setMode('apply')}>Apply</button>
-          </div>
-          <span style={{ flex: 1 }} />
-          <button className="ir-close" onClick={onClose}>✕</button>
+    <div className="patch-panel">
+      <div className="patch-header">
+        <h2>Patch</h2>
+        <div className="patch-tabs">
+          <button className={`patch-tab ${mode === 'export' ? 'active' : ''}`} onClick={() => setMode('export')}>Export</button>
+          <button className={`patch-tab ${mode === 'apply'  ? 'active' : ''}`} onClick={() => setMode('apply')}>Apply</button>
         </div>
+        <span style={{ flex: 1 }} />
+        <button className="patch-close" onClick={onClose}>✕</button>
+      </div>
 
-        <div className="patch-body">
+      <div className="patch-body">
           {mode === 'export' ? (
             <>
               <p className="patch-hint">
@@ -86,10 +85,9 @@ export const PatchPanel: React.FC<PatchPanelProps> = ({ selectedSha, onClose }) 
               </div>
             </>
           )}
-          {status && (
-            <div className={`patch-status ${status.ok ? 'ok' : 'err'}`}>{status.msg}</div>
-          )}
-        </div>
+        {status && (
+          <div className={`patch-status ${status.ok ? 'ok' : 'err'}`}>{status.msg}</div>
+        )}
       </div>
     </div>
   )

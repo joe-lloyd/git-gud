@@ -1,0 +1,149 @@
+import React, { useCallback, useRef, useState } from 'react'
+import type { ConflictState } from '../../../preload/index'
+import { useToasts } from '../Toast/Toast'
+import './ConflictPanel.css'
+
+interface ConflictPanelProps {
+  state: ConflictState
+  currentBranch: string
+  onSelectDiff: (path: string) => void
+  onRefresh: () => void
+}
+
+// Mid-flight rebase/merge surface. Takes over the right column while the repo
+// is paused — lists unresolved files, lets the user mark them resolved (by
+// staging), and offers continue/skip/abort once they're done.
+//
+// User resolves the actual conflict in their IDE; we don't ship an in-app
+// merge editor.
+export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBranch, onSelectDiff, onRefresh }) => {
+  const { inMerge, inRebase, rebaseKind, conflictedFiles } = state
+  const mode: 'merge' | 'rebase' = inRebase ? 'rebase' : 'merge'
+  const toast = useToasts()
+  const [focusedIdx, setFocusedIdx] = useState(0)
+  const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  const allResolved = conflictedFiles.length === 0
+
+  const handleMarkResolved = useCallback(async (path: string) => {
+    const r = await window.gitApi.markResolved([path])
+    if (r.success) onRefresh()
+    else toast.error('Mark resolved failed', r.error)
+  }, [onRefresh, toast])
+
+  const handleContinue = useCallback(async () => {
+    const r = mode === 'rebase'
+      ? await window.gitApi.rebaseContinue()
+      : await window.gitApi.mergeContinue()
+    if (r.success) { toast.success(`${mode === 'rebase' ? 'Rebase' : 'Merge'} continued`); onRefresh() }
+    else toast.error('Continue failed', r.error)
+  }, [mode, onRefresh, toast])
+
+  const handleSkip = useCallback(async () => {
+    const r = await window.gitApi.rebaseSkip()
+    if (r.success) { toast.success('Commit skipped'); onRefresh() }
+    else toast.error('Skip failed', r.error)
+  }, [onRefresh, toast])
+
+  const handleAbort = useCallback(async () => {
+    if (!window.confirm(`Abort the ${mode}? Your repository will return to the state before this ${mode} started.`)) return
+    const r = mode === 'rebase'
+      ? await window.gitApi.rebaseAbort()
+      : await window.gitApi.mergeAbort()
+    if (r.success) { toast.success(`${mode === 'rebase' ? 'Rebase' : 'Merge'} aborted`); onRefresh() }
+    else toast.error('Abort failed', r.error)
+  }, [mode, onRefresh, toast])
+
+  // Arrow keys move focus; Enter opens diff; r marks resolved.
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (conflictedFiles.length === 0) return
+    const focus = (idx: number) => {
+      const clamped = Math.max(0, Math.min(conflictedFiles.length - 1, idx))
+      setFocusedIdx(clamped)
+      rowRefs.current[clamped]?.focus()
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); focus(focusedIdx + 1); return }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); focus(focusedIdx - 1); return }
+    const cur = conflictedFiles[focusedIdx]
+    if (!cur) return
+    if (e.key === 'Enter')     { e.preventDefault(); onSelectDiff(cur); return }
+    if (e.key === 'r')         { e.preventDefault(); handleMarkResolved(cur); return }
+  }, [conflictedFiles, focusedIdx, handleMarkResolved, onSelectDiff])
+
+  rowRefs.current.length = conflictedFiles.length
+
+  return (
+    <div className="conflict-panel" onKeyDown={handleKeyDown}>
+      <div className="conflict-header">
+        <div className="conflict-title">
+          <span className="conflict-badge">{mode === 'rebase' ? `Rebase ${rebaseKind === 'merge' ? '(interactive)' : ''}` : 'Merge'} in progress</span>
+          <div className="conflict-branch">on <span className="mono">{currentBranch}</span></div>
+        </div>
+      </div>
+
+      <div className="conflict-body">
+        {allResolved ? (
+          <div className="conflict-resolved-banner">
+            <div className="conflict-resolved-title">All conflicts resolved</div>
+            <div className="conflict-resolved-sub">
+              {mode === 'rebase'
+                ? 'Continue to apply the next commit, or abort to return to the previous state.'
+                : 'Continue to finalize the merge commit, or abort to return to the previous state.'}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="conflict-instructions">
+              <strong>{conflictedFiles.length}</strong> {conflictedFiles.length === 1 ? 'file has' : 'files have'} conflicts.
+              <br />
+              <span className="conflict-step">1.</span> Open each file in your editor and resolve the {'<<<<<<<'} markers.
+              <br />
+              <span className="conflict-step">2.</span> Click <em>Mark resolved</em> (or press <kbd>r</kbd>) to stage it.
+              <br />
+              <span className="conflict-step">3.</span> Continue when all files are marked resolved.
+            </div>
+            <div className="conflict-file-list">
+              {conflictedFiles.map((path, i) => (
+                <button
+                  key={path}
+                  ref={(el) => { rowRefs.current[i] = el }}
+                  className={`conflict-file-row ${focusedIdx === i ? 'focused' : ''}`}
+                  onClick={() => { setFocusedIdx(i); onSelectDiff(path) }}
+                >
+                  <span className="conflict-file-icon">⚠</span>
+                  <span className="conflict-file-path mono truncate" title={path}>{path}</span>
+                  <span
+                    className="conflict-mark-btn"
+                    role="button"
+                    tabIndex={-1}
+                    onClick={(e) => { e.stopPropagation(); handleMarkResolved(path) }}
+                    title="Mark this file as resolved (stages it)"
+                  >
+                    Mark resolved ✓
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="conflict-footer">
+        <button className="btn btn-ghost" onClick={handleAbort}>Abort {mode}</button>
+        <div style={{ flex: 1 }} />
+        {mode === 'rebase' && (
+          <button className="btn btn-ghost" onClick={handleSkip} title="Skip the current commit and continue rebasing">Skip commit</button>
+        )}
+        <button
+          className="btn btn-primary"
+          onClick={handleContinue}
+          disabled={!allResolved}
+          title={allResolved ? 'Resume the operation' : 'Resolve all files first'}
+        >
+          Continue {mode}
+        </button>
+      </div>
+    </div>
+  )
+}
+

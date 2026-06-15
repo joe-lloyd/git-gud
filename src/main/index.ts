@@ -387,13 +387,13 @@ app.whenReady().then(() => {
     if (!gitService) return []
     try { return await gitService.getCommitFiles(sha) } catch { return [] }
   })
-  ipcMain.handle('git:file-diff', async (_event, filePath: string, staged: boolean) => {
+  ipcMain.handle('git:file-diff', async (_event, filePath: string, staged: boolean, opts?: { wordDiff?: boolean }) => {
     if (!gitService) return ''
-    try { return await gitService.getFileDiff(filePath, staged) } catch { return '' }
+    try { return await gitService.getFileDiff(filePath, staged, opts ?? {}) } catch { return '' }
   })
-  ipcMain.handle('git:commit-file-diff', async (_event, sha: string, filePath: string) => {
+  ipcMain.handle('git:commit-file-diff', async (_event, sha: string, filePath: string, opts?: { wordDiff?: boolean }) => {
     if (!gitService) return ''
-    try { return await gitService.getCommitFileDiff(sha, filePath) } catch { return '' }
+    try { return await gitService.getCommitFileDiff(sha, filePath, opts ?? {}) } catch { return '' }
   })
 
   // ── Basic Operations ─────────────────────────────────────────────────
@@ -415,10 +415,38 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
+  ipcMain.handle('git:discard-changes', async (_event, files: string[], opts: { staged: boolean }) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.discardChanges(files, opts); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:discard-untracked', async (_event, files: string[]) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.discardUntracked(files); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
   ipcMain.handle('git:commit', async (_event, message: string) => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { return await gitService.commit(message) }
     catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:commit-amend', async (_event, message: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { return await gitService.amendCommit(message) }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:head-message', async () => {
+    if (!gitService) return ''
+    return gitService.getHeadMessage()
+  })
+
+  ipcMain.handle('git:log-pickaxe', async (_event, query: string, limit: number) => {
+    if (!gitService) return []
+    return gitService.logPickaxe(query, limit)
   })
 
   ipcMain.handle('git:stash-save', async (_event, message?: string) => {
@@ -445,15 +473,20 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
+  ipcMain.handle('git:stash-branch', async (_event, name: string, index: number) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.stashBranch(name, index)
+  })
+
   ipcMain.handle('git:fetch', async () => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { await gitService.fetch(); return { success: true } }
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:pull', async () => {
+  ipcMain.handle('git:pull', async (_event, opts?: { rebase?: boolean; autoStash?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { return await gitService.pull() }
+    try { return await gitService.pull(opts ?? {}) }
     catch (e) { return { success: false, error: String(e) } }
   })
 
@@ -524,6 +557,42 @@ app.whenReady().then(() => {
   ipcMain.handle('git:rebase-to', async (_event, sha: string) => {
     if (!gitService) return { success: false, error: 'No repo' }
     return gitService.rebaseTo(sha)
+  })
+
+  ipcMain.handle('git:rebase-continue', async () => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.rebaseContinue()
+  })
+  ipcMain.handle('git:rebase-abort', async () => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.rebaseAbort()
+  })
+  ipcMain.handle('git:rebase-skip', async () => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.rebaseSkip()
+  })
+  ipcMain.handle('git:merge-continue', async () => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.mergeContinue()
+  })
+  ipcMain.handle('git:merge-abort', async () => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.mergeAbort()
+  })
+  ipcMain.handle('git:mark-resolved', async (_event, files: string[]) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.markResolved(files); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+  ipcMain.handle('git:conflict-file', async (_event, filePath: string) => {
+    if (!gitService) return { path: filePath, sections: [] }
+    try { return await gitService.getConflictFile(filePath) }
+    catch { return { path: filePath, sections: [] } }
+  })
+  ipcMain.handle('git:write-file', async (_event, filePath: string, content: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.writeFileContent(filePath, content); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
   })
 
   ipcMain.handle('git:create-tag', async (_event, name: string, sha: string) => {

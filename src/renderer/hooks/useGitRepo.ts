@@ -189,12 +189,6 @@ export function useGitRepo() {
     else toast.warning('Fetch failed', r.error)
   }, [refresh, toast])
 
-  const handlePull   = useCallback(async () => {
-    const r = await window.gitApi.pull()
-    if (r.success) refresh()
-    else toast.error('Pull failed', r.error)
-  }, [refresh, toast])
-
   const handlePush   = useCallback(async () => {
     const r = await window.gitApi.push()
     if (r.success) refresh()
@@ -224,7 +218,6 @@ export function useGitRepo() {
       handleOpenRepo,
       handleCheckout,
       handleFetch,
-      handlePull,
       handlePush
     }
   }

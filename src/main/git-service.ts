@@ -60,7 +60,19 @@ export interface RepoStatus {
   branch: string;
   ahead: number;
   behind: number;
+  conflict?: ConflictState;
 }
+
+export interface ConflictState {
+  inMerge: boolean;
+  inRebase: boolean;
+  rebaseKind?: "apply" | "merge";
+  conflictedFiles: string[];
+}
+
+export type ConflictSection =
+  | { kind: "shared"; text: string }
+  | { kind: "conflict"; current: string; incoming: string; currentLabel: string; incomingLabel: string };
 
 export class GitService {
   private git: SimpleGit;
@@ -272,7 +284,135 @@ export class GitService {
       branch: status.current || "HEAD",
       ahead,
       behind,
+      conflict: await this.getConflictState(),
     };
+  }
+
+  // Detect mid-flight merge/rebase + enumerate unmerged paths. Reads .git
+  // sentinel directories directly — these are the same files git itself uses
+  // to know "we're paused". `conflictedFiles` may be empty while inMerge or
+  // inRebase is true: that's the "everything resolved, awaiting --continue"
+  // state.
+  async getConflictState(): Promise<ConflictState> {
+    const path = await import("path");
+    const fs = await import("fs/promises");
+    const gitDir = path.join(this.repoPath, ".git");
+    const exists = async (p: string) => {
+      try { await fs.access(p); return true; } catch { return false; }
+    };
+    const [inMerge, rebaseMerge, rebaseApply] = await Promise.all([
+      exists(path.join(gitDir, "MERGE_HEAD")),
+      exists(path.join(gitDir, "rebase-merge")),
+      exists(path.join(gitDir, "rebase-apply")),
+    ]);
+    const inRebase = rebaseMerge || rebaseApply;
+    const rebaseKind = rebaseMerge ? "merge" : rebaseApply ? "apply" : undefined;
+
+    let conflictedFiles: string[] = [];
+    if (inMerge || inRebase) {
+      try {
+        const raw = await this.git.raw(["diff", "--name-only", "--diff-filter=U"]);
+        conflictedFiles = raw.trim().split("\n").filter(Boolean);
+      } catch { /* no diff yet */ }
+    }
+    return { inMerge, inRebase, rebaseKind, conflictedFiles };
+  }
+
+  // Staging a previously-conflicted file is git's way of marking it resolved.
+  async markResolved(files: string[]): Promise<void> {
+    await this.git.add(files);
+  }
+
+  // Read a conflicted file and split it into shared sections and conflict
+  // blocks. Markers come straight from git: `<<<<<<< X` … `=======` … `>>>>>>> Y`.
+  // The labels after the chevrons usually identify which side is which
+  // (HEAD vs the incoming branch / commit being replayed).
+  async getConflictFile(filePath: string): Promise<{ path: string; sections: ConflictSection[] }> {
+    const path = await import("path");
+    const fsp = await import("fs/promises");
+    const raw = await fsp.readFile(path.join(this.repoPath, filePath), "utf8");
+    const sections: ConflictSection[] = [];
+    const lines = raw.split("\n");
+    let i = 0;
+    let sharedBuf: string[] = [];
+    const flushShared = () => {
+      if (sharedBuf.length === 0) return;
+      sections.push({ kind: "shared", text: sharedBuf.join("\n") });
+      sharedBuf = [];
+    };
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line.startsWith("<<<<<<<")) {
+        flushShared();
+        const currentLabel = line.slice(8).trim() || "current";
+        const currentLines: string[] = [];
+        const incomingLines: string[] = [];
+        i++;
+        // Read until separator, capturing "current" (HEAD/ours)
+        while (i < lines.length && !lines[i].startsWith("=======")) {
+          currentLines.push(lines[i]);
+          i++;
+        }
+        // Skip the `=======` line
+        i++;
+        // Read until closing marker, capturing "incoming" (theirs)
+        while (i < lines.length && !lines[i].startsWith(">>>>>>>")) {
+          incomingLines.push(lines[i]);
+          i++;
+        }
+        const incomingLabel = i < lines.length ? lines[i].slice(8).trim() || "incoming" : "incoming";
+        i++; // consume closing marker
+        sections.push({
+          kind: "conflict",
+          current: currentLines.join("\n"),
+          incoming: incomingLines.join("\n"),
+          currentLabel,
+          incomingLabel,
+        });
+      } else {
+        sharedBuf.push(line);
+        i++;
+      }
+    }
+    flushShared();
+    return { path: filePath, sections };
+  }
+
+  // Write user-chosen content back to disk. Used by ConflictEditor before
+  // marking the file resolved.
+  async writeFileContent(filePath: string, content: string): Promise<void> {
+    const path = await import("path");
+    const fsp = await import("fs/promises");
+    await fsp.writeFile(path.join(this.repoPath, filePath), content, "utf8");
+  }
+
+  async rebaseContinue(): Promise<{ success: boolean; error?: string }> {
+    try {
+      // GIT_EDITOR=true keeps the rebase from opening an interactive editor for
+      // the commit message — accept whatever git proposes.
+      await this.git.env({ ...process.env, GIT_EDITOR: "true" }).raw(["rebase", "--continue"]);
+      return { success: true };
+    } catch (e) { return { success: false, error: String(e) }; }
+  }
+  async rebaseAbort(): Promise<{ success: boolean; error?: string }> {
+    try { await this.git.raw(["rebase", "--abort"]); return { success: true }; }
+    catch (e) { return { success: false, error: String(e) }; }
+  }
+  async rebaseSkip(): Promise<{ success: boolean; error?: string }> {
+    try { await this.git.raw(["rebase", "--skip"]); return { success: true }; }
+    catch (e) { return { success: false, error: String(e) }; }
+  }
+  async mergeContinue(): Promise<{ success: boolean; error?: string }> {
+    try {
+      // After all conflicts are staged, `git commit --no-edit` finalizes the
+      // merge with the auto-generated MERGE_MSG.
+      await this.git.env({ ...process.env, GIT_EDITOR: "true" }).raw(["commit", "--no-edit"]);
+      return { success: true };
+    } catch (e) { return { success: false, error: String(e) }; }
+  }
+  async mergeAbort(): Promise<{ success: boolean; error?: string }> {
+    try { await this.git.raw(["merge", "--abort"]); return { success: true }; }
+    catch (e) { return { success: false, error: String(e) }; }
   }
 
   async getCommitDiff(sha: string): Promise<string> {
@@ -292,8 +432,9 @@ export class GitService {
     }
   }
 
-  async getCommitFileDiff(sha: string, filePath: string): Promise<string> {
+  async getCommitFileDiff(sha: string, filePath: string, opts: { wordDiff?: boolean } = {}): Promise<string> {
     try {
+      const wd = opts.wordDiff ? ["--word-diff=porcelain"] : [];
       const parents = await this.getParents(sha);
       if (parents.length > 1) {
         // Merge commit — `git show` collapses to nothing by default. Diff the
@@ -301,6 +442,7 @@ export class GitService {
         return await this.git.raw([
           "diff",
           "--unified=5",
+          ...wd,
           `${sha}^1`,
           sha,
           "--",
@@ -311,6 +453,7 @@ export class GitService {
         "show",
         "--format=",
         "--unified=5",
+        ...wd,
         sha,
         "--",
         filePath,
@@ -320,11 +463,12 @@ export class GitService {
     }
   }
 
-  async getFileDiff(filePath: string, staged: boolean): Promise<string> {
+  async getFileDiff(filePath: string, staged: boolean, opts: { wordDiff?: boolean } = {}): Promise<string> {
     try {
+      const wd = opts.wordDiff ? ["--word-diff=porcelain"] : [];
       const args = staged
-        ? ["diff", "--cached", "--unified=5", "--", filePath]
-        : ["diff", "--unified=5", "--", filePath];
+        ? ["diff", "--cached", "--unified=5", ...wd, "--", filePath]
+        : ["diff", "--unified=5", ...wd, "--", filePath];
       const result = await this.git.raw(args);
       if (!result.trim()) {
         // Untracked file — show full content as +lines
@@ -406,9 +550,84 @@ export class GitService {
     await this.git.reset(["HEAD", "--", ...files]);
   }
 
+  // Revert tracked files back to HEAD. When `staged` is true we also drop the
+  // index entries so a staged-and-modified file is fully thrown away in one go.
+  async discardChanges(files: string[], opts: { staged: boolean }): Promise<void> {
+    if (opts.staged) {
+      await this.git.raw(["restore", "--staged", "--worktree", "--", ...files]);
+    } else {
+      await this.git.raw(["restore", "--worktree", "--", ...files]);
+    }
+  }
+
+  // Untracked files aren't in git, so `restore` won't touch them — delete on disk.
+  async discardUntracked(files: string[]): Promise<void> {
+    const path = await import("path");
+    const fsp = await import("fs/promises");
+    await Promise.all(
+      files.map((f) => fsp.rm(path.join(this.repoPath, f), { force: true, recursive: true })),
+    );
+  }
+
   async commit(message: string): Promise<{ success: boolean; error?: string }> {
     try {
       await this.git.commit(message);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
+
+  // Amend HEAD with the given message; whatever is in the index gets folded in.
+  // Using --allow-empty-message would let blank messages through; we don't,
+  // since the caller already validates.
+  // Content-history search ("pickaxe"). Finds commits where the number of
+  // occurrences of `query` changed (added or removed). Caller passes limit
+  // so we cap result-set size — pickaxe scans the full history.
+  async logPickaxe(query: string, limit: number): Promise<CommitNode[]> {
+    if (!query.trim()) return [];
+    const FS = "\x1f";
+    try {
+      const raw = await this.git.raw([
+        "log",
+        "--all",
+        `-S${query}`,
+        `--max-count=${limit}`,
+        `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}%s`,
+      ]);
+      return parseRawLog(raw);
+    } catch {
+      return [];
+    }
+  }
+
+  async amendCommit(message: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      await this.git.raw(["commit", "--amend", "-m", message]);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
+
+  // Full HEAD commit message (subject + body). `%B` gives the raw message
+  // including blank lines; `%s` would only give the subject.
+  async getHeadMessage(): Promise<string> {
+    try {
+      const raw = await this.git.raw(["log", "-1", "--format=%B", "HEAD"]);
+      return raw.replace(/\n$/, "");
+    } catch {
+      return "";
+    }
+  }
+
+  // Promote a stash to a branch. Equivalent to `git stash branch <name>
+  // stash@{<index>}` — creates the branch at the stash's base commit, applies
+  // the stash, drops it from the list. Lets users turn ad-hoc WIP into real
+  // branches without conflict-prone unstashing into HEAD.
+  async stashBranch(name: string, index: number): Promise<{ success: boolean; error?: string }> {
+    try {
+      await this.git.raw(["stash", "branch", name, `stash@{${index}}`]);
       return { success: true };
     } catch (e: unknown) {
       return { success: false, error: String(e) };
@@ -439,12 +658,29 @@ export class GitService {
     await this.git.raw([...this.getAuthConfigs(), "fetch", "--all", "--prune"]);
   }
 
-  async pull(): Promise<{ success: boolean; error?: string }> {
+  // Pull with optional recovery hints. The renderer calls this twice when
+  // needed: first as a probe, then with whichever recovery the user chose
+  // (autostash for dirty trees; rebase|merge for diverged branches).
+  //
+  // Failure kinds the renderer can react to:
+  //   'dirty'      → local modifications block merge → offer autostash retry
+  //   'diverged'   → no merge strategy configured for divergent branches
+  //   'untracked'  → untracked files would be overwritten → user must clear them
+  //   'conflict'   → merge produced conflicts → user resolves manually
+  //   'auth'       → credentials missing / rejected
+  //   'unknown'    → anything else
+  async pull(opts: { rebase?: boolean; autoStash?: boolean } = {}): Promise<{ success: boolean; error?: string; kind?: string }> {
+    const args = [...this.getAuthConfigs(), "pull"];
+    if (opts.rebase === true) args.push("--rebase");
+    else if (opts.rebase === false) args.push("--no-rebase");
+    if (opts.autoStash) args.push("--autostash");
     try {
-      await this.git.raw([...this.getAuthConfigs(), "pull"]);
+      await this.git.raw(args);
       return { success: true };
     } catch (e: unknown) {
-      return { success: false, error: String(e) };
+      const msg = String(e);
+      const kind = classifyPullError(msg);
+      return { success: false, error: msg, kind };
     }
   }
 
@@ -741,6 +977,21 @@ export class GitService {
     ]);
     return parseRawLog(raw);
   }
+}
+
+// ── Pull error classifier ─────────────────────────────────────────────────────
+// Maps git's stderr output to a coarse "kind" so the renderer can offer
+// targeted recovery. Patterns are conservative — anything we can't classify
+// falls back to 'unknown' and the user sees the raw error.
+function classifyPullError(msg: string): string {
+  if (/your local changes to the following files would be overwritten/i.test(msg)) return "dirty";
+  if (/please commit your changes or stash them before you (merge|rebase|pull)/i.test(msg)) return "dirty";
+  if (/cannot pull with rebase: you have unstaged changes/i.test(msg)) return "dirty";
+  if (/divergent branches|need to specify how to reconcile/i.test(msg)) return "diverged";
+  if (/the following untracked working tree files would be overwritten/i.test(msg)) return "untracked";
+  if (/conflict.*merge|automatic merge failed|fix conflicts and then commit/i.test(msg)) return "conflict";
+  if (/could not read username|authentication failed|terminal prompts disabled/i.test(msg)) return "auth";
+  return "unknown";
 }
 
 // ── Raw log parser ────────────────────────────────────────────────────────────

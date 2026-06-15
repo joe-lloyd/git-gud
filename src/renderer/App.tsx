@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { TabBar } from './components/TabBar/TabBar'
 import { GraphView, WORKTREE_SHA, makeWorktreePseudoCommit } from './components/Graph/GraphView'
+import { ConflictPanel } from './components/ConflictPanel/ConflictPanel'
+import { ConflictEditor } from './components/ConflictEditor/ConflictEditor'
 import { CommitDetail } from './components/CommitDetail/CommitDetail'
 import { Toolbar } from './components/Toolbar/Toolbar'
 import { WorkingTree } from './components/WorkingTree/WorkingTree'
@@ -22,6 +24,7 @@ import {
   NewBranchModal,
   InputModal,
   ConfirmModal,
+  ChoiceModal,
 } from './components/AppAux/AuxComponents'
 import { useGitRepo } from './hooks/useGitRepo'
 import { useCommitActions, CommitActionModal } from './hooks/useCommitActions'
@@ -39,6 +42,7 @@ type AppModal =
   | 'confirm-delete-branch'
   | 'confirm-delete-remote-branch'
   | 'confirm-drop-stash'
+  | 'stash-branch'
   | 'branch-from-tag'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
   | null
@@ -58,6 +62,7 @@ export default function App() {
   const [selectedRef, setSelectedRef]     = useState<string | null>(null)
   const [showSearch, setShowSearch]       = useState(false)
   const [activeDiff, setActiveDiff]       = useState<{ path: string; staged?: boolean; sha?: string } | null>(null)
+  const [activeConflictFile, setActiveConflictFile] = useState<string | null>(null)
 
   // Right panel mode is driven by what's selected: pseudo node (or nothing
   // when the tree is dirty) → WorkingTree; any real commit → CommitDetail.
@@ -73,7 +78,17 @@ export default function App() {
   // working-tree) is tied to the previous repo's files, so drop it.
   useEffect(() => {
     setActiveDiff(null)
+    setActiveConflictFile(null)
   }, [repo.repoPath])
+
+  // If the file we're editing in ConflictEditor has been resolved (staged) or
+  // the repo left conflict state entirely, close the editor.
+  useEffect(() => {
+    if (!activeConflictFile) return
+    const c = repo.status?.conflict
+    if (!c || (!c.inMerge && !c.inRebase)) { setActiveConflictFile(null); return }
+    if (!c.conflictedFiles.includes(activeConflictFile)) setActiveConflictFile(null)
+  }, [activeConflictFile, repo.status])
 
   const { menu: ctxMenu, open: openCtx, close: closeCtx } = useContextMenu()
 
@@ -90,6 +105,31 @@ export default function App() {
     setPendingStash(null)
     setPendingTag(null)
   }, [])
+
+  // ── Smart pull ──────────────────────────────────────────────────────
+  // Pulls and reacts to common failure modes:
+  //   dirty tree     → confirm "stash, pull, pop" and retry with --autostash
+  //   diverged hist  → ask the user merge vs rebase and retry with that strategy
+  //   untracked      → tell the user which files need to move first
+  //   conflict/auth/unknown → show the raw error
+  //
+  // `silent` skips toasting "Already up to date" — used for chained retries.
+  const [pullPrompt, setPullPrompt] = useState<{ kind: 'dirty' | 'diverged'; error: string } | null>(null)
+  const doPull = useCallback(async (opts: { rebase?: boolean; autoStash?: boolean } = {}) => {
+    const r = await window.gitApi.pull(opts)
+    if (r.success) {
+      repo.methods.refresh()
+      return
+    }
+    if (r.kind === 'dirty')      { setPullPrompt({ kind: 'dirty', error: r.error }); return }
+    if (r.kind === 'diverged')   { setPullPrompt({ kind: 'diverged', error: r.error }); return }
+    if (r.kind === 'untracked')  { repo.toast.error('Pull blocked', 'Untracked files would be overwritten. Move or delete them first.'); return }
+    if (r.kind === 'conflict')   { repo.toast.warning('Merge conflicts', 'Resolve conflicts in the working tree, then commit.'); repo.methods.refresh(); return }
+    if (r.kind === 'auth')       { repo.toast.error('Authentication failed', r.error); return }
+    repo.toast.error('Pull failed', r.error)
+  }, [repo.methods, repo.toast])
+
+  const handlePull = useCallback(() => doPull({}), [doPull])
 
   // ── Sidebar handlers ────────────────────────────────────────────────
   const handleCheckoutRemote = useCallback(async (remoteRef: string) => {
@@ -235,7 +275,7 @@ export default function App() {
           { label: `Delete "${branchName}"`,         icon: '🗑',  danger: true, disabled: isCurrent, onClick: () => handleDeleteBranch(branchName, false) },
           { separator: true, label: '', onClick: () => {} },
           { label: 'Push to remote',                 icon: '↑',  onClick: () => repo.methods.handlePush() },
-          { label: 'Pull from remote',               icon: '↓',  onClick: () => repo.methods.handlePull() },
+          { label: 'Pull from remote',               icon: '↓',  onClick: () => handlePull() },
           { separator: true, label: '', onClick: () => {} },
           { label: 'Copy branch name',               icon: '⎘',  onClick: () => navigator.clipboard.writeText(branchName) },
         ])
@@ -249,7 +289,7 @@ export default function App() {
         ])
       }
     },
-    [openCtx, repo.status, repo.methods, handleDeleteBranch, handleCheckoutRemote],
+    [openCtx, repo.status, repo.methods, handleDeleteBranch, handleCheckoutRemote, handlePull],
   )
 
   const handleStashContextMenu = useCallback(
@@ -257,6 +297,8 @@ export default function App() {
       openCtx(e, [
         { label: 'Apply stash',                icon: '↧',  onClick: () => handleApplyStash(index) },
         { label: 'Pop stash',                  icon: '↥',  onClick: () => handlePopStash(index) },
+        { separator: true, label: '', onClick: () => {} },
+        { label: 'Create branch from stash…',  icon: '⎇',  onClick: () => { setPendingStash(index); setModal('stash-branch') } },
         { separator: true, label: '', onClick: () => {} },
         { label: 'Drop stash',                 icon: '🗑',  danger: true, onClick: () => { setPendingStash(index); setModal('confirm-drop-stash') } },
       ])
@@ -458,13 +500,27 @@ export default function App() {
         ahead={repo.status?.ahead ?? 0}
         behind={repo.status?.behind ?? 0}
         onFetch={repo.methods.handleFetch}
-        onPull={repo.methods.handlePull}
+        onPull={handlePull}
         onPush={repo.methods.handlePush}
         onRefresh={repo.methods.refresh}
         onNewBranch={() => setModal('new-branch')}
         onSearchToggle={() => setShowSearch(true)}
         onGitHubShow={() => setModal('github')}
       />
+
+      {repo.repoPath && repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) && (
+        <div className="conflict-bar">
+          <span className="conflict-bar-icon">⚠</span>
+          <span className="conflict-bar-label">
+            {repo.status.conflict.inRebase ? 'REBASE' : 'MERGE'} IN PROGRESS
+          </span>
+          <span className="conflict-bar-detail">
+            {repo.status.conflict.conflictedFiles.length > 0
+              ? `${repo.status.conflict.conflictedFiles.length} unresolved file${repo.status.conflict.conflictedFiles.length === 1 ? '' : 's'} — resolve in the right panel`
+              : 'all conflicts resolved — continue in the right panel'}
+          </span>
+        </div>
+      )}
 
       <div className="app-body">
         <Sidebar
@@ -502,7 +558,13 @@ export default function App() {
           ) : (
             <div className="graph-layout">
               <div className="graph-center">
-                {activeDiff ? (
+                {activeConflictFile ? (
+                  <ConflictEditor
+                    filePath={activeConflictFile}
+                    onClose={() => setActiveConflictFile(null)}
+                    onResolved={() => { setActiveConflictFile(null); repo.methods.refresh() }}
+                  />
+                ) : activeDiff ? (
                   <DiffViewer
                     filePath={activeDiff.path}
                     staged={activeDiff.staged}
@@ -526,10 +588,22 @@ export default function App() {
 
               <div className="right-panel">
                 <div className="right-panel-body">
-                  {modal === 'bisect' ? (
+                  {repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) ? (
+                    <ConflictPanel
+                      state={repo.status.conflict}
+                      currentBranch={repo.status?.branch ?? ''}
+                      onSelectDiff={(path) => { setActiveDiff(null); setActiveConflictFile(path) }}
+                      onRefresh={repo.methods.refresh}
+                    />
+                  ) : modal === 'bisect' ? (
                     <BisectWizard
                       commits={repo.commits}
                       onClose={() => { closeModal(); repo.methods.refresh() }}
+                    />
+                  ) : modal === 'patch' ? (
+                    <PatchPanel
+                      selectedSha={repo.selectedSha}
+                      onClose={closeModal}
                     />
                   ) : showWorkingTree ? (
                     <WorkingTree
@@ -575,9 +649,6 @@ export default function App() {
       )}
       {modal === 'worktrees' && (
         <Worktrees currentPath={repo.repoPath} onClose={closeModal} onSwitch={repo.methods.loadRepo} />
-      )}
-      {modal === 'patch' && (
-        <PatchPanel selectedSha={repo.selectedSha} onClose={closeModal} />
       )}
       {modal === 'github' && (
         <GitHubPanel
@@ -671,6 +742,26 @@ export default function App() {
           onConfirm={() => handleDropStash(pendingStash)}
         />
       )}
+      {modal === 'stash-branch' && pendingStash !== null && (
+        <InputModal
+          title={`Create Branch from stash@{${pendingStash}}`}
+          subtitle="Applies the stash and removes it from the list."
+          placeholder="Branch name"
+          confirmLabel="Create Branch"
+          onClose={closeModal}
+          onConfirm={async (name) => {
+            const idx = pendingStash
+            closeModal()
+            const r = await window.gitApi.stashBranch(name, idx)
+            if (r.success) {
+              repo.toast.success('Branch Created', `${name} from stash@{${idx}}`)
+              repo.methods.refresh()
+            } else {
+              repo.toast.error('Stash Branch Failed', r.error)
+            }
+          }}
+        />
+      )}
       {modal === 'branch-from-tag' && pendingTag && (
         <InputModal
           title={`Create branch from tag "${pendingTag}"`}
@@ -695,6 +786,29 @@ export default function App() {
           danger
           onClose={closeModal}
           onConfirm={() => actions.resetHard(pendingSha)}
+        />
+      )}
+
+      {pullPrompt?.kind === 'dirty' && (
+        <ConfirmModal
+          title="Pull blocked by local changes"
+          message="Your working tree has uncommitted changes that would be overwritten by the incoming commits."
+          detail="Stash your changes, pull, then re-apply the stash automatically? Conflicts during re-apply will leave the stash on the stack so nothing is lost."
+          confirmLabel="Stash, Pull, and Re-apply"
+          onClose={() => setPullPrompt(null)}
+          onConfirm={() => { setPullPrompt(null); doPull({ autoStash: true }) }}
+        />
+      )}
+      {pullPrompt?.kind === 'diverged' && (
+        <ChoiceModal
+          title="Local and remote have diverged"
+          message="Your branch and the remote both have commits the other doesn't. Pick a strategy to combine them."
+          detail="Merge keeps history as-is and adds a merge commit. Rebase replays your local commits on top of the remote tip (cleaner history, rewrites your local SHAs)."
+          actions={[
+            { label: 'Merge',  primary: true, onClick: () => doPull({ rebase: false }) },
+            { label: 'Rebase',                onClick: () => doPull({ rebase: true }) },
+          ]}
+          onClose={() => setPullPrompt(null)}
         />
       )}
 

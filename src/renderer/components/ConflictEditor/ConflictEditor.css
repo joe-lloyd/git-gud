@@ -1,0 +1,207 @@
+.conflict-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-base);
+  overflow: hidden;
+}
+
+.ce-loading {
+  padding: 24px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ce-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ce-filename { font-size: 12px; color: var(--text-primary); font-weight: 600; }
+.ce-progress { font-size: 11px; color: var(--text-muted); }
+.ce-nav {
+  font-size: 14px;
+  color: var(--text-muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.ce-nav:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-hover); }
+.ce-nav:disabled { opacity: 0.4; cursor: not-allowed; }
+.ce-close {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+.ce-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+.ce-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.ce-action {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-deepest);
+  transition: background 0.1s, color 0.1s;
+}
+.ce-action:hover { background: var(--bg-active); color: var(--text-primary); }
+.ce-action-clear { color: var(--danger); border-color: rgba(252,129,129,0.25); }
+.ce-action-clear:hover { background: rgba(252,129,129,0.12); }
+.ce-empty-hint { font-size: 11px; color: var(--text-muted); font-style: italic; }
+.ce-warning {
+  font-size: 11px;
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.ce-body {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+.ce-empty {
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+  font-style: italic;
+}
+
+/* Two-row layout: top splits Current | Incoming, bottom spans full width for
+   the resolved editor. Borders use a single-pixel gap on a colored background
+   for cheap dividers. */
+.ce-grid {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  height: 100%;
+  gap: 1px;
+  background: var(--border);
+}
+.ce-top-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  min-height: 0;
+  overflow: hidden;
+}
+.ce-bottom-row {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+.ce-bottom-row > .ce-pane { flex: 1 1 auto; width: 100%; }
+
+.ce-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  overflow: hidden;
+  min-width: 0;
+}
+.ce-pane-head {
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ce-pane-current .ce-pane-head { color: #fc8181; border-bottom-color: rgba(252,129,129,0.3); }
+.ce-pane-incoming .ce-pane-head { color: #68d391; border-bottom-color: rgba(104,211,145,0.3); }
+.ce-pane-mid .ce-pane-head { color: var(--lane-0); border-bottom-color: rgba(99,179,237,0.3); }
+
+.ce-pane-body {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ce-side-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 10px;
+  /* Rows grow to their content (long lines) so the pane body scrolls
+     horizontally rather than truncating with ellipsis. */
+  min-width: max-content;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre;
+  cursor: pointer;
+  transition: background 0.08s, filter 0.08s;
+  background: transparent;
+}
+/* Non-conflict (shared) lines fade slightly so the eye is drawn to the
+   highlighted conflict regions. */
+.ce-side-line:not(.ce-side-line-conflict) { opacity: 0.55; }
+.ce-side-line:hover { background: var(--bg-hover); opacity: 1; }
+
+/* Persistent highlight for conflict-region lines — colored bar on the left
+   plus a tinted background that the user can scan to find what changed. */
+.ce-pane-current  .ce-side-line-conflict {
+  background: rgba(252,129,129,0.14);
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.ce-pane-incoming .ce-side-line-conflict {
+  background: rgba(104,211,145,0.14);
+  box-shadow: inset 3px 0 0 var(--success);
+}
+.ce-pane-current  .ce-side-line-conflict:hover { background: rgba(252,129,129,0.24); }
+.ce-pane-incoming .ce-side-line-conflict:hover { background: rgba(104,211,145,0.24); }
+.ce-side-lineno {
+  width: 32px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  position: sticky;
+  left: 0;
+  background: var(--bg-base);
+}
+.ce-side-text { flex: 0 0 auto; white-space: pre; }
+
+.ce-textarea {
+  flex: 1;
+  background: var(--bg-deepest);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  border: 0;
+  resize: none;
+  outline: none;
+  width: 100%;
+  height: 100%;
+  white-space: pre;
+}
+.ce-textarea::placeholder { color: var(--text-muted); font-style: italic; }
