@@ -21,6 +21,27 @@ const REFS_W = 180; // width of the refs/tags column (left of tree)
 // How many rows to render outside the visible viewport (buffer)
 const OVERSCAN = 8;
 
+// Sentinel SHA for the synthetic "uncommitted changes" node prepended above
+// HEAD when the working tree is dirty. Never collides with a real 40-char SHA.
+export const WORKTREE_SHA = "__WORKTREE__";
+
+export function makeWorktreePseudoCommit(parentSha: string, dirtyCount: number): CommitNode {
+  const label = dirtyCount > 0
+    ? `Uncommitted changes (${dirtyCount})`
+    : "Uncommitted changes";
+  return {
+    sha: WORKTREE_SHA,
+    shortSha: "•••••••",
+    message: label,
+    author: "",
+    email: "",
+    date: "",
+    timestamp: 0,
+    parents: parentSha ? [parentSha] : [],
+    refs: [],
+  };
+}
+
 interface GraphViewProps {
   commits: CommitNode[];
   selectedSha: string | null;
@@ -137,6 +158,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       const cy = r * ROW_H + ROW_H / 2 - scrollTop;
       const cx = GRAPH_PAD + node.lane * LANE_W + NODE_R;
       const fromStash = stashShaSet.has(node.commit.sha);
+      const fromPseudo = node.commit.sha === WORKTREE_SHA;
 
       for (const conn of node.parentConnections) {
         const pr = conn.parentRow;
@@ -145,10 +167,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const py = pr * ROW_H + ROW_H / 2 - scrollTop;
         const px = GRAPH_PAD + conn.parentLane * LANE_W + NODE_R;
 
-        // Lines hanging off a stash node (to index/untracked/HEAD parents) are
-        // dashed to mark them as off-history dangles, not real commit lineage.
+        // Lines hanging off a stash or working-tree node are dashed — they
+        // mark off-history dangles, not real commit lineage.
         const toStash = stashShaSet.has(conn.parentSha);
-        const dashed = fromStash || toStash;
+        const dashed = fromStash || toStash || fromPseudo;
 
         ctx.strokeStyle = conn.color;
         ctx.lineWidth = 2;
@@ -190,6 +212,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       const cx = GRAPH_PAD + node.lane * LANE_W + NODE_R;
       const isSelected = node.commit.sha === selectedSha;
       const isStash = stashShaSet.has(node.commit.sha);
+      const isPseudo = node.commit.sha === WORKTREE_SHA;
       const radius = isSelected ? NODE_R + 1.5 : NODE_R;
 
       if (isSelected) {
@@ -213,7 +236,19 @@ export const GraphView: React.FC<GraphViewProps> = ({
         ctx.shadowBlur = 10;
       }
 
-      if (isStash) {
+      if (isPseudo) {
+        // Hollow dashed ring — signals "not a real commit yet"
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = node.color;
+        ctx.setLineDash([2, 2]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (isStash) {
         // Diamond (rotated square) — distinguishes stash from real commits
         const g = radius + 0.5;
         ctx.beginPath();
@@ -292,6 +327,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   node={node}
                   isSelected={node.commit.sha === selectedSha}
                   isStash={stashShaSet.has(node.commit.sha)}
+                  isPseudo={node.commit.sha === WORKTREE_SHA}
                   onSelect={onSelectCommit}
                   onContextMenu={onContextMenu}
                   onRefContextMenu={onRefContextMenu}
@@ -316,6 +352,7 @@ interface CommitRowProps {
   node: GraphNode;
   isSelected: boolean;
   isStash: boolean;
+  isPseudo: boolean;
   onSelect: (sha: string) => void;
   onContextMenu?: (e: React.MouseEvent, sha: string) => void;
   onRefContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
@@ -325,20 +362,20 @@ interface CommitRowProps {
 }
 
 const CommitRow: React.FC<CommitRowProps> = React.memo(
-  ({ node, isSelected, isStash, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth }) => {
+  ({ node, isSelected, isStash, isPseudo, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth }) => {
     const { commit } = node;
     const groups = useMemo(
-      () => groupRefs(commit.refs, worktreeBranches),
-      [commit.refs, worktreeBranches],
+      () => isPseudo ? [] : groupRefs(commit.refs, worktreeBranches),
+      [commit.refs, worktreeBranches, isPseudo],
     );
 
     return (
       <div
-        className={`commit-row ${isSelected ? "selected" : ""} ${isStash ? "is-stash" : ""}`}
+        className={`commit-row ${isSelected ? "selected" : ""} ${isStash ? "is-stash" : ""} ${isPseudo ? "is-pseudo" : ""}`}
         style={{ height: ROW_H }}
         onClick={() => onSelect(commit.sha)}
         onContextMenu={
-          onContextMenu ? (e) => onContextMenu(e, commit.sha) : undefined
+          !isPseudo && onContextMenu ? (e) => onContextMenu(e, commit.sha) : undefined
         }
       >
         {/* Refs — LEFTMOST column, left of the tree canvas */}
@@ -368,10 +405,10 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
         </span>
 
         {/* Date */}
-        <span className="cr-date">{formatRelativeDate(commit.date)}</span>
+        <span className="cr-date">{isPseudo ? "" : formatRelativeDate(commit.date)}</span>
 
         {/* SHA */}
-        <span className="cr-sha mono">{commit.shortSha}</span>
+        <span className="cr-sha mono">{isPseudo ? "" : commit.shortSha}</span>
       </div>
     );
   },

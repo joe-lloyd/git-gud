@@ -1,7 +1,6 @@
 import simpleGit, {
   SimpleGit,
   LogResult,
-  BranchSummary,
   StatusResult,
 } from "simple-git";
 
@@ -125,23 +124,32 @@ export class GitService {
   }
 
   async getBranches(): Promise<BranchData> {
-    const summary: BranchSummary = await this.git.branch(["-a", "--verbose"]);
+    // simple-git's branch summary returns short SHAs; the graph keys rows by
+    // full SHA, so clicks wouldn't scroll-to-commit. Use for-each-ref for full
+    // SHAs and read HEAD separately to flag the current branch.
+    const [refsRaw, headRaw] = await Promise.all([
+      this.git.raw([
+        "for-each-ref",
+        "--format=%(refname)\x1f%(objectname)",
+        "refs/heads",
+        "refs/remotes",
+      ]),
+      this.git.raw(["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => ""),
+    ]);
+    const currentBranch = headRaw.trim();
+
     const local: BranchInfo[] = [];
     const remote: BranchInfo[] = [];
 
-    for (const [name, branch] of Object.entries(summary.branches)) {
-      if (name.startsWith("remotes/")) {
-        remote.push({
-          name: name.replace(/^remotes\//, ""),
-          current: false,
-          sha: branch.commit,
-        });
-      } else {
-        local.push({
-          name,
-          current: branch.current,
-          sha: branch.commit,
-        });
+    for (const line of refsRaw.trim().split("\n").filter(Boolean)) {
+      const [refname, sha] = line.split("\x1f");
+      if (refname.startsWith("refs/heads/")) {
+        const name = refname.slice("refs/heads/".length);
+        local.push({ name, current: name === currentBranch, sha });
+      } else if (refname.startsWith("refs/remotes/")) {
+        const name = refname.slice("refs/remotes/".length);
+        if (name.endsWith("/HEAD")) continue;
+        remote.push({ name, current: false, sha });
       }
     }
 
@@ -150,18 +158,20 @@ export class GitService {
 
   async getTags(): Promise<TagInfo[]> {
     try {
+      // %(*objectname) dereferences annotated tags to the commit they point at;
+      // empty for lightweight tags, where %(objectname) is already the commit.
       const raw = await this.git.raw([
-        "tag",
-        "-l",
-        "--format=%(refname:short) %(objectname:short)",
+        "for-each-ref",
+        "--format=%(refname:short)\x1f%(objectname)\x1f%(*objectname)",
+        "refs/tags",
       ]);
       return raw
         .trim()
         .split("\n")
         .filter(Boolean)
         .map((line) => {
-          const [name, sha] = line.trim().split(" ");
-          return { name, sha };
+          const [name, obj, deref] = line.split("\x1f");
+          return { name, sha: deref || obj };
         });
     } catch {
       return [];

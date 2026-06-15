@@ -129,6 +129,18 @@
   color: var(--text-secondary);
 }
 
+/* Pseudo "uncommitted changes" row — italic, muted, no real metadata */
+.commit-row.is-pseudo .cr-message {
+  font-style: italic;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+.commit-row.is-pseudo:hover .cr-message,
+.commit-row.is-pseudo.selected .cr-message {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
 /* Commit message — wide; row overflows horizontally if window is narrow */
 .cr-message {
   flex: 1;

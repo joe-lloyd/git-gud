@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { TabBar } from './components/TabBar/TabBar'
-import { GraphView } from './components/Graph/GraphView'
+import { GraphView, WORKTREE_SHA, makeWorktreePseudoCommit } from './components/Graph/GraphView'
 import { CommitDetail } from './components/CommitDetail/CommitDetail'
 import { Toolbar } from './components/Toolbar/Toolbar'
 import { WorkingTree } from './components/WorkingTree/WorkingTree'
@@ -58,8 +58,11 @@ export default function App() {
   const [pendingTag, setPendingTag]       = useState<string | null>(null)
   const [selectedRef, setSelectedRef]     = useState<string | null>(null)
   const [showSearch, setShowSearch]       = useState(false)
-  const [showWorking, setShowWorking]     = useState(true)
   const [activeDiff, setActiveDiff]       = useState<{ path: string; staged?: boolean; sha?: string } | null>(null)
+
+  // Right panel mode is driven by what's selected: pseudo node (or nothing
+  // when the tree is dirty) → WorkingTree; any real commit → CommitDetail.
+  const showWorkingTree = repo.selectedSha === WORKTREE_SHA || repo.selectedSha === null
 
   // A commit-mode diff is bound to its commit — if the user picks a different
   // commit, close the stale diff. Working-tree diffs (no `sha`) stay open.
@@ -98,6 +101,35 @@ export default function App() {
     if (!localName) return
     await repo.methods.handleCheckout(localName)
   }, [repo.methods])
+
+  // Prepend a synthetic "uncommitted changes" node above HEAD when the working
+  // tree is dirty. The graph dashes its parent edge (same treatment as stashes)
+  // so it reads as off-history. Skip when status hasn't loaded or HEAD isn't
+  // in the current log window (detached / shallow / pre-first-commit).
+  const displayCommits = useMemo(() => {
+    if (!repo.status) return repo.commits
+    const dirty =
+      repo.status.staged.length +
+      repo.status.unstaged.length +
+      repo.status.untracked.length
+    if (dirty === 0) return repo.commits
+    const headIdx = repo.commits.findIndex(c => c.refs.includes('HEAD'))
+    if (headIdx < 0) return repo.commits
+    const pseudo = makeWorktreePseudoCommit(repo.commits[headIdx].sha, dirty)
+    return [...repo.commits.slice(0, headIdx), pseudo, ...repo.commits.slice(headIdx)]
+  }, [repo.commits, repo.status])
+
+  // Default selection: when the pseudo node is present and nothing is selected,
+  // land on it so the right panel opens on the working tree.
+  const hasPseudo = useMemo(
+    () => displayCommits.some(c => c.sha === WORKTREE_SHA),
+    [displayCommits],
+  )
+  useEffect(() => {
+    if (repo.selectedSha === null && hasPseudo) {
+      repo.setSelectedSha(WORKTREE_SHA)
+    }
+  }, [hasPseudo, repo.selectedSha, repo.setSelectedSha])
 
   // Sidebar ref clicks: track the selection AND, for stashes/branches/tags
   // backed by a SHA in the current log window, jump the graph to that node.
@@ -450,7 +482,7 @@ export default function App() {
                   />
                 ) : (
                   <GraphView
-                    commits={repo.commits}
+                    commits={displayCommits}
                     selectedSha={repo.selectedSha}
                     onSelectCommit={repo.setSelectedSha}
                     onContextMenu={handleCommitContextMenu}
@@ -463,20 +495,12 @@ export default function App() {
               </div>
 
               <div className="right-panel">
-                <div className="right-panel-tabs">
-                  <button className={`rpt ${!showWorking ? 'active' : ''}`} onClick={() => setShowWorking(false)}>
-                    Commit
-                  </button>
-                  <button className={`rpt ${showWorking ? 'active' : ''}`} onClick={() => setShowWorking(true)}>
-                    Working Tree
-                  </button>
-                </div>
                 <div className="right-panel-body">
-                  {showWorking ? (
+                  {showWorkingTree ? (
                     <WorkingTree
                       repoPath={repo.repoPath}
                       onCommitted={repo.methods.refresh}
-                      onSelectDiff={(path, staged) => { setActiveDiff({ path, staged }); setShowWorking(true) }}
+                      onSelectDiff={(path, staged) => setActiveDiff({ path, staged })}
                     />
                   ) : (
                     <CommitDetail
@@ -647,7 +671,7 @@ export default function App() {
       {showSearch && (
         <SearchBar
           commits={repo.commits}
-          onSelect={(sha) => { repo.setSelectedSha(sha); setShowWorking(false) }}
+          onSelect={(sha) => repo.setSelectedSha(sha)}
           onClose={() => setShowSearch(false)}
         />
       )}

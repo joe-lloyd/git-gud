@@ -55,24 +55,6 @@
   overflow: hidden;
 }
 
-.right-panel-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.rpt {
-  flex: 1;
-  padding: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
-}
-.rpt:hover { color: var(--text-secondary); }
-.rpt.active { color: var(--lane-0); border-bottom-color: var(--lane-0); }
-
 .right-panel-body {
   flex: 1;
   overflow: hidden;
