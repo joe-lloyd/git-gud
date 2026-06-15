@@ -40,8 +40,11 @@ The app embeds `electron-updater`, which polls GitHub Releases on launch. To shi
 Local manual publish (skip Actions):
 
 ```bash
-GH_TOKEN=ghp_… pnpm release
+cp .env.example .env       # then paste your GH_TOKEN inside
+pnpm release               # reads .env, builds, uploads to the GitHub Release
 ```
+
+`.env` is gitignored. Generate the token at https://github.com/settings/tokens with the `repo` scope. If the token leaks, revoke it from the same page immediately.
 
 ## Layout
 

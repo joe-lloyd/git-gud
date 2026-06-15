@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "dist": "pnpm build && electron-builder",
     "dist:mac": "pnpm build && electron-builder --mac",
-    "release": "pnpm build && electron-builder --publish always"
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@octokit/rest": "^19.0.13",
