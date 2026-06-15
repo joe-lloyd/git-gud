@@ -626,7 +626,9 @@ export default function App() {
                       repoPath={repo.repoPath}
                       status={repo.status}
                       onRefresh={repo.methods.refresh}
-                      onCommitted={repo.methods.refresh}
+                      // Close the center-pane diff after committing — the
+                      // graph + new commit row is the more useful view.
+                      onCommitted={() => { setActiveDiff(null); repo.methods.refresh() }}
                       onSelectDiff={(path, staged) => setActiveDiff({ path, staged })}
                     />
                   ) : (
