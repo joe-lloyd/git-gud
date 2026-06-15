@@ -113,9 +113,11 @@ export class GitService {
       `--max-count=${limit}`,
       "--all",
       "--parents",
-      // Strict children-before-parents — the lane algorithm relies on each
-      // commit's children being assigned before the commit itself is reached.
-      "--topo-order",
+      // --date-order still guarantees child-before-parent (the lane
+      // algorithm's invariant) but interleaves branches by commit time, so
+      // a feature commit merged later doesn't surface above older mainline
+      // history the way --topo-order would group it.
+      "--date-order",
       `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}%s`,
       ...extraRefs,
     ]);

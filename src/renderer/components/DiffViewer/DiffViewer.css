@@ -99,9 +99,12 @@
   color: var(--text-muted);
   font-size: 11px;
   user-select: none;
-  border-right: 1px solid var(--border);
   opacity: 0.6;
 }
+.diff-gutter-old { border-right: 1px solid var(--border); }
+.diff-gutter-new { border-right: 1px solid var(--border); }
+.diff-line-remove .diff-gutter-new,
+.diff-line-add    .diff-gutter-old { opacity: 0.25; }
 
 .diff-sign {
   width: 20px;

@@ -37,22 +37,46 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
-  // Parse unified diff into typed lines with hunk bounds
+  // Parse unified diff into typed lines with hunk bounds AND track each row's
+  // line number against the original (oldNo) and new (newNo) file. Hunk
+  // headers (@@ -a,b +c,d @@) reset the counters; context advances both,
+  // remove advances only oldNo, add advances only newNo. "\ No newline at
+  // end of file" markers don't consume a line number.
   let currentHunkIndex = -1
+  let oldCursor = 0
+  let newCursor = 0
+  const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
   const lines = diff.split('\n').map((text, i) => {
     let type: 'add' | 'remove' | 'hunk' | 'header' | 'context' = 'context'
+    let oldNo: number | null = null
+    let newNo: number | null = null
+
     if (currentHunkIndex === -1 && !text.startsWith('@@')) {
       type = 'header'
     } else if (text.startsWith('@@')) {
       type = 'hunk'
       currentHunkIndex = i
+      const m = text.match(HUNK_RE)
+      if (m) {
+        oldCursor = parseInt(m[1], 10)
+        newCursor = parseInt(m[2], 10)
+      }
+    } else if (text.startsWith('\\')) {
+      // "\ No newline at end of file" — informational, no line number
+      type = 'context'
     } else if (text.startsWith('+')) {
       type = 'add'
+      newNo = newCursor++
     } else if (text.startsWith('-')) {
       type = 'remove'
+      oldNo = oldCursor++
+    } else if (currentHunkIndex !== -1) {
+      type = 'context'
+      oldNo = oldCursor++
+      newNo = newCursor++
     }
-    if (text.startsWith('\\')) type = 'context' // No newline at end of file
-    return { text, type, i, hunkIndex: currentHunkIndex }
+
+    return { text, type, i, hunkIndex: currentHunkIndex, oldNo, newNo }
   })
 
   const applyPatch = async (patch: string) => {
@@ -110,11 +134,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
         <div className="diff-body">
           <table className="diff-table">
             <tbody>
-              {lines.map(({ text, type, i, hunkIndex }) => {
+              {lines.map(({ text, type, i, hunkIndex, oldNo, newNo }) => {
                 const lineActionable = !isCommitMode && (type === 'add' || type === 'remove')
                 return (
                   <tr key={i} className={`diff-line diff-line-${type}`}>
-                    <td className="diff-gutter">{type !== 'hunk' && type !== 'header' ? i + 1 : ''}</td>
+                    <td className="diff-gutter diff-gutter-old">{oldNo ?? ''}</td>
+                    <td className="diff-gutter diff-gutter-new">{newNo ?? ''}</td>
                     <td className={`diff-sign ${lineActionable ? 'diff-sign-actionable' : ''}`}
                         onClick={() => lineActionable && handleStageLine(hunkIndex, i)}
                         title={lineActionable ? (staged ? 'Unstage Line' : 'Stage Line') : ''}>
