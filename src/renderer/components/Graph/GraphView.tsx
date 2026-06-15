@@ -458,6 +458,10 @@ function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGroup[] {
   // Second pass: build groups
   for (const ref of refs) {
     if (ref === "HEAD") continue; // handled via headTarget
+    // Skip remote symbolic-HEAD refs (`origin/HEAD`, `upstream/HEAD`). They
+    // mirror the remote's default branch — already shown via that branch's
+    // own ref, so the bare HEAD pill is noise.
+    if (ref.endsWith("/HEAD")) continue;
 
     if (ref.startsWith("tag: ")) {
       const tagName = ref.slice(5);

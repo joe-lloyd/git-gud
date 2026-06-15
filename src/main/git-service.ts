@@ -538,14 +538,38 @@ export class GitService {
     }
   }
 
+  // Checkout returns the same kinds as pull so the renderer can offer the
+  // same autostash recovery.
   async checkout(
     branch: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; kind?: string }> {
     try {
       await this.git.checkout(branch);
       return { success: true };
     } catch (e: unknown) {
-      return { success: false, error: String(e) };
+      const msg = String(e);
+      return { success: false, error: msg, kind: classifyPullError(msg) };
+    }
+  }
+
+  // Stash → checkout. We deliberately don't pop on the destination branch —
+  // popping risks conflicts on a different tree and surprises the user mid-
+  // switch. The stash is named so the user can find it in the sidebar and
+  // pop manually when they're ready.
+  async checkoutAutostash(branch: string): Promise<{ success: boolean; error?: string; stashMessage?: string }> {
+    const stashMsg = `autostash before checkout to ${branch}`;
+    try {
+      await this.git.raw(["stash", "push", "--include-untracked", "-m", stashMsg]);
+    } catch (e) {
+      return { success: false, error: `stash failed: ${String(e)}` };
+    }
+    try {
+      await this.git.checkout(branch);
+      return { success: true, stashMessage: stashMsg };
+    } catch (e) {
+      // Checkout failed after the stash — restore so the user isn't stranded.
+      try { await this.git.raw(["stash", "pop"]); } catch { /* leave on stack */ }
+      return { success: false, error: `checkout failed: ${String(e)}` };
     }
   }
 

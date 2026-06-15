@@ -118,8 +118,10 @@ const gitApi = {
     ipcRenderer.invoke('git:commit-file-diff', sha, filePath, opts),
 
 
-  checkout: (branch: string): Promise<{ success: boolean; error?: string }> =>
+  checkout: (branch: string): Promise<{ success: boolean; error?: string; kind?: PullErrorKind }> =>
     ipcRenderer.invoke('git:checkout', branch),
+  checkoutAutostash: (branch: string): Promise<Result & { stashMessage?: string }> =>
+    ipcRenderer.invoke('git:checkout-autostash', branch),
 
   stage: (files: string[]): Promise<Result> => ipcRenderer.invoke('git:stage', files),
   unstage: (files: string[]): Promise<Result> => ipcRenderer.invoke('git:unstage', files),

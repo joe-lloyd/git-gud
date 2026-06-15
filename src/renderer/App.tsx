@@ -134,6 +134,30 @@ export default function App() {
 
   const handlePull = useCallback(() => doPull({}), [doPull])
 
+  // ── Smart checkout ──────────────────────────────────────────────────
+  // Dirty tree triggers an automatic stash before switching — no prompt.
+  // The stash is left on the stack (not popped on the destination); the user
+  // can re-apply it manually from the sidebar when they're ready.
+  const handleCheckout = useCallback(async (branch: string) => {
+    const r = await window.gitApi.checkout(branch)
+    if (r.success) { repo.methods.refresh(); return }
+    if (r.kind === 'dirty') {
+      const r2 = await window.gitApi.checkoutAutostash(branch)
+      if (r2.success) {
+        repo.toast.success('Switched with autostash', r2.stashMessage ?? `Stashed before switching to ${branch}`)
+        repo.methods.refresh()
+      } else {
+        repo.toast.error('Checkout failed', r2.error)
+      }
+      return
+    }
+    if (r.kind === 'untracked') {
+      repo.toast.error('Checkout blocked', 'Untracked files would be overwritten. Move or delete them first.')
+      return
+    }
+    repo.toast.error('Checkout failed', r.error)
+  }, [repo.methods, repo.toast])
+
   // ── Sidebar handlers ────────────────────────────────────────────────
   const handleCheckoutRemote = useCallback(async (remoteRef: string) => {
     // origin/feature-x → checks out local "feature-x" tracking origin/feature-x
@@ -141,8 +165,8 @@ export default function App() {
     // doesn't exist locally yet.
     const localName = remoteRef.split('/').slice(1).join('/')
     if (!localName) return
-    await repo.methods.handleCheckout(localName)
-  }, [repo.methods])
+    await handleCheckout(localName)
+  }, [handleCheckout])
 
   // Prepend a synthetic "uncommitted changes" node above HEAD when the working
   // tree is dirty. The graph dashes its parent edge (same treatment as stashes)
@@ -273,7 +297,7 @@ export default function App() {
       if (kind === 'local') {
         const isCurrent = repo.status?.branch === branchName
         openCtx(e, [
-          { label: `Checkout "${branchName}"`,       icon: '⎇',  disabled: isCurrent, onClick: () => repo.methods.handleCheckout(branchName) },
+          { label: `Checkout "${branchName}"`,       icon: '⎇',  disabled: isCurrent, onClick: () => handleCheckout(branchName) },
           { label: `Rename "${branchName}"…`,        icon: '✎',  onClick: () => { setPendingRef({ name: branchName, kind }); setModal('rename-branch') } },
           { label: `Delete "${branchName}"`,         icon: '🗑',  danger: true, disabled: isCurrent, onClick: () => handleDeleteBranch(branchName, false) },
           { separator: true, label: '', onClick: () => {} },
@@ -292,7 +316,7 @@ export default function App() {
         ])
       }
     },
-    [openCtx, repo.status, repo.methods, handleDeleteBranch, handleCheckoutRemote, handlePull],
+    [openCtx, repo.status, repo.methods, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull],
   )
 
   const handleStashContextMenu = useCallback(
@@ -400,7 +424,9 @@ export default function App() {
   // All isolated commit actions live in their own hook
   const actions = useCommitActions({
     toast:          repo.toast,
-    methods:        repo.methods,
+    // Override so SHA checkout (detached HEAD) goes through the autostash
+    // prompt path too.
+    methods:        { ...repo.methods, handleCheckout },
     openModal,
     setSelectedSha: repo.setSelectedSha,
   })
@@ -549,7 +575,7 @@ export default function App() {
           currentBranch={repo.status?.branch ?? ''}
           selectedRef={selectedRef}
           onSelectRef={handleSelectRef}
-          onCheckout={repo.methods.handleCheckout}
+          onCheckout={handleCheckout}
           onCheckoutRemote={handleCheckoutRemote}
           onApplyStash={handleApplyStash}
           onCreateBranchFromTag={handleCreateBranchFromTag}

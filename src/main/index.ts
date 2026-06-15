@@ -403,6 +403,11 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
+  ipcMain.handle('git:checkout-autostash', async (_event, branch: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.checkoutAutostash(branch)
+  })
+
   ipcMain.handle('git:stage', async (_event, files: string[]) => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { await gitService.stage(files); return { success: true } }
