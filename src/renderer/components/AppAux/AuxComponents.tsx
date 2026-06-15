@@ -114,13 +114,14 @@ export interface InputModalProps {
   title: string
   subtitle?: string
   placeholder: string
+  initialValue?: string
   confirmLabel?: string
   onClose: () => void
   onConfirm: (value: string) => void
 }
 
-export function InputModal({ title, subtitle, placeholder, confirmLabel = 'Confirm', onClose, onConfirm }: InputModalProps) {
-  const [value, setValue] = useState('')
+export function InputModal({ title, subtitle, placeholder, initialValue = '', confirmLabel = 'Confirm', onClose, onConfirm }: InputModalProps) {
+  const [value, setValue] = useState(initialValue)
   return (
     <div
       className="modal-overlay"

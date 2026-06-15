@@ -427,16 +427,26 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:commit', async (_event, message: string) => {
+  ipcMain.handle('git:commit', async (_event, opts: { subject: string; body?: string; noVerify?: boolean; signoff?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { return await gitService.commit(message) }
+    try { return await gitService.commit(opts) }
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:commit-amend', async (_event, message: string) => {
+  ipcMain.handle('git:commit-amend', async (_event, opts: { subject: string; body?: string; noVerify?: boolean; signoff?: boolean; author?: string }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { return await gitService.amendCommit(message) }
+    try { return await gitService.amendCommit(opts) }
     catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:set-head-author', async (_event, author: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.setHeadAuthor(author)
+  })
+
+  ipcMain.handle('git:head-author', async () => {
+    if (!gitService) return ''
+    return gitService.getHeadAuthor()
   })
 
   ipcMain.handle('git:head-message', async () => {

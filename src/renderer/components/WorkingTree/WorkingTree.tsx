@@ -11,13 +11,18 @@ interface WorkingTreeProps {
 export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted, onSelectDiff }) => {
   const [status, setStatus]           = useState<RepoStatus | null>(null)
   const [loading, setLoading]         = useState(false)
-  const [message, setMessage]         = useState('')
+  // Split commit message — subject + (optional) body, the convention git
+  // expects. Subject becomes the first `-m`, body the second.
+  const [subject, setSubject]         = useState('')
+  const [body, setBody]               = useState('')
+  const [noVerify, setNoVerify]       = useState(false)
+  const [signoff, setSignoff]         = useState(false)
   const [committing, setCommitting]   = useState(false)
   const [error, setError]             = useState<string | null>(null)
   // Amend mode pre-fills HEAD's message and changes the submit op to
   // `commit --amend`. Stashed previous draft so toggling back restores it.
   const [amend, setAmend] = useState(false)
-  const [draftBeforeAmend, setDraftBeforeAmend] = useState<string>('')
+  const [draftBeforeAmend, setDraftBeforeAmend] = useState<{ subject: string; body: string }>({ subject: '', body: '' })
   // Single sequential focus index across [unstaged..., untracked..., staged...]
   // so arrow keys walk the full list regardless of section.
   const [focusedIdx, setFocusedIdx] = useState(0)
@@ -85,40 +90,49 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
     if (files.length) await handleStage(files)
   }
   const handleCommit = async () => {
-    if (!message.trim()) { setError('Commit message required'); return }
+    if (!subject.trim()) { setError('Subject required'); return }
     setCommitting(true); setError(null)
     try {
+      const opts = { subject: subject.trim(), body: body.trim(), noVerify, signoff }
       const result = amend
-        ? await window.gitApi.commitAmend(message.trim())
-        : await window.gitApi.commit(message.trim())
+        ? await window.gitApi.commitAmend(opts)
+        : await window.gitApi.commit(opts)
       if (result.success) {
-        setMessage('')
+        setSubject(''); setBody('')
+        setNoVerify(false); setSignoff(false)
         setAmend(false)
-        setDraftBeforeAmend('')
+        setDraftBeforeAmend({ subject: '', body: '' })
         await refresh()
         onCommitted()
       } else setError(result.error)
     } finally { setCommitting(false) }
   }
 
-  // Toggle amend: ON → save draft, pull HEAD's message, prefill.
+  // Toggle amend: ON → save draft, pull HEAD's message, split into subject/body.
   //               OFF → restore the draft we had before toggling.
   const toggleAmend = useCallback(async (next: boolean) => {
     if (next === amend) return
     if (next) {
-      setDraftBeforeAmend(message)
-      // %B-formatted message includes body; getLog returns subject-only.
+      setDraftBeforeAmend({ subject, body })
       try {
         const full = await window.gitApi.getHeadMessage()
-        if (full) setMessage(full)
-      } catch { /* leave message untouched if log read fails */ }
+        if (full) {
+          // Subject = first line. Body = everything after the first blank line
+          // (or after the first line if there's no blank separator).
+          const lines = full.split('\n')
+          const sep = lines.findIndex((l, i) => i > 0 && l.trim() === '')
+          setSubject(lines[0] ?? '')
+          setBody(sep >= 0 ? lines.slice(sep + 1).join('\n') : lines.slice(1).join('\n'))
+        }
+      } catch { /* leave fields untouched if log read fails */ }
       setAmend(true)
     } else {
       setAmend(false)
-      setMessage(draftBeforeAmend)
-      setDraftBeforeAmend('')
+      setSubject(draftBeforeAmend.subject)
+      setBody(draftBeforeAmend.body)
+      setDraftBeforeAmend({ subject: '', body: '' })
     }
-  }, [amend, message, draftBeforeAmend])
+  }, [amend, subject, body, draftBeforeAmend])
 
   const stagedCount   = status?.staged.length ?? 0
   const unstagedCount = (status?.unstaged.length ?? 0) + (status?.untracked.length ?? 0)
@@ -271,24 +285,53 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, onCommitted,
             ⚠ This commit has been pushed — amending will require force-push.
           </div>
         )}
+
+        {/* Subject — single line. Soft warn at 50, hard warn at 72 (the
+            convention: subject ≤ 50, hard cap 72). Counter changes color. */}
+        <div className="wt-subject-wrap">
+          <input
+            type="text"
+            className="wt-commit-subject"
+            placeholder="Subject"
+            value={subject}
+            onChange={(e) => { setSubject(e.target.value); setError(null) }}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); handleCommit() }
+            }}
+            maxLength={200}
+          />
+          <span className={`wt-subject-count ${subject.length > 72 ? 'over' : subject.length > 50 ? 'warn' : ''}`}>
+            {subject.length}/50
+          </span>
+        </div>
+
         <textarea
-          className="wt-commit-msg"
-          placeholder={amend ? 'Amend message (or keep existing)…' : 'Commit message…'}
-          value={message}
-          onChange={(e) => { setMessage(e.target.value); setError(null) }}
+          className="wt-commit-body"
+          placeholder="Description (optional)"
+          value={body}
+          onChange={(e) => { setBody(e.target.value); setError(null) }}
           onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-              e.preventDefault()
-              handleCommit()
-            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); handleCommit() }
           }}
           rows={3}
         />
+
+        <div className="wt-commit-flags">
+          <label className="wt-flag" title="Pass --no-verify; skips pre-commit and commit-msg hooks.">
+            <input type="checkbox" checked={noVerify} onChange={(e) => setNoVerify(e.target.checked)} />
+            <span>Skip hooks</span>
+          </label>
+          <label className="wt-flag" title="Pass --signoff; adds a Signed-off-by trailer.">
+            <input type="checkbox" checked={signoff} onChange={(e) => setSignoff(e.target.checked)} />
+            <span>Sign-off</span>
+          </label>
+        </div>
+
         {error && <div className="wt-error">{error}</div>}
         <button
           className="btn btn-primary wt-commit-btn"
           onClick={handleCommit}
-          disabled={committing || !message.trim() || (!amend && stagedCount === 0)}
+          disabled={committing || !subject.trim() || (!amend && stagedCount === 0)}
         >
           {committing
             ? (amend ? 'Amending…' : 'Committing…')

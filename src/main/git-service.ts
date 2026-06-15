@@ -74,6 +74,13 @@ export type ConflictSection =
   | { kind: "shared"; text: string }
   | { kind: "conflict"; current: string; incoming: string; currentLabel: string; incomingLabel: string };
 
+export interface CommitOpts {
+  subject: string;
+  body?: string;
+  noVerify?: boolean;
+  signoff?: boolean;
+}
+
 export class GitService {
   private git: SimpleGit;
   private repoPath: string;
@@ -569,18 +576,22 @@ export class GitService {
     );
   }
 
-  async commit(message: string): Promise<{ success: boolean; error?: string }> {
+  // Two `-m` args become subject + blank line + body — the convention git
+  // expects. Skipping `body` means a one-line commit.
+  async commit(opts: CommitOpts): Promise<{ success: boolean; error?: string }> {
+    const args = ["commit"];
+    if (opts.noVerify) args.push("--no-verify");
+    if (opts.signoff) args.push("--signoff");
+    args.push("-m", opts.subject);
+    if (opts.body && opts.body.trim()) args.push("-m", opts.body);
     try {
-      await this.git.commit(message);
+      await this.git.raw(args);
       return { success: true };
     } catch (e: unknown) {
       return { success: false, error: String(e) };
     }
   }
 
-  // Amend HEAD with the given message; whatever is in the index gets folded in.
-  // Using --allow-empty-message would let blank messages through; we don't,
-  // since the caller already validates.
   // Content-history search ("pickaxe"). Finds commits where the number of
   // occurrences of `query` changed (added or removed). Caller passes limit
   // so we cap result-set size — pickaxe scans the full history.
@@ -601,13 +612,40 @@ export class GitService {
     }
   }
 
-  async amendCommit(message: string): Promise<{ success: boolean; error?: string }> {
+  // Amend HEAD. Whatever is staged gets folded in; author override lets users
+  // correct a misattributed commit (`git commit --amend --author=…`).
+  async amendCommit(opts: CommitOpts & { author?: string }): Promise<{ success: boolean; error?: string }> {
+    const args = ["commit", "--amend"];
+    if (opts.noVerify) args.push("--no-verify");
+    if (opts.signoff) args.push("--signoff");
+    if (opts.author) args.push(`--author=${opts.author}`);
+    args.push("-m", opts.subject);
+    if (opts.body && opts.body.trim()) args.push("-m", opts.body);
     try {
-      await this.git.raw(["commit", "--amend", "-m", message]);
+      await this.git.raw(args);
       return { success: true };
     } catch (e: unknown) {
       return { success: false, error: String(e) };
     }
+  }
+
+  // Change HEAD's author without touching its message. Only HEAD can be
+  // amended this way — older commits need an interactive rebase.
+  async setHeadAuthor(author: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      await this.git.raw(["commit", "--amend", "--no-edit", `--author=${author}`]);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
+
+  // "Name <email>" for the HEAD commit — used to prefill the author-edit modal.
+  async getHeadAuthor(): Promise<string> {
+    try {
+      const raw = await this.git.raw(["log", "-1", "--format=%an <%ae>", "HEAD"]);
+      return raw.trim();
+    } catch { return ""; }
   }
 
   // Full HEAD commit message (subject + body). `%B` gives the raw message

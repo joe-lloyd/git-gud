@@ -44,6 +44,7 @@ type AppModal =
   | 'confirm-drop-stash'
   | 'stash-branch'
   | 'branch-from-tag'
+  | 'edit-author'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
   | null
 
@@ -59,6 +60,7 @@ export default function App() {
   const [pendingRef, setPendingRef]       = useState<PendingRef | null>(null)
   const [pendingStash, setPendingStash]   = useState<number | null>(null)
   const [pendingTag, setPendingTag]       = useState<string | null>(null)
+  const [pendingHeadAuthor, setPendingHeadAuthor] = useState<string | null>(null)
   const [selectedRef, setSelectedRef]     = useState<string | null>(null)
   const [showSearch, setShowSearch]       = useState(false)
   const [activeDiff, setActiveDiff]       = useState<{ path: string; staged?: boolean; sha?: string } | null>(null)
@@ -104,6 +106,7 @@ export default function App() {
     setPendingRef(null)
     setPendingStash(null)
     setPendingTag(null)
+    setPendingHeadAuthor(null)
   }, [])
 
   // ── Smart pull ──────────────────────────────────────────────────────
@@ -432,6 +435,8 @@ export default function App() {
       commit?.refs.find(isLocal) ??
       (commit?.refs.find(isRemote) ? stripRemote(commit!.refs.find(isRemote)!) : null)
 
+    const isHead = !!commit?.refs.includes('HEAD')
+
     openCtx(e, [
       { label: 'Checkout (detached HEAD)',       icon: '⎇',  onClick: () => actions.checkoutSha(sha) },
       { label: 'Create branch here…',            icon: '⎇',  onClick: () => actions.requestBranchHere(sha) },
@@ -468,6 +473,17 @@ export default function App() {
 
       { label: 'Create tag here…', icon: '🏷', onClick: () => actions.requestTagHere(sha) },
       { label: 'Export patch…',    icon: '📋', onClick: () => { repo.setSelectedSha(sha); setModal('patch') } },
+      {
+        label: 'Edit author…',
+        icon: '✎',
+        disabled: !isHead,
+        onClick: async () => {
+          const current = await window.gitApi.getHeadAuthor().catch(() => '')
+          setPendingSha(sha)
+          setPendingHeadAuthor(current)
+          setModal('edit-author')
+        },
+      },
 
       { separator: true, label: '', onClick: () => {} },
 
@@ -786,6 +802,22 @@ export default function App() {
           danger
           onClose={closeModal}
           onConfirm={() => actions.resetHard(pendingSha)}
+        />
+      )}
+      {modal === 'edit-author' && pendingHeadAuthor !== null && (
+        <InputModal
+          title="Edit author of HEAD commit"
+          subtitle="Format: Name <email>. Amends HEAD without changing its message; older commits aren't supported here."
+          placeholder="Name <email@example.com>"
+          initialValue={pendingHeadAuthor}
+          confirmLabel="Update Author"
+          onClose={closeModal}
+          onConfirm={async (value) => {
+            closeModal()
+            const r = await window.gitApi.setHeadAuthor(value)
+            if (r.success) { repo.toast.success('Author updated', value); repo.methods.refresh() }
+            else repo.toast.error('Author update failed', r.error)
+          }}
         />
       )}
 

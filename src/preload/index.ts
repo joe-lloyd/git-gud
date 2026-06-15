@@ -65,6 +65,12 @@ export type RemoteInfo = {
 }
 
 export type Result = { success: true } | { success: false; error: string }
+export type CommitOpts = {
+  subject: string
+  body?: string
+  noVerify?: boolean
+  signoff?: boolean
+}
 // Pull carries an extra classifier so the renderer can offer targeted recovery
 // (stash + retry for dirty trees, merge/rebase choice for diverged history).
 export type PullErrorKind = 'dirty' | 'diverged' | 'untracked' | 'conflict' | 'auth' | 'unknown'
@@ -121,10 +127,13 @@ const gitApi = {
     ipcRenderer.invoke('git:discard-changes', files, opts),
   discardUntracked: (files: string[]): Promise<Result> =>
     ipcRenderer.invoke('git:discard-untracked', files),
-  commit: (message: string): Promise<Result> =>
-    ipcRenderer.invoke('git:commit', message),
-  commitAmend: (message: string): Promise<Result> =>
-    ipcRenderer.invoke('git:commit-amend', message),
+  commit: (opts: CommitOpts): Promise<Result> =>
+    ipcRenderer.invoke('git:commit', opts),
+  commitAmend: (opts: CommitOpts & { author?: string }): Promise<Result> =>
+    ipcRenderer.invoke('git:commit-amend', opts),
+  setHeadAuthor: (author: string): Promise<Result> =>
+    ipcRenderer.invoke('git:set-head-author', author),
+  getHeadAuthor: (): Promise<string> => ipcRenderer.invoke('git:head-author'),
   getHeadMessage: (): Promise<string> => ipcRenderer.invoke('git:head-message'),
   logPickaxe: (query: string, limit: number): Promise<CommitNode[]> =>
     ipcRenderer.invoke('git:log-pickaxe', query, limit),
