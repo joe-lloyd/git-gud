@@ -67,6 +67,12 @@ export default function App() {
     setActiveDiff((prev) => (prev?.sha && prev.sha !== repo.selectedSha ? null : prev))
   }, [repo.selectedSha])
 
+  // Switching tabs swaps the whole repo context; any open diff (commit or
+  // working-tree) is tied to the previous repo's files, so drop it.
+  useEffect(() => {
+    setActiveDiff(null)
+  }, [repo.repoPath])
+
   const { menu: ctxMenu, open: openCtx, close: closeCtx } = useContextMenu()
 
   // Bridge from useCommitActions → App modal state
