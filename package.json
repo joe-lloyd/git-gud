@@ -8,6 +8,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "test": "vitest",
+    "test:repos": "bash scripts/build-test-repos.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
