@@ -45,6 +45,7 @@ type AppModal =
   | 'stash-branch'
   | 'branch-from-tag'
   | 'edit-author'
+  | 'toolbar-stash'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
   | null
 
@@ -133,6 +134,20 @@ export default function App() {
   }, [repo.methods, repo.toast])
 
   const handlePull = useCallback(() => doPull({}), [doPull])
+
+  // ── Toolbar stash + pop ────────────────────────────────────────────
+  // Quick stash: open input modal to name it, then `git stash push -u -m …`.
+  // Quick pop: re-apply the most recent stash with no prompt — symmetric.
+  const handleToolbarPop = useCallback(async () => {
+    if (repo.stashes.length === 0) return
+    const r = await window.gitApi.stashPop(0)
+    if (r.success) {
+      repo.toast.success('Stash popped', repo.stashes[0]?.message ?? 'stash@{0}')
+      repo.methods.refresh()
+    } else {
+      repo.toast.error('Pop failed', r.error)
+    }
+  }, [repo.stashes, repo.toast, repo.methods])
 
   // ── Smart checkout ──────────────────────────────────────────────────
   // Dirty tree triggers an automatic stash before switching — no prompt.
@@ -541,9 +556,12 @@ export default function App() {
         currentBranch={repo.status?.branch ?? ''}
         ahead={repo.status?.ahead ?? 0}
         behind={repo.status?.behind ?? 0}
+        stashCount={repo.stashes.length}
         onFetch={repo.methods.handleFetch}
         onPull={handlePull}
         onPush={repo.methods.handlePush}
+        onStash={() => setModal('toolbar-stash')}
+        onPop={handleToolbarPop}
         onRefresh={repo.methods.refresh}
         onNewBranch={() => setModal('new-branch')}
         onSearchToggle={() => setShowSearch(true)}
@@ -832,6 +850,26 @@ export default function App() {
           danger
           onClose={closeModal}
           onConfirm={() => actions.resetHard(pendingSha)}
+        />
+      )}
+      {modal === 'toolbar-stash' && (
+        <InputModal
+          title="Stash changes"
+          subtitle="Stashes working tree + index + untracked files. Default name suggested."
+          placeholder="Stash message"
+          initialValue={`WIP on ${repo.status?.branch ?? 'branch'}`}
+          confirmLabel="Stash"
+          onClose={closeModal}
+          onConfirm={async (msg) => {
+            closeModal()
+            const r = await window.gitApi.stashSave(msg.trim() || undefined)
+            if (r.success) {
+              repo.toast.success('Stashed', msg)
+              repo.methods.refresh()
+            } else {
+              repo.toast.error('Stash failed', r.error)
+            }
+          }}
         />
       )}
       {modal === 'edit-author' && pendingHeadAuthor !== null && (

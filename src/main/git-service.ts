@@ -698,11 +698,11 @@ export class GitService {
   }
 
   async stashSave(message?: string): Promise<void> {
-    if (message) {
-      await this.git.stash(["save", message]);
-    } else {
-      await this.git.stash();
-    }
+    // `stash push -u` is the modern form and includes untracked files so a
+    // quick "stash everything" from the toolbar doesn't leave new files behind.
+    const args = ["stash", "push", "--include-untracked"];
+    if (message) args.push("-m", message);
+    await this.git.raw(args);
   }
 
   async stashPop(index: number): Promise<void> {

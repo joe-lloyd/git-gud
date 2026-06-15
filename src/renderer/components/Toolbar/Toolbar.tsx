@@ -6,9 +6,12 @@ interface ToolbarProps {
   currentBranch: string
   ahead: number
   behind: number
+  stashCount: number
   onFetch: () => Promise<void>
   onPull: () => Promise<void>
   onPush: () => Promise<void>
+  onStash: () => void
+  onPop: () => Promise<void>
   onRefresh: () => void
   onNewBranch: () => void
   onSearchToggle: () => void
@@ -20,9 +23,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   currentBranch,
   ahead,
   behind,
+  stashCount,
   onFetch,
   onPull,
   onPush,
+  onStash,
+  onPop,
   onRefresh,
   onNewBranch,
   onSearchToggle,
@@ -31,6 +37,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [fetching, setFetching] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [pushing, setPushing] = useState(false)
+  const [popping, setPopping] = useState(false)
 
   const withLoading = (setter: (b: boolean) => void, fn: () => Promise<void>) => async () => {
     setter(true)
@@ -72,6 +79,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <TbIcon spin={pushing}>↑</TbIcon>
           <span>Push</span>
           {ahead > 0 && <span className="tb-badge ahead">{ahead}</span>}
+        </button>
+
+        <div className="tb-sep" />
+
+        <button className="tb-btn" title="Stash all changes (incl. untracked)" onClick={onStash}>
+          <span>≡</span>
+          <span>Stash</span>
+        </button>
+
+        <button
+          className="tb-btn"
+          title={stashCount === 0 ? 'No stashes to pop' : 'Pop the most recent stash'}
+          disabled={popping || stashCount === 0}
+          onClick={withLoading(setPopping, onPop)}
+        >
+          <TbIcon spin={popping}>↥</TbIcon>
+          <span>Pop</span>
+          {stashCount > 0 && <span className="tb-badge">{stashCount}</span>}
         </button>
 
         <div className="tb-sep" />
