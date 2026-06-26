@@ -3,6 +3,21 @@ import simpleGit, {
   LogResult,
   StatusResult,
 } from "simple-git";
+import { spawn } from "child_process";
+
+// Strip ANSI/VT escape sequences so the captured log is readable plain text
+// and safe to paste into an LLM. Full terminal emulation is a non-goal.
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+
+export type CommitStreamChunk = { stream: "stdout" | "stderr"; chunk: string };
+export type CommitStreamResult = {
+  success: boolean;
+  error?: string;
+  output: string;
+  exitCode: number | null;
+  hooksRan: boolean;
+};
 
 export interface CommitNode {
   sha: string;
@@ -616,6 +631,86 @@ export class GitService {
     }
   }
 
+  // Streaming commit (or amend). Unlike `commit()`/`amendCommit()` — which call
+  // simple-git and discard interleaved hook output — this runs `git commit` via
+  // child_process.spawn so the full stdout+stderr of any pre-commit/commit-msg/
+  // post-commit hooks is captured and pushed to the caller live via `onChunk`.
+  //
+  // stdout and stderr are separate OS pipes; we append in arrival order tagged
+  // by stream. Perfect interleave ordering would need a pty (a native dep) — out
+  // of scope. The buffer is capped to bound memory for pathological hooks.
+  async commitStreaming(
+    opts: CommitOpts & { author?: string; amend?: boolean },
+    onChunk: (c: CommitStreamChunk) => void,
+  ): Promise<CommitStreamResult> {
+    const args = ["commit"];
+    if (opts.amend) args.push("--amend");
+    if (opts.noVerify) args.push("--no-verify");
+    if (opts.signoff) args.push("--signoff");
+    if (opts.author) args.push(`--author=${opts.author}`);
+    args.push("-m", opts.subject);
+    if (opts.body && opts.body.trim()) args.push("-m", opts.body);
+
+    const hooksRan = !opts.noVerify;
+    const MAX = 2_000_000; // ~2 MB; keep the tail (failures live at the end)
+    let output = "";
+    let truncated = false;
+
+    const append = (stream: "stdout" | "stderr", raw: string) => {
+      const clean = raw.replace(ANSI_RE, "");
+      output += clean;
+      if (output.length > MAX && !truncated) {
+        truncated = true;
+        // Drop the head, keep the most-recent tail plus a marker.
+        output = "…output truncated…\n" + output.slice(output.length - MAX);
+      }
+      onChunk({ stream, chunk: clean });
+    };
+
+    return new Promise<CommitStreamResult>((resolve) => {
+      let settled = false;
+      const done = (r: CommitStreamResult) => { if (!settled) { settled = true; resolve(r); } };
+
+      let child;
+      try {
+        // GIT_TERMINAL_PROMPT=0 — never block on an interactive credential
+        // prompt; GUI commits are non-interactive. Inherit PATH from the parent
+        // (see the macOS GUI-PATH caveat in the design doc).
+        child = spawn("git", args, {
+          cwd: this.repoPath,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        });
+      } catch (e: unknown) {
+        const msg = String(e);
+        append("stderr", msg + "\n");
+        done({ success: false, error: msg, output, exitCode: null, hooksRan });
+        return;
+      }
+
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      child.stdout?.on("data", (d: string) => append("stdout", d));
+      child.stderr?.on("data", (d: string) => append("stderr", d));
+
+      // spawn error (e.g. `git` not on PATH) — surface it in the log too.
+      child.on("error", (err: Error) => {
+        append("stderr", `\n${String(err)}\n`);
+        done({ success: false, error: String(err), output, exitCode: null, hooksRan });
+      });
+
+      child.on("close", (code: number | null) => {
+        const success = code === 0;
+        done({
+          success,
+          error: success ? undefined : `git commit exited with code ${code}`,
+          output,
+          exitCode: code,
+          hooksRan,
+        });
+      });
+    });
+  }
+
   // Content-history search ("pickaxe"). Finds commits where the number of
   // occurrences of `query` changed (added or removed). Caller passes limit
   // so we cap result-set size — pickaxe scans the full history.
@@ -807,6 +902,182 @@ export class GitService {
     await this.git.raw(["revert", "--no-edit", sha]);
   }
 
+  // ── Multi-commit operations ───────────────────────────────────────────────
+  // All take a flat list of SHAs (any order) selected in the graph.
+
+  /**
+   * Resolve SHAs into ancestry order (oldest → newest) along the current HEAD
+   * and verify they form a contiguous, merge-free block. Squash and drop both
+   * rewrite a single span of history, so a gap or a merge commit makes the
+   * operation ambiguous — we reject those rather than guess.
+   */
+  private async resolveLinearRange(
+    shas: string[],
+  ): Promise<{ ordered: string[] } | { error: string }> {
+    const unique = Array.from(new Set(shas));
+    if (unique.length < 2) return { error: "Select at least two commits." };
+
+    // Full ancestry of HEAD, newest → oldest.
+    const revList = (await this.git.raw(["rev-list", "--topo-order", "HEAD"]))
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    const indexOf = new Map<string, number>();
+    revList.forEach((sha, i) => indexOf.set(sha, i));
+
+    for (const sha of unique) {
+      if (!indexOf.has(sha))
+        return { error: "All selected commits must be on the current branch." };
+    }
+
+    // Smallest index = newest; sort to oldest → newest.
+    const ordered = [...unique].sort((a, b) => indexOf.get(b)! - indexOf.get(a)!);
+    const idxs = ordered.map((s) => indexOf.get(s)!); // descending
+
+    // Contiguous ⇔ the indices form an unbroken run.
+    for (let i = 1; i < idxs.length; i++) {
+      if (idxs[i] !== idxs[i - 1] - 1)
+        return { error: "Selected commits must be adjacent in history (no gaps)." };
+    }
+
+    // No merge commits — squashing/dropping across a merge is unsafe.
+    const meta = await this.git.raw(["show", "--no-patch", "--format=%H %P", ...ordered]);
+    for (const line of meta.trim().split("\n")) {
+      const segs = line.trim().split(/\s+/).filter(Boolean);
+      if (segs.length > 2) return { error: "Cannot operate on a merge commit." };
+    }
+
+    return { ordered };
+  }
+
+  /** Sort arbitrary SHAs oldest → newest by commit date, walking no ancestry. */
+  private async orderByDate(shas: string[]): Promise<string[]> {
+    const unique = Array.from(new Set(shas));
+    if (unique.length <= 1) return unique;
+    const out = (
+      await this.git.raw(["rev-list", "--no-walk=sorted", "--date-order", ...unique])
+    )
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    return out.reverse(); // rev-list gives newest → oldest
+  }
+
+  /**
+   * Squash a contiguous range into one commit carrying `message`.
+   *
+   * The squashed commit is built with `commit-tree` (its tree == the range's
+   * final tree, parent == the range's base), so the squash itself can NEVER
+   * conflict. Only replaying the commits *after* the range can conflict; when
+   * it does the repo is left mid-rebase and `conflict: true` is returned so the
+   * existing conflict-resolution UI takes over.
+   */
+  async squashCommits(
+    shas: string[],
+    message: string,
+  ): Promise<{ success: boolean; error?: string; conflict?: boolean }> {
+    const range = await this.resolveLinearRange(shas);
+    if ("error" in range) return { success: false, error: range.error };
+    const { ordered } = range;
+    const oldest = ordered[0];
+    const newest = ordered[ordered.length - 1];
+
+    try {
+      const tree = (await this.git.raw(["rev-parse", `${newest}^{tree}`])).trim();
+      const squashed = (
+        await this.git.raw(["commit-tree", tree, "-p", `${oldest}^`, "-m", message])
+      ).trim();
+
+      const head = (await this.git.revparse(["HEAD"])).trim();
+      if (newest === head) {
+        // Range ends at HEAD — just move the branch ref. Index + working tree
+        // are left untouched (they already match `newest`'s tree).
+        await this.git.raw(["reset", "--soft", squashed]);
+      } else {
+        // Replay the commits after the range onto the squashed commit.
+        await this.git
+          .env({ ...process.env, GIT_EDITOR: "true" })
+          .raw(["rebase", "--onto", squashed, newest, "HEAD", "--autostash"]);
+      }
+      return { success: true };
+    } catch (e: unknown) {
+      const conflict = (await this.getConflictState()).inRebase;
+      return { success: false, error: String(e), conflict };
+    }
+  }
+
+  /** Drop a contiguous range from history, replaying any later commits. */
+  async dropCommits(
+    shas: string[],
+  ): Promise<{ success: boolean; error?: string; conflict?: boolean }> {
+    const range = await this.resolveLinearRange(shas);
+    if ("error" in range) return { success: false, error: range.error };
+    const { ordered } = range;
+    const oldest = ordered[0];
+    const newest = ordered[ordered.length - 1];
+
+    try {
+      // rebase --onto <base> <newest>: replays (newest..HEAD] onto the range's
+      // base, dropping the range. When newest === HEAD this resets to the base.
+      await this.git
+        .env({ ...process.env, GIT_EDITOR: "true" })
+        .raw(["rebase", "--onto", `${oldest}^`, newest, "HEAD", "--autostash"]);
+      return { success: true };
+    } catch (e: unknown) {
+      const conflict = (await this.getConflictState()).inRebase;
+      return { success: false, error: String(e), conflict };
+    }
+  }
+
+  /** Cherry-pick multiple commits onto the current branch, oldest → newest. */
+  async cherryPickMany(
+    shas: string[],
+  ): Promise<{ success: boolean; error?: string }> {
+    const ordered = await this.orderByDate(shas);
+    if (ordered.length === 0) return { success: false, error: "No commits selected." };
+    try {
+      await this.git.raw(["cherry-pick", ...ordered]);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
+
+  /**
+   * Combined diffstat for a contiguous range (oldest..newest, inclusive) —
+   * powers the multi-select detail panel's "what changed" summary. Diffs the
+   * oldest commit's parent against the newest so all range changes are counted.
+   */
+  async rangeStat(
+    oldestSha: string,
+    newestSha: string,
+  ): Promise<{ files: number; insertions: number; deletions: number } | null> {
+    try {
+      const out = await this.git.raw(["diff", "--shortstat", `${oldestSha}^`, newestSha]);
+      // e.g. " 3 files changed, 12 insertions(+), 4 deletions(-)"
+      const files = /(\d+) files? changed/.exec(out)?.[1];
+      const ins = /(\d+) insertions?\(\+\)/.exec(out)?.[1];
+      const del = /(\d+) deletions?\(-\)/.exec(out)?.[1];
+      return { files: Number(files ?? 0), insertions: Number(ins ?? 0), deletions: Number(del ?? 0) };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Revert multiple commits, newest → oldest (the conflict-minimising order). */
+  async revertMany(
+    shas: string[],
+  ): Promise<{ success: boolean; error?: string }> {
+    const ordered = await this.orderByDate(shas);
+    if (ordered.length === 0) return { success: false, error: "No commits selected." };
+    try {
+      await this.git.raw(["revert", "--no-edit", ...ordered.reverse()]);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
+
   /**
    * Single entry point for branch-pill drag-and-drop actions.
    *
@@ -979,8 +1250,24 @@ export class GitService {
     await this.git.raw(["worktree", "add", path, branch]);
   }
 
-  async removeWorktree(path: string): Promise<void> {
-    await this.git.raw(["worktree", "remove", path]);
+  // Plain `worktree remove` refuses a worktree with local modifications,
+  // untracked files, submodules, or a lock. `force` adds --force (twice, which
+  // git requires to remove a dirty/locked tree). Returns a structured result so
+  // the renderer can offer to retry with force instead of failing silently.
+  async removeWorktree(
+    path: string,
+    force = false,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const args = ["worktree", "remove"];
+      // git needs --force passed twice to remove a dirty AND locked worktree.
+      if (force) args.push("--force", "--force");
+      args.push(path);
+      await this.git.raw(args);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
   }
 
   async bisectStart(): Promise<void> {
@@ -1005,6 +1292,53 @@ export class GitService {
 
   async formatPatch(sha: string): Promise<string> {
     return this.git.raw(["format-patch", "-1", "--stdout", sha]);
+  }
+
+  /** Absolute path of the repo root — used to anchor save dialogs. */
+  getRepoPath(): string {
+    return this.repoPath;
+  }
+
+  /**
+   * Build a unified diff patch from selected working-tree files.
+   *
+   * `tracked`   — files known to git (staged and/or unstaged). `git diff HEAD`
+   *               captures both index and worktree changes vs the last commit.
+   * `untracked` — brand-new files. They aren't in HEAD or the index, so we
+   *               mark them intent-to-add (`add -N`) just long enough for them
+   *               to appear in the diff as new-file additions, then undo that
+   *               with `reset` in a finally so the user's index is left as-is.
+   */
+  async buildWorkingPatch(
+    tracked: string[],
+    untracked: string[],
+  ): Promise<string> {
+    const all = [...new Set([...tracked, ...untracked])];
+    if (all.length === 0) return "";
+
+    const marked: string[] = [];
+    try {
+      if (untracked.length > 0) {
+        await this.git.raw(["add", "-N", "--", ...untracked]);
+        marked.push(...untracked);
+      }
+      try {
+        return await this.git.raw(["diff", "HEAD", "--", ...all]);
+      } catch {
+        // No HEAD yet (unborn branch / empty repo) — diff worktree vs index.
+        return await this.git.raw(["diff", "--", ...all]);
+      }
+    } finally {
+      if (marked.length > 0) {
+        // Drop the intent-to-add markers we added. Best-effort: if this fails
+        // the files simply remain staged-as-new, which the user can unstage.
+        try {
+          await this.git.raw(["reset", "--quiet", "--", ...marked]);
+        } catch {
+          /* ignore — non-fatal */
+        }
+      }
+    }
   }
 
   async applyPatch(

@@ -70,10 +70,12 @@
   display: block;
 }
 
-/* DOM rows container — full width, rows include refs+gap+message */
+/* DOM rows container — full width, rows include refs+gap+message.
+   user-select:none keeps shift-click range selection from highlighting text. */
 .graph-rows {
   width: 100%;
   min-width: 0;
+  user-select: none;
 }
 
 /* Individual commit row */
@@ -85,6 +87,7 @@
   cursor: pointer;
   transition: background 0.1s;
   box-sizing: border-box;
+  position: relative;
 }
 
 .commit-row:hover {
@@ -92,7 +95,7 @@
 }
 
 .commit-row.selected {
-  background: rgba(99, 179, 237, 0.1);
+  background: rgba(255, 255, 255, 0.11);
 }
 
 
@@ -144,9 +147,39 @@
 /* Commit message — flexes to fill available space, capped so it doesn't push
    the author/date/sha columns off-screen. Longer text truncates with ellipsis;
    the full message is visible in CommitDetail when the commit is selected. */
+/* Graph gap — positioning context for the connector band. */
+.cr-gap { position: relative; align-self: stretch; }
+
+/* Lane-colored connector band: from the node (left, set inline) out to the
+   message column edge (right: 0). Vertically centered, behind the node (the
+   canvas overlay paints the node on top). Its color is fixed to the lane — it
+   is NOT recolored on hover/selection. */
+.cr-lead {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 20px;
+  /* Round the left only — square right edge, capped by the line below. */
+  border-radius: 4px 0 0 4px;
+  background: color-mix(in srgb, var(--row-tint, transparent) 26%, transparent);
+  pointer-events: none;
+}
+/* Solid vertical end-cap at the message end, in the node's lane color. */
+.cr-lead::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--row-tint);
+}
+.commit-row.is-stash .cr-lead { background: rgba(255, 255, 255, 0.06); }
+
 .cr-message {
   flex: 1 1 0;
-  min-width: 200px;
+  min-width: 0;
   max-width: 800px;
   font-size: 12.5px;
   color: var(--text-secondary);
@@ -156,13 +189,8 @@
   line-height: 1;
   padding: 0 4px;
 }
-.commit-row.selected .cr-message {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-.commit-row:hover .cr-message {
-  color: var(--text-primary);
-}
+.commit-row.selected .cr-message { color: var(--text-primary); font-weight: 500; }
+.commit-row:hover .cr-message    { color: var(--text-primary); }
 
 /* Author */
 .cr-author {

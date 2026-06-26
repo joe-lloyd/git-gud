@@ -11,9 +11,11 @@ interface WorkingTreeProps {
   onRefresh: () => void
   onCommitted: () => void
   onSelectDiff: (path: string, staged: boolean) => void
+  // Open the live commit-output view (center pane) for a hook-running commit.
+  onCommitRun: (runId: string, command: string) => void
 }
 
-export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRefresh, onCommitted, onSelectDiff }) => {
+export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRefresh, onCommitted, onSelectDiff, onCommitRun }) => {
   // Split commit message — subject + (optional) body, the convention git
   // expects. Subject becomes the first `-m`, body the second.
   const [subject, setSubject]         = useState('')
@@ -75,7 +77,19 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
     if (!subject.trim()) { setError('Subject required'); return }
     setCommitting(true); setError(null)
     try {
-      const opts = { subject: subject.trim(), body: body.trim(), noVerify, signoff }
+      // Correlate this invocation with its streamed output. When hooks run
+      // (i.e. not --no-verify), open the live output view so the user watches
+      // pre-commit/commit-msg hooks fire instead of staring at a frozen button.
+      const runId = crypto.randomUUID()
+      if (!noVerify) {
+        const parts = ['git', 'commit']
+        if (amend) parts.push('--amend')
+        if (signoff) parts.push('--signoff')
+        parts.push('-m', JSON.stringify(subject.trim()))
+        if (body.trim()) parts.push('-m', JSON.stringify(body.trim()))
+        onCommitRun(runId, parts.join(' '))
+      }
+      const opts = { subject: subject.trim(), body: body.trim(), noVerify, signoff, runId }
       const result = amend
         ? await window.gitApi.commitAmend(opts)
         : await window.gitApi.commit(opts)
@@ -86,7 +100,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
         setDraftBeforeAmend({ subject: '', body: '' })
         onRefresh()
         onCommitted()
-      } else setError(result.error)
+      } else setError(result.error ?? 'Commit failed')
     } finally { setCommitting(false) }
   }
 
@@ -169,7 +183,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
 
   const statusLabel: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', '?': 'Untracked' }
   const statusColor: Record<string, string> = {
-    M: '#f6ad55', A: '#68d391', D: '#fc8181', R: '#b794f4', '?': '#8b949e',
+    M: '#f6ad55', A: '#68d391', D: '#fc8181', R: '#b794f4', '?': '#68d391',
   }
 
   rowRefs.current.length = rows.length
@@ -346,7 +360,7 @@ function FileRow({ file, statusCode, label, color, actionIcon, onAction, onDisca
       onClick={onSelect}
     >
       <FileStatusIcon status={statusCode} color={color} label={label} />
-      <span className="wt-file-path truncate" title={file.path}>{file.path}</span>
+      <span className="wt-file-path" title={file.path}><bdi>{file.path}</bdi></span>
 
       {(typeof file.add === 'number' || typeof file.del === 'number') && (
         <span className="wt-file-stats">
@@ -379,10 +393,11 @@ function FileRow({ file, statusCode, label, color, actionIcon, onAction, onDisca
 
 function FileStatusIcon({ status, color, label }: { status: string, color: string, label: string }) {
   let path = ''
-  if (status === 'A') path = 'M12 4v16m8-8H4'
+  // Untracked ('?') is a new file — same green + as a staged Add.
+  if (status === 'A' || status === '?') path = 'M12 4v16m8-8H4'
   else if (status === 'D') path = 'M4 12h16'
   else if (status === 'R') path = 'M13 5l7 7-7 7M5 5l7 7-7 7'
-  else if (status === '?' || status === 'U') path = 'M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3m0 5h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
+  else if (status === 'U') path = 'M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3m0 5h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
   else path = 'M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z' // Modified fallback
 
   return (

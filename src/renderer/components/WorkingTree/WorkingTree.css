@@ -133,9 +133,17 @@
 
 .wt-file-path {
   flex: 1;
+  min-width: 0;
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-secondary);
+  /* Truncate from the LEFT so the file name (the useful end) stays visible.
+     rtl flips the clip edge to the start; <bdi> keeps the path itself LTR. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
 }
 
 .wt-file-stats {

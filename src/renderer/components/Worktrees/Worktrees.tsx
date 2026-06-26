@@ -37,8 +37,16 @@ export const Worktrees: React.FC<WorktreesProps> = ({ currentPath, onClose, onSw
 
   const handleRemove = async (path: string) => {
     if (!confirm(`Remove worktree at "${path}"?`)) return
-    try { await window.gitApi.removeWorktree(path); await load() }
-    catch (e) { setError(String(e)) }
+    setError(null)
+    let r = await window.gitApi.removeWorktree(path)
+    if (!r.success) {
+      // git refuses a dirty/locked worktree without --force; offer to force.
+      if (confirm(`Couldn't remove worktree:\n\n${r.error}\n\nForce remove? Uncommitted changes in that worktree will be lost.`)) {
+        r = await window.gitApi.removeWorktree(path, true)
+      } else return
+    }
+    if (!r.success) setError(r.error)
+    await load()
   }
 
   const handleSwitch = async (path: string) => {

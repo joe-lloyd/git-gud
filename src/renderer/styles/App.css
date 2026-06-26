@@ -65,9 +65,57 @@
   overflow: hidden;
 }
 
-/* Right panel: commit detail / working tree */
+/* Vertical drag handle between panes — mirrors .wt-resize-handle (the
+   staged/unstaged splitter) but rotated for horizontal (col) resizing. */
+.panel-resize-handle--v {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.panel-resize-handle--v:hover,
+.panel-resize-handle--v:active { background: var(--bg-hover); }
+
+.panel-resize-grip--v {
+  width: 2px;
+  height: 28px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+/* Horizontal drag handle (row resize) — identical to the staged/unstaged
+   splitter; used between left-sidebar sections. */
+.panel-resize-handle--h {
+  height: 6px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.panel-resize-handle--h:hover,
+.panel-resize-handle--h:active { background: var(--bg-hover); }
+
+.panel-resize-grip--h {
+  width: 28px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+/* Right panel: commit detail / working tree. Width set inline (drag-resizable). */
 .right-panel {
-  width: 320px;
+  width: 320px; /* fallback; overridden by inline style */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;

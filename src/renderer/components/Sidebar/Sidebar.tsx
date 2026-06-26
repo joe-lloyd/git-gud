@@ -1,7 +1,14 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import type { BranchData, StashInfo, RemoteInfo, TagInfo, BranchInfo, WorktreeInfo } from '../../../preload/index'
 import { REF_DRAG_MIME } from '../Graph/GraphView'
 import './Sidebar.css'
+
+// Resizable sidebar sections — each section body has a drag-set height and its
+// own scroll, mirroring the staged/unstaged splitter in the right panel.
+const SECTION_MIN = 56
+const SECTION_MAX = 720
+const DEFAULT_HEIGHTS: Record<string, number> = { local: 200, remote: 160, stashes: 120, worktrees: 120 }
+const HEIGHTS_KEY = 'sidebar.sectionHeights'
 
 interface SidebarProps {
   repoPath: string | null
@@ -58,6 +65,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Group remote branches by remote (first path segment)
   const remoteGroups = groupRemoteBranches(branches.remote)
 
+  // Persisted per-section heights; each divider drag adjusts the section above.
+  const [heights, setHeights] = useState<Record<string, number>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(HEIGHTS_KEY) || 'null')
+      if (saved && typeof saved === 'object') return { ...DEFAULT_HEIGHTS, ...saved }
+    } catch { /* ignore malformed */ }
+    return DEFAULT_HEIGHTS
+  })
+  useEffect(() => { localStorage.setItem(HEIGHTS_KEY, JSON.stringify(heights)) }, [heights])
+
+  const resize = (key: string) => (delta: number) =>
+    setHeights((h) => ({
+      ...h,
+      [key]: Math.min(SECTION_MAX, Math.max(SECTION_MIN, (h[key] ?? DEFAULT_HEIGHTS[key]) + delta)),
+    }))
+
   return (
     <aside className="sidebar">
       {/* Repo name / open button */}
@@ -81,20 +104,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="divider" />
 
       <nav className="sb-nav">
-        {/* Local Branches — current pinned, peek of next 3, hover for full */}
-        <CompactBranchSection
-          label="LOCAL BRANCHES"
-          items={sortBranchesCurrentFirst(branches.local, currentBranch)}
-          currentBranch={currentBranch}
-          selectedRef={selectedRef}
-          onSelectRef={onSelectRef}
-          onCheckout={onCheckout}
-          onContextMenu={(e, name) => onBranchContextMenu(e, name, 'local')}
-          onRefDrop={onRefDrop}
-        />
+        {/* Local Branches — one scrollable list of every local branch */}
+        <ScrollSection label="LOCAL BRANCHES" count={branches.local.length} height={heights.local}>
+          {branches.local.length === 0
+            ? <div className="sb-empty">No local branches</div>
+            : sortBranchesCurrentFirst(branches.local, currentBranch).map((b) => (
+                <BranchRow
+                  key={b.name}
+                  name={b.name}
+                  fullRef={b.name}
+                  isCurrent={b.current || b.name === currentBranch}
+                  isSelected={selectedRef === `local:${b.name}`}
+                  onSelect={() => onSelectRef(`local:${b.name}`)}
+                  onDoubleClick={() => !b.current && onCheckout(b.name)}
+                  onContextMenu={(e) => onBranchContextMenu(e, b.name, 'local')}
+                  onRefDrop={onRefDrop}
+                />
+              ))}
+        </ScrollSection>
+
+        <SectionResizer onResize={resize('local')} />
 
         {/* Remote Branches — grouped by remote */}
-        <SidebarSection label="REMOTE BRANCHES" count={branches.remote.length} defaultOpen>
+        <ScrollSection label="REMOTE BRANCHES" count={branches.remote.length} height={heights.remote}>
           {remoteGroups.length === 0 && remotes.length === 0
             ? <div className="sb-empty">No remotes configured</div>
             : remoteGroups.map(({ remote, items }) => (
@@ -121,10 +153,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
           ))}
-        </SidebarSection>
+        </ScrollSection>
+
+        <SectionResizer onResize={resize('remote')} />
 
         {/* Stashes */}
-        <SidebarSection label="STASHES" count={stashes.length} defaultOpen>
+        <ScrollSection label="STASHES" count={stashes.length} height={heights.stashes}>
           {stashes.length === 0
             ? <div className="sb-empty">No stashes</div>
             : stashes.map((s) => (
@@ -140,13 +174,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
               ))
           }
-        </SidebarSection>
+        </ScrollSection>
+
+        <SectionResizer onResize={resize('stashes')} />
 
         {/* Worktrees — list all checkouts, click to switch, right-click to manage */}
-        <SidebarSection
+        <ScrollSection
           label="WORKTREES"
           count={worktrees.length}
-          defaultOpen
+          height={heights.worktrees}
           action={{ label: '+', title: 'Manage worktrees…', onClick: onWorktreeManage }}
         >
           {worktrees.length === 0
@@ -167,7 +203,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )
               })
           }
-        </SidebarSection>
+        </ScrollSection>
+
+        <SectionResizer onResize={resize('worktrees')} />
 
         {/* Tags — peek of latest 4, hover for full list */}
         <CompactTagSection
@@ -185,23 +223,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function SidebarSection({
+// A sidebar section with a fixed (drag-resizable) body height and its own
+// scroll. The resize handle between sections is rendered by `SectionResizer`.
+function ScrollSection({
   label,
   count,
-  defaultOpen = true,
+  height,
   action,
   children,
 }: {
   label: string
   count: number
-  defaultOpen?: boolean
+  height: number
   action?: { label: string; title: string; onClick: () => void }
   children: React.ReactNode
 }) {
   return (
-    <details className="sb-section" open={defaultOpen}>
-      <summary className="sb-section-header">
-        <span className="sb-chevron">›</span>
+    <div className="sb-section sb-rsection">
+      <div className="sb-section-header">
         <span className="sb-section-label">{label}</span>
         <span className="sb-count">{count}</span>
         {action && (
@@ -213,9 +252,35 @@ function SidebarSection({
             {action.label}
           </button>
         )}
-      </summary>
-      <div className="sb-section-body">{children}</div>
-    </details>
+      </div>
+      <div className="sb-rsection-body" style={{ height }}>{children}</div>
+    </div>
+  )
+}
+
+// Horizontal drag handle between sidebar sections. Reports an incremental
+// delta (px moved since the last event) so the parent clamps as it applies it
+// to the section above. Same look/feel as the staged/unstaged splitter.
+function SectionResizer({ onResize }: { onResize: (delta: number) => void }) {
+  const startDrag = (e: React.MouseEvent) => {
+    e.preventDefault()
+    let last = e.clientY
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => { onResize(ev.clientY - last); last = ev.clientY }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+  return (
+    <div className="panel-resize-handle panel-resize-handle--h" onMouseDown={startDrag} title="Drag to resize">
+      <div className="panel-resize-grip panel-resize-grip--h" />
+    </div>
   )
 }
 
@@ -362,49 +427,6 @@ function SidebarItem({
 // ── Compact peek + hover-overflow sections ────────────────────────────────────
 
 const PEEK_COUNT = 3 // additional rows shown next to the current/latest item
-
-function CompactBranchSection({
-  label,
-  items,
-  currentBranch,
-  selectedRef,
-  onSelectRef,
-  onCheckout,
-  onContextMenu,
-  onRefDrop,
-}: {
-  label: string
-  items: BranchInfo[]
-  currentBranch: string
-  selectedRef: string | null
-  onSelectRef: (ref: string | null) => void
-  onCheckout: (branch: string) => void
-  onContextMenu: (e: React.MouseEvent, name: string) => void
-  onRefDrop: (e: React.MouseEvent, source: string, target: string) => void
-}) {
-  const visible = items.slice(0, 1 + PEEK_COUNT)
-  const overflow = items.slice(1 + PEEK_COUNT)
-  const renderRow = (b: BranchInfo) => (
-    <BranchRow
-      key={b.name}
-      name={b.name}
-      fullRef={b.name}
-      isCurrent={b.current || b.name === currentBranch}
-      isSelected={selectedRef === `local:${b.name}`}
-      onSelect={() => onSelectRef(`local:${b.name}`)}
-      onDoubleClick={() => !b.current && onCheckout(b.name)}
-      onContextMenu={(e) => onContextMenu(e, b.name)}
-      onRefDrop={onRefDrop}
-    />
-  )
-  return (
-    <CompactSection label={label} count={items.length} overflow={overflow.length} overflowChildren={overflow.map(renderRow)}>
-      {items.length === 0
-        ? <div className="sb-empty">No local branches</div>
-        : visible.map(renderRow)}
-    </CompactSection>
-  )
-}
 
 function CompactTagSection({
   label,

@@ -1,6 +1,11 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { useToasts } from '../Toast/Toast'
+import { resolveLanguage, highlightLines } from '../../lib/highlight'
 import './DiffViewer.css'
+
+// Files larger than this skip syntax highlighting — tokenization scales with
+// length and the visual win is small on huge diffs.
+const HIGHLIGHT_MAX_BYTES = 500_000
 
 interface DiffViewerProps {
   filePath: string
@@ -114,42 +119,79 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   // headers (@@ -a,b +c,d @@) reset the counters; context advances both,
   // remove advances only oldNo, add advances only newNo. "\ No newline at
   // end of file" markers don't consume a line number.
-  let currentHunkIndex = -1
-  let oldCursor = 0
-  let newCursor = 0
-  const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
-  const lines = diff.split('\n').map((text, i) => {
-    let type: 'add' | 'remove' | 'hunk' | 'header' | 'context' = 'context'
-    let oldNo: number | null = null
-    let newNo: number | null = null
+  const lang = useMemo(() => resolveLanguage(filePath), [filePath])
 
-    if (currentHunkIndex === -1 && !text.startsWith('@@')) {
-      type = 'header'
-    } else if (text.startsWith('@@')) {
-      type = 'hunk'
-      currentHunkIndex = i
-      const m = text.match(HUNK_RE)
-      if (m) {
-        oldCursor = parseInt(m[1], 10)
-        newCursor = parseInt(m[2], 10)
+  const { lines, highlightHtml } = useMemo(() => {
+    let currentHunkIndex = -1
+    let oldCursor = 0
+    let newCursor = 0
+    const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
+    const lines = diff.split('\n').map((text, i) => {
+      let type: 'add' | 'remove' | 'hunk' | 'header' | 'context' = 'context'
+      let oldNo: number | null = null
+      let newNo: number | null = null
+
+      if (currentHunkIndex === -1 && !text.startsWith('@@')) {
+        type = 'header'
+      } else if (text.startsWith('@@')) {
+        type = 'hunk'
+        currentHunkIndex = i
+        const m = text.match(HUNK_RE)
+        if (m) {
+          oldCursor = parseInt(m[1], 10)
+          newCursor = parseInt(m[2], 10)
+        }
+      } else if (text.startsWith('\\')) {
+        // "\ No newline at end of file" — informational, no line number
+        type = 'context'
+      } else if (text.startsWith('+')) {
+        type = 'add'
+        newNo = newCursor++
+      } else if (text.startsWith('-')) {
+        type = 'remove'
+        oldNo = oldCursor++
+      } else if (currentHunkIndex !== -1) {
+        type = 'context'
+        oldNo = oldCursor++
+        newNo = newCursor++
       }
-    } else if (text.startsWith('\\')) {
-      // "\ No newline at end of file" — informational, no line number
-      type = 'context'
-    } else if (text.startsWith('+')) {
-      type = 'add'
-      newNo = newCursor++
-    } else if (text.startsWith('-')) {
-      type = 'remove'
-      oldNo = oldCursor++
-    } else if (currentHunkIndex !== -1) {
-      type = 'context'
-      oldNo = oldCursor++
-      newNo = newCursor++
+
+      return { text, type, i, hunkIndex: currentHunkIndex, oldNo, newNo }
+    })
+
+    // Build per-row highlighted HTML when we have a registered language.
+    // Word-diff and oversized diffs skip highlighting entirely (the latter
+    // because tokenizing megabytes of text in the renderer thread is wasteful
+    // and the value is marginal).
+    const html = new Map<number, string>()
+    const skip = wordDiff || lang === null || diff.length > HIGHLIGHT_MAX_BYTES
+    if (!skip) {
+      // Highlight each side as one stream so multi-line tokens (block
+      // comments, template literals) color consistently across rows.
+      const oldText: string[] = []
+      const newText: string[] = []
+      const oldRowIdx: number[] = []
+      const newRowIdx: number[] = []
+      for (const l of lines) {
+        if (l.type === 'context') {
+          oldText.push(l.text.slice(1)); oldRowIdx.push(l.i)
+          newText.push(l.text.slice(1)); newRowIdx.push(l.i)
+        } else if (l.type === 'remove') {
+          oldText.push(l.text.slice(1)); oldRowIdx.push(l.i)
+        } else if (l.type === 'add') {
+          newText.push(l.text.slice(1)); newRowIdx.push(l.i)
+        }
+      }
+      const oldHtml = highlightLines(oldText.join('\n'), lang)
+      const newHtml = highlightLines(newText.join('\n'), lang)
+      // Context rows live in both streams — prefer the new-side rendering so
+      // additions/context line up tonally.
+      for (let k = 0; k < oldRowIdx.length; k++) html.set(oldRowIdx[k], oldHtml[k] ?? '')
+      for (let k = 0; k < newRowIdx.length; k++) html.set(newRowIdx[k], newHtml[k] ?? '')
     }
 
-    return { text, type, i, hunkIndex: currentHunkIndex, oldNo, newNo }
-  })
+    return { lines, highlightHtml: html }
+  }, [diff, lang, wordDiff])
 
   const toast = useToasts()
   const [applyError, setApplyError] = useState<string | null>(null)
@@ -300,6 +342,14 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                 const lineActionable = !isCommitMode && (type === 'add' || type === 'remove')
                 const lineHint = lineActionable ? (staged ? 'Click to unstage this line' : 'Click to stage this line') : ''
                 const onLineClick = lineActionable ? () => handleStageLine(hunkIndex, i) : undefined
+                // Highlighted content is only applied to code rows (add /
+                // remove / context). Hunk headers, file headers, and the
+                // "No newline" marker stay literal so their diff styling
+                // (italic blue hunk text, etc.) keeps control of the cell.
+                const html = (type === 'add' || type === 'remove' || (type === 'context' && !text.startsWith('\\')))
+                  ? highlightHtml.get(i)
+                  : undefined
+                const plainText = text.slice(type === 'context' ? 0 : 1)
                 return (
                   <tr key={i} className={`diff-line diff-line-${type} ${lineActionable ? 'diff-line-actionable' : ''}`}>
                     {/* Gutters and the +/- sign all stage the line — wider hit target. */}
@@ -311,7 +361,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                       {type === 'add' ? '+' : type === 'remove' ? '−' : ''}
                     </td>
                     <td className="diff-content">
-                      {text.slice(type === 'context' ? 0 : 1)}
+                      {html !== undefined
+                        ? <code className="hljs diff-code" dangerouslySetInnerHTML={{ __html: html }} />
+                        : plainText}
                       {type === 'hunk' && !isCommitMode && (
                         <span className="diff-chunk-actions">
                           <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>

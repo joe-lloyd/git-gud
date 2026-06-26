@@ -13,7 +13,7 @@ import type { CommitNode, StashInfo } from "../../../preload/index";
 import "./GraphView.css";
 
 const ROW_H = 36; // px per commit row
-const NODE_R = 5; // node circle radius
+const NODE_R = 10; // node circle radius — matches the .cr-lead band height (20px diameter)
 const LANE_W = 18; // px per lane column
 const GRAPH_PAD = 10; // left padding
 const REFS_W = 180; // width of the refs/tags column (left of tree)
@@ -42,10 +42,16 @@ export function makeWorktreePseudoCommit(parentSha: string, dirtyCount: number):
   };
 }
 
+// Modifier keys carried with a row click so the parent can do range / toggle
+// multi-selection (shift = contiguous range from anchor, meta/ctrl = toggle).
+export interface SelectModifiers { shift?: boolean; meta?: boolean }
+
 interface GraphViewProps {
   commits: CommitNode[];
   selectedSha: string | null;
-  onSelectCommit: (sha: string) => void;
+  /** All selected SHAs when multi-selecting; highlights every member. */
+  selectedShas?: Set<string>;
+  onSelectCommit: (sha: string, mods?: SelectModifiers) => void;
   onContextMenu?: (e: React.MouseEvent, sha: string) => void;
   /** Right-click on a branch/tag pill */
   onRefContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
@@ -55,11 +61,19 @@ interface GraphViewProps {
   worktreeBranches?: Set<string>;
   /** Stashes — used to render stash nodes with a distinct icon and dashed parent links */
   stashes?: StashInfo[];
+  /**
+   * Monotonic counter the parent bumps ONLY when the selection should scroll
+   * into view (a branch/tag/stash picked in the sidebar). Selecting a commit by
+   * clicking the graph must NOT scroll, so this is decoupled from selectedSha.
+   */
+  scrollRequest?: number;
 }
 
 export const GraphView: React.FC<GraphViewProps> = ({
   commits,
   selectedSha,
+  selectedShas,
+  scrollRequest = 0,
   onSelectCommit,
   onContextMenu,
   onRefContextMenu,
@@ -71,6 +85,12 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewHeight, setViewHeight] = useState(600);
+  // Live scroll offset for the canvas. We draw from this ref (not the React
+  // state) so the graph lines repaint in lockstep with native scroll via rAF,
+  // instead of trailing a render commit. The state above still drives DOM row
+  // virtualization.
+  const scrollTopRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
 
   // Build graph layout (memoized — only recalculates when commits change)
   const nodes = useMemo(() => buildGraphLayout(commits), [commits]);
@@ -103,19 +123,24 @@ export const GraphView: React.FC<GraphViewProps> = ({
     return m;
   }, [nodes]);
 
+  // Auto-scroll the selected commit into view — ONLY when the parent bumps
+  // `scrollRequest` (a sidebar branch/tag/stash pick). Clicking a node in the
+  // graph changes selectedSha but does NOT bump it, so it never auto-scrolls.
+  const lastScrollReq = useRef(scrollRequest);
   React.useEffect(() => {
+    if (scrollRequest === lastScrollReq.current) return; // selection changed without a scroll request
+    lastScrollReq.current = scrollRequest;
     if (!selectedSha) return;
     const row = shaToRow.get(selectedSha);
     if (row === undefined) return;
     const el = scrollRef.current;
     if (!el) return;
     const target = row * ROW_H;
-    // Only scroll if the row is outside the visible band — avoids fighting
-    // the user when they click a row already on screen.
+    // Only scroll if the row is outside the visible band.
     const inView = target >= el.scrollTop && target + ROW_H <= el.scrollTop + el.clientHeight;
     if (inView) return;
     el.scrollTo({ top: Math.max(0, target - el.clientHeight / 2 + ROW_H / 2), behavior: "smooth" });
-  }, [selectedSha, shaToRow]);
+  }, [scrollRequest, selectedSha, shaToRow]);
 
   // Track container size
   const containerRef = useRef<HTMLDivElement>(null);
@@ -128,8 +153,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  // Draw canvas (lines + circles only — NO text)
-  React.useEffect(() => {
+  // Draw canvas (lines + circles only — NO text). Reads the live scroll offset
+  // from scrollTopRef so it can be invoked synchronously inside a scroll rAF.
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -138,24 +164,30 @@ export const GraphView: React.FC<GraphViewProps> = ({
     const dpr = window.devicePixelRatio || 1;
     const W = graphWidth;
     const H = viewHeight;
+    const st = scrollTopRef.current;
 
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    canvas.style.width = `${W}px`;
-    canvas.style.height = `${H}px`;
+    // Only reallocate the bitmap when the size actually changes — resetting
+    // canvas.width every scroll frame is needless churn. clearRect handles the
+    // per-frame wipe.
+    const pxW = Math.round(W * dpr);
+    const pxH = Math.round(H * dpr);
+    if (canvas.width !== pxW || canvas.height !== pxH) {
+      canvas.width = pxW;
+      canvas.height = pxH;
+      canvas.style.width = `${W}px`;
+      canvas.style.height = `${H}px`;
+    }
 
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    const rowMap = new Map<number, GraphNode>();
-    nodes.forEach((n) => rowMap.set(n.row, n));
-
     // ── Draw connections ──────────────────────────────────────────────
-    for (let r = startRow; r <= endRow; r++) {
-      const node = rowMap.get(r);
-      if (!node) continue;
-
-      const cy = r * ROW_H + ROW_H / 2 - scrollTop;
+    // Iterate ALL nodes and cull per-connection by whether the segment crosses
+    // the viewport vertically. A connector must be drawn whenever any part of
+    // it is on screen — even if BOTH its endpoint rows are scrolled out of the
+    // virtualized band — otherwise long edges vanish mid-scroll.
+    for (const node of nodes) {
+      const cy = node.row * ROW_H + ROW_H / 2 - st;
       const cx = GRAPH_PAD + node.lane * LANE_W + NODE_R;
       const fromStash = stashShaSet.has(node.commit.sha);
       const fromPseudo = node.commit.sha === WORKTREE_SHA;
@@ -164,7 +196,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const pr = conn.parentRow;
         if (pr < 0) continue;
 
-        const py = pr * ROW_H + ROW_H / 2 - scrollTop;
+        const py = pr * ROW_H + ROW_H / 2 - st;
+        // Skip only when the whole segment is off-screen above or below.
+        if (Math.max(cy, py) < -ROW_H || Math.min(cy, py) > H + ROW_H) continue;
         const px = GRAPH_PAD + conn.parentLane * LANE_W + NODE_R;
 
         // Lines hanging off a stash or working-tree node are dashed — they
@@ -204,13 +238,12 @@ export const GraphView: React.FC<GraphViewProps> = ({
     }
 
     // ── Draw nodes ────────────────────────────────────────────────────
-    for (let r = startRow; r <= endRow; r++) {
-      const node = rowMap.get(r);
-      if (!node) continue;
+    for (const node of nodes) {
+      const cy = node.row * ROW_H + ROW_H / 2 - st;
+      if (cy < -ROW_H || cy > H + ROW_H) continue; // off-screen — skip
 
-      const cy = r * ROW_H + ROW_H / 2 - scrollTop;
       const cx = GRAPH_PAD + node.lane * LANE_W + NODE_R;
-      const isSelected = node.commit.sha === selectedSha;
+      const isSelected = node.commit.sha === selectedSha || (selectedShas?.has(node.commit.sha) ?? false);
       const isStash = stashShaSet.has(node.commit.sha);
       const isPseudo = node.commit.sha === WORKTREE_SHA;
       const radius = isSelected ? NODE_R + 1.5 : NODE_R;
@@ -268,27 +301,42 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         // Inner "S" mark via a small horizontal bar to read as "stack"
         ctx.fillStyle = "rgba(0,0,0,0.55)";
-        ctx.fillRect(cx - 2.2, cy - 0.8, 4.4, 1.6);
+        ctx.fillRect(cx - radius * 0.44, cy - radius * 0.16, radius * 0.88, radius * 0.32);
       } else {
-        // Outer circle
+        // Ring node: a neutral interior (placeholder for a future avatar) with a
+        // thin lane-colored border. Diameter is unchanged — only the line is thin.
+        const lw = 2; // ring line thickness
         ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.fillStyle = node.color;
+        ctx.arc(cx, cy, radius - lw / 2, 0, Math.PI * 2);
+        ctx.fillStyle = "#0d1117"; // --bg-deepest — sits behind a profile photo
         ctx.fill();
         ctx.shadowBlur = 0;
-
-        // Inner dot
-        ctx.beginPath();
-        ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(0,0,0,0.45)";
-        ctx.fill();
+        ctx.lineWidth = lw;
+        ctx.strokeStyle = node.color;
+        ctx.stroke();
       }
     }
-  }, [nodes, scrollTop, viewHeight, graphWidth, selectedSha, startRow, endRow, stashShaSet]);
+  }, [nodes, viewHeight, graphWidth, selectedSha, selectedShas, stashShaSet]);
+
+  // Repaint on data / size / selection changes (anything in `draw`'s deps).
+  // Scroll-driven repaints go through the rAF in handleScroll instead.
+  React.useEffect(() => { draw(); }, [draw]);
+
+  // Cancel any pending scroll frame on unmount.
+  React.useEffect(() => () => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+  }, []);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
-  }, []);
+    const st = e.currentTarget.scrollTop;
+    scrollTopRef.current = st;
+    // Repaint the canvas in lockstep with native scroll (next frame, coalesced),
+    // independent of the React render that updates row virtualization.
+    if (rafRef.current == null) {
+      rafRef.current = requestAnimationFrame(() => { rafRef.current = null; draw(); });
+    }
+    setScrollTop(st);
+  }, [draw]);
 
   const topSpacerH = startRow * ROW_H;
   const bottomSpacerH = Math.max(0, (nodes.length - 1 - endRow) * ROW_H);
@@ -325,7 +373,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                 <CommitRow
                   key={node.commit.sha}
                   node={node}
-                  isSelected={node.commit.sha === selectedSha}
+                  isSelected={node.commit.sha === selectedSha || (selectedShas?.has(node.commit.sha) ?? false)}
                   isStash={stashShaSet.has(node.commit.sha)}
                   isPseudo={node.commit.sha === WORKTREE_SHA}
                   onSelect={onSelectCommit}
@@ -353,7 +401,7 @@ interface CommitRowProps {
   isSelected: boolean;
   isStash: boolean;
   isPseudo: boolean;
-  onSelect: (sha: string) => void;
+  onSelect: (sha: string, mods?: SelectModifiers) => void;
   onContextMenu?: (e: React.MouseEvent, sha: string) => void;
   onRefContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
   onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
@@ -369,30 +417,36 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
       [commit.refs, worktreeBranches, isPseudo],
     );
 
+    // Left edge of this row's node (its left rim) within the graph gap — the
+    // connector band starts here so it tucks behind the node.
+    const nodeLeft = GRAPH_PAD + node.lane * LANE_W;
+
     return (
       <div
         className={`commit-row ${isSelected ? "selected" : ""} ${isStash ? "is-stash" : ""} ${isPseudo ? "is-pseudo" : ""}`}
-        style={{ height: ROW_H }}
-        onClick={() => onSelect(commit.sha)}
+        style={{ height: ROW_H, ["--row-tint" as string]: node.color } as React.CSSProperties}
+        onClick={(e) => onSelect(commit.sha, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey })}
         onContextMenu={
           !isPseudo && onContextMenu ? (e) => onContextMenu(e, commit.sha) : undefined
         }
       >
-        {/* Refs — LEFTMOST column, left of the tree canvas */}
+        {/* Refs — LEFTMOST column, left of the tree canvas. Collapsed to one
+            pill + a "+N" overflow chip so the fixed-width column never spills. */}
         <div className="cr-refs">
           {isStash && <span className="cr-stash-badge" title="Stash">◆</span>}
-          {groups.map((g) => (
-            <RefPill
-              key={g.key}
-              group={g}
-              onContextMenu={onRefContextMenu}
-              onRefDrop={onRefDrop}
-            />
-          ))}
+          <RefPillCluster
+            groups={groups}
+            onContextMenu={onRefContextMenu}
+            onRefDrop={onRefDrop}
+          />
         </div>
 
-        {/* Transparent gap — sits directly under the canvas overlay */}
-        <div style={{ width: graphWidth, flexShrink: 0 }} />
+        {/* Graph gap — sits under the canvas overlay. The lane-colored band
+            fills from the node out to the message, tucking behind the node so it
+            reads as a thick connector line. */}
+        <div className="cr-gap" style={{ width: graphWidth, flexShrink: 0 }}>
+          {!isPseudo && <span className="cr-lead" style={{ left: nodeLeft }} />}
+        </div>
 
         {/* Message */}
         <span className="cr-message" title={commit.message}>
@@ -526,6 +580,75 @@ function branchBaseName(ref: string): string {
     return parts.slice(1).join("/");
   }
   return ref;
+}
+
+// ── RefPillCluster — one pill + "+N" overflow ─────────────────────────────────
+
+// Shows a single representative pill and, when a commit carries more than one
+// ref, a "+N" chip. Hovering the chip reveals every pill (branch / HEAD / tag /
+// remote / worktree) in a popover that escapes the clipped refs column.
+function RefPillCluster({
+  groups,
+  onContextMenu,
+  onRefDrop,
+}: {
+  groups: RefGroup[];
+  onContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
+  onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
+}) {
+  const [pos, setPos] = useState<{ x: number; top: number } | null>(null);
+  const closeTimer = useRef<number | null>(null);
+
+  if (groups.length === 0) return null;
+
+  // Pick the most meaningful pill to show: current HEAD, then a local branch,
+  // then a tag, else whatever's first.
+  const primary =
+    groups.find((g) => g.isHead) ??
+    groups.find((g) => g.hasLocal && !g.isTag) ??
+    groups.find((g) => g.isTag) ??
+    groups[0];
+  const rest = groups.length - 1;
+
+  if (rest <= 0) {
+    return <RefPill group={primary} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />;
+  }
+
+  const open = (e: React.MouseEvent<HTMLElement>) => {
+    if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
+    const r = e.currentTarget.getBoundingClientRect();
+    setPos({ x: r.left, top: r.bottom + 6 });
+  };
+  const scheduleClose = () => {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => setPos(null), 120);
+  };
+
+  return (
+    <>
+      <RefPill group={primary} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />
+      <span
+        className="ref-pill ref-more"
+        onMouseEnter={open}
+        onMouseLeave={scheduleClose}
+        title={`${rest} more ref${rest === 1 ? '' : 's'}`}
+      >
+        +{rest}
+      </span>
+      {pos && (
+        <div
+          className="ref-cluster-popover"
+          style={{ left: pos.x, top: pos.top }}
+          onMouseEnter={open}
+          onMouseLeave={scheduleClose}
+        >
+          {groups.map((g) => (
+            <RefPill key={g.key} group={g} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />
+          ))}
+        </div>
+      )}
+    </>
+  );
 }
 
 // ── RefPill component ─────────────────────────────────────────────────────────

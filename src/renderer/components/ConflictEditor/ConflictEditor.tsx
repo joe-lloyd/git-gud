@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConflictFile } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
+import { resolveLanguage, highlightLines } from '../../lib/highlight'
 import './ConflictEditor.css'
 
 interface ConflictEditorProps {
@@ -33,29 +34,40 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const toast = useToasts()
 
+  const lang = useMemo(() => resolveLanguage(filePath), [filePath])
+
   // Per-line views of each side. `isConflict` marks lines that came from a
-  // conflict block — used to highlight them in the side panes.
-  type Pane = { lines: { text: string; isConflict: boolean }[]; fullText: string }
+  // conflict block — used to highlight them in the side panes. `html` is the
+  // per-line syntax-highlighted fragment (or HTML-escaped plain text when no
+  // language matched), pre-computed once per pane so we can hand it straight
+  // to SidePane.
+  type Pane = { lines: { text: string; isConflict: boolean; html: string }[]; fullText: string }
   const panes = useMemo<{ current: Pane; incoming: Pane }>(() => {
     if (!file) return { current: { lines: [], fullText: '' }, incoming: { lines: [], fullText: '' } }
-    const cur: Pane['lines'] = []
-    const inc: Pane['lines'] = []
+    const curText: { text: string; isConflict: boolean }[] = []
+    const incText: { text: string; isConflict: boolean }[] = []
     for (const s of file.sections) {
       if (s.kind === 'shared') {
         for (const t of s.text.split('\n')) {
-          cur.push({ text: t, isConflict: false })
-          inc.push({ text: t, isConflict: false })
+          curText.push({ text: t, isConflict: false })
+          incText.push({ text: t, isConflict: false })
         }
       } else {
-        for (const t of s.current.split('\n')) cur.push({ text: t, isConflict: true })
-        for (const t of s.incoming.split('\n')) inc.push({ text: t, isConflict: true })
+        for (const t of s.current.split('\n')) curText.push({ text: t, isConflict: true })
+        for (const t of s.incoming.split('\n')) incText.push({ text: t, isConflict: true })
       }
     }
+    const curFull = curText.map(l => l.text).join('\n')
+    const incFull = incText.map(l => l.text).join('\n')
+    const curHtml = highlightLines(curFull, lang)
+    const incHtml = highlightLines(incFull, lang)
+    const cur = curText.map((l, i) => ({ ...l, html: curHtml[i] ?? '' }))
+    const inc = incText.map((l, i) => ({ ...l, html: incHtml[i] ?? '' }))
     return {
-      current:  { lines: cur, fullText: cur.map(l => l.text).join('\n') },
-      incoming: { lines: inc, fullText: inc.map(l => l.text).join('\n') },
+      current:  { lines: cur, fullText: curFull },
+      incoming: { lines: inc, fullText: incFull },
     }
-  }, [file])
+  }, [file, lang])
 
   useEffect(() => {
     let cancel = false
@@ -176,8 +188,8 @@ function SyncedPanes({
   onResolvedChange,
   textareaRef,
 }: {
-  currentLines: { text: string; isConflict: boolean }[]
-  incomingLines: { text: string; isConflict: boolean }[]
+  currentLines: { text: string; isConflict: boolean; html: string }[]
+  incomingLines: { text: string; isConflict: boolean; html: string }[]
   currentLabel: string
   incomingLabel: string
   onLineClick: (line: string) => void
@@ -240,7 +252,7 @@ function SyncedPanes({
 function SidePane({ label, kind, lines, onLineClick, scrollRef, onScroll }: {
   label: string
   kind: 'current' | 'incoming'
-  lines: { text: string; isConflict: boolean }[]
+  lines: { text: string; isConflict: boolean; html: string }[]
   onLineClick: (line: string) => void
   scrollRef?: React.RefObject<HTMLDivElement>
   onScroll?: () => void
@@ -257,7 +269,9 @@ function SidePane({ label, kind, lines, onLineClick, scrollRef, onScroll }: {
             title="Click to insert this line at the cursor in the resolved editor"
           >
             <span className="ce-side-lineno">{i + 1}</span>
-            <span className="ce-side-text">{l.text || '​'}</span>
+            {l.text === ''
+              ? <span className="ce-side-text">​</span>
+              : <span className="ce-side-text hljs" dangerouslySetInnerHTML={{ __html: l.html }} />}
           </button>
         ))}
       </div>

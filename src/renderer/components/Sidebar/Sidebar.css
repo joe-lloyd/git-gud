@@ -124,6 +124,16 @@ details[open] > summary .sb-chevron { transform: rotate(90deg); }
 
 .sb-section-body { padding-bottom: 6px; }
 
+/* Resizable sections — fixed (drag-set) body height, each scrolls on its own. */
+.sb-rsection { display: flex; flex-direction: column; flex-shrink: 0; }
+.sb-rsection .sb-section-header { flex-shrink: 0; }
+.sb-rsection-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 4px;
+  min-height: 0;
+}
+
 .sb-item {
   display: flex;
   align-items: center;

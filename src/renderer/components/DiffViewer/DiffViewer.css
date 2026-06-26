@@ -195,6 +195,21 @@
 .diff-line-hunk   .diff-content { color: var(--lane-0); font-style: italic; display: flex; justify-content: space-between; align-items: center; }
 .diff-line-header .diff-content { color: var(--text-muted); }
 
+/* Highlighted content lives inside <code.hljs.diff-code>. Let the hljs theme
+   paint the tokens — keep the row backgrounds (add/remove) untouched and
+   only neutralize the cell-level color override so hljs spans win. */
+.diff-content code.hljs.diff-code {
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  display: inline;
+}
+.diff-line-add    .diff-content:has(code.hljs),
+.diff-line-remove .diff-content:has(code.hljs),
+.diff-line-context .diff-content:has(code.hljs) {
+  color: var(--text-primary);
+}
+
 .diff-chunk-actions {
   display: inline-flex;
   gap: 6px;

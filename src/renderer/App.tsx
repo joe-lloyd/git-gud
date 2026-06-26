@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { TabBar } from './components/TabBar/TabBar'
 import { GraphView, WORKTREE_SHA, makeWorktreePseudoCommit } from './components/Graph/GraphView'
@@ -15,8 +15,11 @@ import { SearchBar } from './components/Search/SearchBar'
 import { ContextMenu, useContextMenu } from './components/ContextMenu/ContextMenu'
 import { ToastContainer } from './components/Toast/Toast'
 import { DiffViewer } from './components/DiffViewer/DiffViewer'
+import { CommitOutput, type OutputChunk, type CommitOutputStatus } from './components/CommitOutput/CommitOutput'
+import { MultiSelectDetail } from './components/MultiSelectDetail/MultiSelectDetail'
 import { GitHubPanel } from './components/GitHub/GitHubPanel'
 import { Welcome } from './components/Welcome/Welcome'
+import { useSettings, SettingsModal } from './components/Settings/Settings'
 import {
   ErrorState,
   LoadingState,
@@ -46,6 +49,7 @@ type AppModal =
   | 'branch-from-tag'
   | 'edit-author'
   | 'toolbar-stash'
+  | 'settings'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
   | null
 
@@ -56,6 +60,7 @@ interface PendingRef {
 
 export default function App() {
   const repo = useGitRepo()
+  const settings = useSettings()  // applies saved text-scale + contrast on mount
   const [modal, setModal]                 = useState<AppModal>(null)
   const [pendingSha, setPendingSha]       = useState<string | null>(null)
   const [pendingRef, setPendingRef]       = useState<PendingRef | null>(null)
@@ -66,6 +71,121 @@ export default function App() {
   const [showSearch, setShowSearch]       = useState(false)
   const [activeDiff, setActiveDiff]       = useState<{ path: string; staged?: boolean; sha?: string } | null>(null)
   const [activeConflictFile, setActiveConflictFile] = useState<string | null>(null)
+
+  // ── Multi-select commits — shift-click range, ⌘/ctrl-click toggle ──────────
+  // `selectedShas` holds every selected commit; `repo.selectedSha` stays the
+  // primary (drives CommitDetail / graph scroll). `selectionAnchor` is the
+  // pivot for shift-range selection.
+  const [selectedShas, setSelectedShas] = useState<string[]>([])
+  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null)
+  // Bumped only when a sidebar branch/tag/stash pick should scroll the graph to
+  // that commit. Graph clicks never bump it, so they don't auto-scroll.
+  const [scrollRequest, setScrollRequest] = useState(0)
+
+  // ── Live commit/hook output — takes over the center pane while a commit
+  //    with hooks runs, and stays up afterwards so output can be read/copied ──
+  const [commitOutput, setCommitOutput] = useState<{
+    runId: string
+    command: string
+    chunks: OutputChunk[]
+    status: CommitOutputStatus
+    exitCode: number | null
+  } | null>(null)
+
+  useEffect(() => {
+    const unsub = window.gitApi.onCommitOutput((e) => {
+      setCommitOutput((prev) => {
+        if (!prev || e.runId !== prev.runId) return prev   // ignore stale streams
+        if ('done' in e && e.done) {
+          return { ...prev, status: e.success ? 'success' : 'failed', exitCode: e.exitCode }
+        }
+        if ('chunk' in e) {
+          return { ...prev, chunks: [...prev.chunks, { stream: e.stream, text: e.chunk }] }
+        }
+        return prev
+      })
+    })
+    return unsub
+  }, [])
+
+  // Opened by WorkingTree right before it fires a commit that runs hooks.
+  const startCommitOutput = useCallback((runId: string, command: string) => {
+    setCommitOutput({ runId, command, chunks: [], status: 'running', exitCode: null })
+  }, [])
+
+  // ── Right-panel width — drag the divider to resize, persisted across runs ──
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('rightPanelWidth'))
+    return saved >= 240 && saved <= 900 ? saved : 320
+  })
+  const graphLayoutRef = useRef<HTMLDivElement>(null)
+  const draggingPanel = useRef(false)
+
+  const startPanelDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    draggingPanel.current = true
+    // Lock the cursor + kill text selection for the whole drag, not just the handle.
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (ev: MouseEvent) => {
+      if (!draggingPanel.current || !graphLayoutRef.current) return
+      const rect = graphLayoutRef.current.getBoundingClientRect()
+      const w = rect.right - ev.clientX            // panel hugs the right edge
+      const max = Math.max(240, rect.width - 320)  // leave the graph ≥320px
+      setRightPanelWidth(Math.min(Math.max(w, 240), Math.min(900, max)))
+    }
+    const onUp = () => {
+      draggingPanel.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('rightPanelWidth', String(rightPanelWidth))
+  }, [rightPanelWidth])
+
+  // ── Left-sidebar width — same drag mechanic; drives --sidebar-width so the
+  //    sidebar and the advanced-bar below it resize together ─────────────────
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('sidebarWidth'))
+    return saved >= 180 && saved <= 600 ? saved : 240
+  })
+  const appBodyRef = useRef<HTMLDivElement>(null)
+  const draggingSidebar = useRef(false)
+
+  const startSidebarDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    draggingSidebar.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (ev: MouseEvent) => {
+      if (!draggingSidebar.current || !appBodyRef.current) return
+      const rect = appBodyRef.current.getBoundingClientRect()
+      const w = ev.clientX - rect.left           // sidebar hugs the left edge
+      const max = Math.max(180, rect.width - 400) // leave room for the rest
+      setSidebarWidth(Math.min(Math.max(w, 180), Math.min(600, max)))
+    }
+    const onUp = () => {
+      draggingSidebar.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('sidebarWidth', String(sidebarWidth))
+  }, [sidebarWidth])
 
   // Right panel mode is driven by what's selected: pseudo node (or nothing
   // when the tree is dirty) → WorkingTree; any real commit → CommitDetail.
@@ -183,10 +303,12 @@ export default function App() {
     await handleCheckout(localName)
   }, [handleCheckout])
 
-  // Prepend a synthetic "uncommitted changes" node above HEAD when the working
-  // tree is dirty. The graph dashes its parent edge (same treatment as stashes)
-  // so it reads as off-history. Skip when status hasn't loaded or HEAD isn't
-  // in the current log window (detached / shallow / pre-first-commit).
+  // Prepend a synthetic "uncommitted changes" node at the top of the graph
+  // when the working tree is dirty. Always row 0 — never mid-list — so the
+  // node can't get stranded below newer branch tips after a soft reset moves
+  // HEAD downward. Parent edge stays dashed (same treatment as stashes) so it
+  // reads as off-history. Skip when status hasn't loaded or HEAD isn't in the
+  // current log window (detached / shallow / pre-first-commit).
   const displayCommits = useMemo(() => {
     if (!repo.status) return repo.commits
     const dirty =
@@ -197,7 +319,7 @@ export default function App() {
     const headIdx = repo.commits.findIndex(c => c.refs.includes('HEAD'))
     if (headIdx < 0) return repo.commits
     const pseudo = makeWorktreePseudoCommit(repo.commits[headIdx].sha, dirty)
-    return [...repo.commits.slice(0, headIdx), pseudo, ...repo.commits.slice(headIdx)]
+    return [pseudo, ...repo.commits]
   }, [repo.commits, repo.status])
 
   // Default selection: when the pseudo node is present and nothing is selected,
@@ -211,6 +333,65 @@ export default function App() {
       repo.setSelectedSha(WORKTREE_SHA)
     }
   }, [hasPseudo, repo.selectedSha, repo.setSelectedSha])
+
+  // SHAs that bulk ops can act on — real commits only (not the worktree pseudo
+  // node or stash nodes).
+  const stashShaSet = useMemo(() => new Set(repo.stashes.map(s => s.sha)), [repo.stashes])
+  const opSelectedShas = useMemo(
+    () => selectedShas.filter(s => s !== WORKTREE_SHA && !stashShaSet.has(s)),
+    [selectedShas, stashShaSet],
+  )
+
+  // Are the selected commits an unbroken run in the displayed order? (Squash /
+  // drop require contiguity; the main process re-validates regardless.)
+  const selectionContiguous = useMemo(() => {
+    if (opSelectedShas.length < 2) return opSelectedShas.length === 1
+    const order = displayCommits.map(c => c.sha)
+    const idxs = opSelectedShas.map(s => order.indexOf(s)).filter(i => i >= 0).sort((a, b) => a - b)
+    if (idxs.length !== opSelectedShas.length) return false
+    return idxs.every((v, i) => i === 0 || v === idxs[i - 1] + 1)
+  }, [opSelectedShas, displayCommits])
+
+  // Click handler with modifier support. Plain = single; ⌘/ctrl = toggle;
+  // shift = contiguous range from the anchor (by displayed row order).
+  const handleSelectCommit = useCallback((sha: string, mods?: { shift?: boolean; meta?: boolean }) => {
+    const order = displayCommits.map(c => c.sha)
+    if (mods?.shift && selectionAnchor) {
+      const a = order.indexOf(selectionAnchor)
+      const b = order.indexOf(sha)
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a]
+        setSelectedShas(order.slice(lo, hi + 1))
+        repo.setSelectedSha(sha)
+        return
+      }
+    }
+    if (mods?.meta) {
+      setSelectedShas(prev => prev.includes(sha) ? prev.filter(s => s !== sha) : [...prev, sha])
+      setSelectionAnchor(sha)
+      repo.setSelectedSha(sha)
+      return
+    }
+    // Plain click — single selection.
+    setSelectedShas([sha])
+    setSelectionAnchor(sha)
+    repo.setSelectedSha(sha)
+  }, [displayCommits, selectionAnchor, repo])
+
+  const clearMultiSelect = useCallback(() => {
+    setSelectedShas(repo.selectedSha ? [repo.selectedSha] : [])
+    setSelectionAnchor(repo.selectedSha)
+  }, [repo.selectedSha])
+
+  // When the primary selection is changed from outside the graph (sidebar ref,
+  // reflog, default pseudo-node) to something not in the multi-set, collapse the
+  // multi-selection so the right panel reflects the single commit.
+  useEffect(() => {
+    if (repo.selectedSha && !selectedShas.includes(repo.selectedSha)) {
+      setSelectedShas([repo.selectedSha])
+      setSelectionAnchor(repo.selectedSha)
+    }
+  }, [repo.selectedSha, selectedShas])
 
   // Sidebar ref clicks: track the selection AND, for stashes/branches/tags
   // backed by a SHA in the current log window, jump the graph to that node.
@@ -229,7 +410,11 @@ export default function App() {
     } else if (kind === 'tag') {
       sha = repo.tags.find(t => t.name === name)?.sha
     }
-    if (sha) repo.setSelectedSha(sha)
+    if (sha) {
+      repo.setSelectedSha(sha)
+      // Sidebar selection → request a scroll-to-node (the only case we scroll).
+      setScrollRequest((n) => n + 1)
+    }
   }, [repo])
 
   const handleApplyStash = useCallback(async (index: number) => {
@@ -374,7 +559,13 @@ export default function App() {
           danger: true,
           disabled: isMain || isCurrent,
           onClick: async () => {
-            const r = await window.gitApi.removeWorktree(path)
+            let r = await window.gitApi.removeWorktree(path)
+            if (!r.success) {
+              // Plain remove refuses a dirty/locked worktree — offer to force.
+              if (window.confirm(`Couldn't remove "${name}":\n\n${r.error}\n\nForce remove? Uncommitted changes in that worktree will be lost.`)) {
+                r = await window.gitApi.removeWorktree(path, true)
+              } else return
+            }
             if (r.success) { repo.toast.success('Worktree Removed', name); repo.methods.refresh() }
             else repo.toast.error('Remove Failed', r.error)
           },
@@ -478,7 +669,88 @@ export default function App() {
   // (focus + FS-watcher refresh handled inside useGitRepo)
 
   // Build context menu entries for a right-clicked commit node
+  // ── Bulk (multi-select) commit actions ─────────────────────────────────
+  const idxOf = useCallback((sha: string) => displayCommits.findIndex(c => c.sha === sha), [displayCommits])
+
+  const bulkCherryPick = useCallback(async () => {
+    if (opSelectedShas.length === 0) return
+    const r = await window.gitApi.cherryPickMany(opSelectedShas)
+    if (r.success) {
+      repo.toast.success('Cherry-picked', `${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} applied to current branch.`)
+      clearMultiSelect(); repo.methods.refresh()
+    } else repo.toast.error('Cherry-pick Failed', r.error)
+  }, [opSelectedShas, repo, clearMultiSelect])
+
+  const bulkRevert = useCallback(async () => {
+    if (opSelectedShas.length === 0) return
+    const r = await window.gitApi.revertMany(opSelectedShas)
+    if (r.success) {
+      repo.toast.success('Reverted', `${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} reverted.`)
+      clearMultiSelect(); repo.methods.refresh()
+    } else repo.toast.error('Revert Failed', r.error)
+  }, [opSelectedShas, repo, clearMultiSelect])
+
+  const bulkSquash = useCallback(async () => {
+    if (opSelectedShas.length < 2) return
+    // Combined message in history order (oldest → newest = highest → lowest idx).
+    const oldestFirst = [...opSelectedShas].sort((a, b) => idxOf(b) - idxOf(a))
+    const message = oldestFirst.map(s => displayCommits[idxOf(s)]?.message).filter(Boolean).join('\n\n')
+    const r = await window.gitApi.squashCommits(opSelectedShas, message)
+    if (r.success) {
+      repo.toast.success('Squashed', `${opSelectedShas.length} commits combined into one. Use Amend to refine the message.`)
+      clearMultiSelect(); repo.methods.refresh()
+    } else if (r.conflict) {
+      repo.toast.error('Squash hit conflicts', 'Replaying later commits conflicted — resolve in the right panel.')
+      repo.methods.refresh()
+    } else repo.toast.error('Squash Failed', r.error ?? 'Could not squash the selected commits.')
+  }, [opSelectedShas, displayCommits, idxOf, repo, clearMultiSelect])
+
+  const bulkDrop = useCallback(async () => {
+    if (opSelectedShas.length === 0) return
+    if (!window.confirm(`Drop ${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} from history?\n\nThis rewrites history and cannot be undone.`)) return
+    const r = await window.gitApi.dropCommits(opSelectedShas)
+    if (r.success) {
+      repo.toast.success('Dropped', `${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} removed from history.`)
+      clearMultiSelect(); repo.methods.refresh()
+    } else if (r.conflict) {
+      repo.toast.error('Drop hit conflicts', 'Replaying later commits conflicted — resolve in the right panel.')
+      repo.methods.refresh()
+    } else repo.toast.error('Drop Failed', r.error ?? 'Could not drop the selected commits.')
+  }, [opSelectedShas, repo, clearMultiSelect])
+
+  const copySelectedShas = useCallback(() => {
+    const order = displayCommits
+    const list = [...opSelectedShas].sort((a, b) => idxOf(a) - idxOf(b))
+      .map(s => order[idxOf(s)]?.shortSha ?? s).join('\n')
+    navigator.clipboard.writeText(list).catch(() => {})
+  }, [opSelectedShas, displayCommits, idxOf])
+
+  const openBulkCommitMenu = useCallback((e: React.MouseEvent) => {
+    const n = opSelectedShas.length
+    const rangeNote = selectionContiguous ? undefined : 'Selection must be adjacent (no gaps)'
+    openCtx(e, [
+      { label: `${n} commits selected`, disabled: true, onClick: () => {} },
+      { separator: true, label: '', onClick: () => {} },
+      { label: 'Squash into one commit', icon: '⊞', disabled: !selectionContiguous, onClick: bulkSquash },
+      { label: 'Cherry-pick onto current branch', icon: '⊕', onClick: bulkCherryPick },
+      { label: 'Revert commits', icon: '↶', onClick: bulkRevert },
+      { label: rangeNote ?? 'Drop from history', icon: '🗑', danger: true, disabled: !selectionContiguous, onClick: bulkDrop },
+      { separator: true, label: '', onClick: () => {} },
+      { label: 'Copy SHAs', icon: '⧉', onClick: copySelectedShas },
+      { label: 'Clear selection', icon: '✕', onClick: clearMultiSelect },
+    ])
+  }, [opSelectedShas, selectionContiguous, openCtx, bulkSquash, bulkCherryPick, bulkRevert, bulkDrop, copySelectedShas, clearMultiSelect])
+
   const handleCommitContextMenu = useCallback((e: React.MouseEvent, sha: string) => {
+    // Right-clicking inside an active multi-selection → bulk menu.
+    if (opSelectedShas.length > 1 && selectedShas.includes(sha)) {
+      openBulkCommitMenu(e)
+      return
+    }
+    // Otherwise collapse to a single selection on the right-clicked commit.
+    if (selectedShas.length !== 1 || selectedShas[0] !== sha) {
+      setSelectedShas([sha]); setSelectionAnchor(sha); repo.setSelectedSha(sha)
+    }
     const commit = repo.commits.find(c => c.sha === sha)
 
     // Derive a usable branch name for "merge current into this":
@@ -549,7 +821,7 @@ export default function App() {
       { label: 'Mark as Bisect Bad',  icon: '✗', danger: true, onClick: () => window.gitApi.bisectBad(sha) },
 
     ])
-  }, [actions, repo, openCtx])
+  }, [actions, repo, openCtx, opSelectedShas, selectedShas, openBulkCommitMenu])
 
   const rebaseCommits = repo.selectedSha
     ? repo.commits.slice(0, repo.commits.findIndex(c => c.sha === repo.selectedSha) + 1).slice(0, 20)
@@ -583,6 +855,7 @@ export default function App() {
         onNewBranch={() => setModal('new-branch')}
         onSearchToggle={() => setShowSearch(true)}
         onGitHubShow={() => setModal('github')}
+        onSettings={() => setModal('settings')}
       />
 
       {repo.repoPath && repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) && (
@@ -599,7 +872,11 @@ export default function App() {
         </div>
       )}
 
-      <div className="app-body">
+      <div
+        className="app-body"
+        ref={appBodyRef}
+        style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` } as React.CSSProperties}
+      >
         <Sidebar
           repoPath={repo.repoPath}
           branches={repo.branches}
@@ -625,6 +902,14 @@ export default function App() {
           onRefDrop={handleRefDrop}
         />
 
+        <div
+          className="panel-resize-handle panel-resize-handle--v"
+          onMouseDown={startSidebarDrag}
+          title="Drag to resize"
+        >
+          <div className="panel-resize-grip panel-resize-grip--v" />
+        </div>
+
         <main className="main-content">
           {!repo.repoPath ? (
             <Welcome onOpen={repo.methods.handleOpenRepo} onSelectRecent={repo.methods.loadRepo} />
@@ -633,9 +918,17 @@ export default function App() {
           ) : repo.error ? (
             <ErrorState error={repo.error} onRetry={repo.methods.refresh} />
           ) : (
-            <div className="graph-layout">
+            <div className="graph-layout" ref={graphLayoutRef}>
               <div className="graph-center">
-                {activeConflictFile ? (
+                {commitOutput ? (
+                  <CommitOutput
+                    command={commitOutput.command}
+                    chunks={commitOutput.chunks}
+                    status={commitOutput.status}
+                    exitCode={commitOutput.exitCode}
+                    onClose={() => setCommitOutput(null)}
+                  />
+                ) : activeConflictFile ? (
                   <ConflictEditor
                     filePath={activeConflictFile}
                     onClose={() => setActiveConflictFile(null)}
@@ -653,7 +946,9 @@ export default function App() {
                   <GraphView
                     commits={displayCommits}
                     selectedSha={repo.selectedSha}
-                    onSelectCommit={repo.setSelectedSha}
+                    selectedShas={new Set(selectedShas)}
+                    scrollRequest={scrollRequest}
+                    onSelectCommit={handleSelectCommit}
                     onContextMenu={handleCommitContextMenu}
                     onRefContextMenu={handleRefContextMenu}
                     onRefDrop={handleRefDrop}
@@ -663,7 +958,14 @@ export default function App() {
                 )}
               </div>
 
-              <div className="right-panel">
+              <div
+                className="panel-resize-handle panel-resize-handle--v"
+                onMouseDown={startPanelDrag}
+                title="Drag to resize"
+              >
+                <div className="panel-resize-grip panel-resize-grip--v" />
+              </div>
+              <div className="right-panel" style={{ width: rightPanelWidth }}>
                 <div className="right-panel-body">
                   {repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) ? (
                     <ConflictPanel
@@ -679,7 +981,7 @@ export default function App() {
                     />
                   ) : modal === 'patch' ? (
                     <PatchPanel
-                      selectedSha={repo.selectedSha}
+                      status={repo.status}
                       onClose={closeModal}
                     />
                   ) : showWorkingTree ? (
@@ -691,6 +993,20 @@ export default function App() {
                       // graph + new commit row is the more useful view.
                       onCommitted={() => { setActiveDiff(null); repo.methods.refresh() }}
                       onSelectDiff={(path, staged) => setActiveDiff({ path, staged })}
+                      onCommitRun={startCommitOutput}
+                    />
+                  ) : opSelectedShas.length > 1 ? (
+                    <MultiSelectDetail
+                      shas={opSelectedShas}
+                      commits={displayCommits}
+                      contiguous={selectionContiguous}
+                      onSquash={bulkSquash}
+                      onCherryPick={bulkCherryPick}
+                      onRevert={bulkRevert}
+                      onDrop={bulkDrop}
+                      onCopyShas={copySelectedShas}
+                      onClear={clearMultiSelect}
+                      onSelectOne={(sha) => { setSelectedShas([sha]); setSelectionAnchor(sha); repo.setSelectedSha(sha) }}
                     />
                   ) : (
                     <CommitDetail
@@ -730,6 +1046,9 @@ export default function App() {
       )}
       {modal === 'worktrees' && (
         <Worktrees currentPath={repo.repoPath} onClose={closeModal} onSwitch={repo.methods.loadRepo} />
+      )}
+      {modal === 'settings' && (
+        <SettingsModal {...settings} onClose={closeModal} />
       )}
       {modal === 'github' && (
         <GitHubPanel

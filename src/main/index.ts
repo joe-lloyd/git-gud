@@ -470,17 +470,30 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:commit', async (_event, opts: { subject: string; body?: string; noVerify?: boolean; signoff?: boolean }) => {
+  // Run a streaming commit/amend: push each stdout/stderr chunk to the renderer
+  // tagged with the caller's runId, then a terminal `done` event. The invoke
+  // still resolves with the final result (now incl. output/exitCode/hooksRan).
+  const runStreamingCommit = async (
+    opts: { subject: string; body?: string; noVerify?: boolean; signoff?: boolean; author?: string; amend?: boolean; runId?: string },
+  ) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { return await gitService.commit(opts) }
-    catch (e) { return { success: false, error: String(e) } }
-  })
+    const runId = opts.runId ?? ''
+    try {
+      const result = await gitService.commitStreaming(opts, ({ stream, chunk }) => {
+        mainWindow?.webContents.send('git:commit-output', { runId, stream, chunk })
+      })
+      mainWindow?.webContents.send('git:commit-output', {
+        runId, done: true, exitCode: result.exitCode, success: result.success,
+      })
+      return result
+    } catch (e) {
+      mainWindow?.webContents.send('git:commit-output', { runId, done: true, exitCode: null, success: false })
+      return { success: false, error: String(e) }
+    }
+  }
 
-  ipcMain.handle('git:commit-amend', async (_event, opts: { subject: string; body?: string; noVerify?: boolean; signoff?: boolean; author?: string }) => {
-    if (!gitService) return { success: false, error: 'No repo' }
-    try { return await gitService.amendCommit(opts) }
-    catch (e) { return { success: false, error: String(e) } }
-  })
+  ipcMain.handle('git:commit', async (_event, opts) => runStreamingCommit(opts))
+  ipcMain.handle('git:commit-amend', async (_event, opts) => runStreamingCommit({ ...opts, amend: true }))
 
   ipcMain.handle('git:set-head-author', async (_event, author: string) => {
     if (!gitService) return { success: false, error: 'No repo' }
@@ -596,6 +609,31 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
+  ipcMain.handle('git:squash-commits', async (_event, shas: string[], message: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.squashCommits(shas, message)
+  })
+
+  ipcMain.handle('git:drop-commits', async (_event, shas: string[]) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.dropCommits(shas)
+  })
+
+  ipcMain.handle('git:cherry-pick-many', async (_event, shas: string[]) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.cherryPickMany(shas)
+  })
+
+  ipcMain.handle('git:range-stat', async (_event, oldestSha: string, newestSha: string) => {
+    if (!gitService) return null
+    return gitService.rangeStat(oldestSha, newestSha)
+  })
+
+  ipcMain.handle('git:revert-many', async (_event, shas: string[]) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.revertMany(shas)
+  })
+
   ipcMain.handle('git:run-drag-action', async (_event, source: string, target: string, action: 'merge' | 'rebase' | 'checkout') => {
     if (!gitService) return { success: false, error: 'No repo' }
     return gitService.runDragAction(source, target, action)
@@ -666,10 +704,9 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:worktree-remove', async (_event, path: string) => {
+  ipcMain.handle('git:worktree-remove', async (_event, path: string, force?: boolean) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.removeWorktree(path); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
+    return gitService.removeWorktree(path, force ?? false)
   })
 
   // ── Bisect ───────────────────────────────────────────────────────────
@@ -705,6 +742,35 @@ app.whenReady().then(() => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { await gitService.applyPatch(patchContent, opts); return { success: true } }
     catch (e) { return { success: false, error: String(e) } }
+  })
+
+  // Build a patch from selected working-tree files. `tracked`/`untracked` come
+  // straight from the renderer's status snapshot.
+  ipcMain.handle('git:working-patch', async (_event, tracked: string[] = [], untracked: string[] = []) => {
+    if (!gitService) return ''
+    try { return await gitService.buildWorkingPatch(tracked, untracked) } catch { return '' }
+  })
+
+  // Save patch text to a user-picked location. Returns the written path so the
+  // renderer can show "saved here", or { canceled } if the dialog was dismissed.
+  ipcMain.handle('patch:save', async (_event, content: string, defaultName: string) => {
+    if (!content) return { success: false, error: 'Nothing to save' }
+    const baseDir = gitService?.getRepoPath() ?? app.getPath('documents')
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save patch',
+      defaultPath: join(baseDir, defaultName || 'changes.patch'),
+      filters: [
+        { name: 'Patch', extensions: ['patch', 'diff'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    try {
+      fs.writeFileSync(result.filePath, content, 'utf8')
+      return { success: true, path: result.filePath }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
   })
 
   // ── Reflog ───────────────────────────────────────────────────────────

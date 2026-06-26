@@ -189,6 +189,10 @@
   background: var(--bg-base);
 }
 .ce-side-text { flex: 0 0 auto; white-space: pre; }
+/* highlight.js theme paints a background on .hljs — clear it so the row's
+   conflict / non-conflict tint shows through. Tokens still get their colors
+   from .hljs-* spans inside. */
+.ce-side-text.hljs { background: transparent; padding: 0; font: inherit; color: inherit; }
 
 .ce-textarea {
   flex: 1;

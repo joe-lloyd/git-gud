@@ -1,0 +1,94 @@
+.msd {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.msd-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 6px;
+}
+.msd-count {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.msd-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.msd-badge.ok   { background: var(--accent-subtle); color: var(--accent); border: 1px solid var(--accent-border); }
+.msd-badge.warn { background: rgba(246,173,85,0.15); color: var(--warning); border: 1px solid rgba(246,173,85,0.3); }
+
+.msd-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.msd-stat { font-family: 'JetBrains Mono', monospace; }
+.msd-add { color: var(--success); }
+.msd-del { color: var(--danger); }
+.msd-hint { font-style: italic; color: var(--warning); }
+
+.msd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px 0;
+}
+.msd-actions .btn { font-size: 11px; }
+.msd-actions-sub { padding-top: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+
+.msd-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+.msd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-align: left;
+  color: var(--text-secondary);
+  transition: background 0.1s;
+}
+.msd-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+.msd-sha {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--accent);
+  opacity: 0.85;
+}
+.msd-msg {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msd-author {
+  flex-shrink: 0;
+  max-width: 90px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
