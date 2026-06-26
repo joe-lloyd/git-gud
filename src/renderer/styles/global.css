@@ -10,40 +10,41 @@
   --bg-hover:      #2a3347;
   --bg-active:     #2e3d57;
   --border:        rgba(255,255,255,0.11);
-  --border-focus:  rgba(255,121,198,0.6);
+  --border-focus:  rgba(255,79,195,0.65);
 
-  /* Accent — hot neon pink (Dracula-inspired). Used for primary actions,
-     focus, and selection. `bright` is the saturated variant for emphasis. */
-  --accent:        #ff79c6;
-  --accent-bright: #ff4fbf;
-  --accent-hover:  #ff97d4;
-  --accent-subtle: rgba(255,121,198,0.16);
-  --accent-border: rgba(255,121,198,0.42);
+  /* Accent — neon hot pink / magenta. The app's primary brand color: actions,
+     focus, selection highlights, the main branch line, badges, links. */
+  --accent:        #ff4fc3;
+  --accent-bright: #ff2d95;
+  --accent-hover:  #ff79d6;
+  --accent-subtle: rgba(255,79,195,0.16);
+  --accent-border: rgba(255,79,195,0.45);
   --on-accent:     #1a0f17;  /* dark text for contrast on the neon fill */
 
   /* Text — bumped for readability against the dark panels */
   --text-primary:   #f0f4f8;
   --text-secondary: #aab4bf;
   --text-muted:     #7c8a9a;
-  --text-accent:    #ff79c6;
+  --text-accent:    #ff4fc3;
 
-  /* Branch lane colors — vibrant, distinct */
-  --lane-0: #63b3ed;  /* sky blue */
-  --lane-1: #68d391;  /* green */
+  /* Branch lane colors — neon-pink first, then hues alternating warm/cool so
+     adjacent lanes stay distinct. lane-0 doubles as the brand accent. */
+  --lane-0: #ff4fc3;  /* neon hot pink */
+  --lane-1: #4fd1c5;  /* teal */
   --lane-2: #f6ad55;  /* amber */
-  --lane-3: #fc8181;  /* red/coral */
-  --lane-4: #b794f4;  /* purple */
-  --lane-5: #76e4f7;  /* cyan */
-  --lane-6: #fbb6ce;  /* pink */
+  --lane-3: #9f7aea;  /* indigo */
+  --lane-4: #68d391;  /* green */
+  --lane-5: #fc8181;  /* coral */
+  --lane-6: #76e4f7;  /* cyan */
   --lane-7: #f6e05e;  /* yellow */
-  --lane-8: #9f7aea;  /* indigo-purple */
-  --lane-9: #4fd1c5;  /* teal */
+  --lane-8: #b794f4;  /* purple */
+  --lane-9: #fb923c;  /* orange */
 
   /* Semantic */
   --success: #68d391;
   --danger:  #fc8181;
   --warning: #f6ad55;
-  --info:    #63b3ed;
+  --info:    #ff4fc3;
 
   /* Sizing */
   --sidebar-width: 240px;
@@ -146,10 +147,10 @@ button {
   text-overflow: ellipsis;
   flex-shrink: 0;
 }
-.ref-local  { background: rgba(99,179,237,0.18); color: #63b3ed; border: 1px solid rgba(99,179,237,0.3); }
+.ref-local  { background: rgba(255,79,195,0.18); color: #ff4fc3; border: 1px solid rgba(255,79,195,0.3); }
 .ref-remote { background: rgba(104,211,145,0.15); color: #68d391; border: 1px solid rgba(104,211,145,0.25); }
 /* local + remote combined */
-.ref-both   { background: rgba(99,179,237,0.15); color: #63b3ed; border: 1px solid rgba(99,179,237,0.3); }
+.ref-both   { background: rgba(255,79,195,0.15); color: #ff4fc3; border: 1px solid rgba(255,79,195,0.3); }
 .ref-tag    { background: rgba(246,173,85,0.15);  color: #f6ad55; border: 1px solid rgba(246,173,85,0.25); }
 .ref-head   { background: rgba(251,182,206,0.2);  color: #fbb6ce; border: 1px solid rgba(251,182,206,0.35); }
 
@@ -188,18 +189,14 @@ button {
 
 /* Drop target highlight while a ref is hovered over this pill */
 .ref-pill.ref-drop-target {
-  outline: 2px solid var(--lane-0, #63b3ed);
+  outline: 2px solid var(--lane-0, #ff4fc3);
   outline-offset: 1px;
   transform: scale(1.05);
   transition: transform 0.08s;
 }
 
 /* Hover commit row → bump the row's own ref pills */
-.commit-row:hover .ref-pill {
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
-  transform: translateY(-0.5px);
-  transition: transform 0.1s, box-shadow 0.1s;
-}
+/* No hover lift/shadow on ref pills — hovering a pill only opens its tooltip. */
 
 /* Icon spans inside a pill */
 .rp-icon {
@@ -209,7 +206,7 @@ button {
   opacity: 0.9;
 }
 .rp-head    { color: #fbb6ce; font-size: 10px; }
-.rp-local   { color: #63b3ed; }
+.rp-local   { color: #ff4fc3; }
 .rp-remote  { color: #68d391; font-size: 11px; font-weight: 700; }
 .rp-worktree { color: #f6ad55; font-size: 10px; }
 .rp-name { overflow: hidden; text-overflow: ellipsis; }
@@ -279,7 +276,7 @@ input:focus, textarea:focus {
    Distinct from .selected (which is a persistent background): focus shows
    keyboard position only. Visible on Tab / arrow navigation, hidden on
    mouse click (browser native :focus-visible behavior). Kept subtle on
-   purpose — single-pixel ring with the brand blue. */
+   purpose — single-pixel ring in the neon-pink accent. */
 :focus { outline: none; }
 :focus-visible {
   outline: 1.5px solid var(--border-focus);

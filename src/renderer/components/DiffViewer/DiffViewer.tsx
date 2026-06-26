@@ -345,7 +345,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                 // Highlighted content is only applied to code rows (add /
                 // remove / context). Hunk headers, file headers, and the
                 // "No newline" marker stay literal so their diff styling
-                // (italic blue hunk text, etc.) keeps control of the cell.
+                // (italic accent hunk text, etc.) keeps control of the cell.
                 const html = (type === 'add' || type === 'remove' || (type === 'context' && !text.startsWith('\\')))
                   ? highlightHtml.get(i)
                   : undefined

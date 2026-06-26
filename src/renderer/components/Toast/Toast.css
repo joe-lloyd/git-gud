@@ -53,7 +53,7 @@
 .toast-icon-error   { background: rgba(252,129,129,0.2); color: var(--danger); }
 .toast-icon-warning { background: rgba(246,173,85,0.2);  color: #f6ad55; }
 .toast-icon-success { background: rgba(104,211,145,0.2); color: var(--success); }
-.toast-icon-info    { background: rgba(99,179,237,0.2);  color: var(--lane-0); }
+.toast-icon-info    { background: rgba(255,79,195,0.2);  color: var(--lane-0); }
 
 .toast-body { flex: 1; min-width: 0; }
 .toast-title {

@@ -22,17 +22,19 @@ export interface ParentConnection {
   type: 'merge' | 'straight' | 'fork'
 }
 
+// Neon-pink first, then warm/cool alternating so adjacent branch lanes stay
+// distinct. Keep in sync with the --lane-N vars in global.css.
 const LANE_COLORS = [
-  '#63b3ed', // sky blue
-  '#68d391', // green
-  '#f6ad55', // amber
-  '#fc8181', // coral
-  '#b794f4', // purple
-  '#76e4f7', // cyan
-  '#fbb6ce', // pink
-  '#f6e05e', // yellow
-  '#9f7aea', // indigo
+  '#ff4fc3', // neon hot pink (brand / main branch)
   '#4fd1c5', // teal
+  '#f6ad55', // amber
+  '#9f7aea', // indigo
+  '#68d391', // green
+  '#fc8181', // coral
+  '#76e4f7', // cyan
+  '#f6e05e', // yellow
+  '#b794f4', // purple
+  '#fb923c', // orange
 ]
 
 export function getLaneColor(lane: number): string {

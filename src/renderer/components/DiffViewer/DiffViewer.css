@@ -36,7 +36,7 @@
 }
 .diff-badge-staged   { background: rgba(104,211,145,0.18); color: var(--success); }
 .diff-badge-unstaged { background: rgba(246,173,85,0.18);  color: #f6ad55; }
-.diff-badge-commit   { background: rgba(99,179,237,0.18);  color: var(--lane-0, #63b3ed); font-family: 'JetBrains Mono', monospace; }
+.diff-badge-commit   { background: rgba(255,79,195,0.18);  color: var(--lane-0, #ff4fc3); font-family: 'JetBrains Mono', monospace; }
 
 .diff-filename {
   font-size: 12px;
@@ -71,9 +71,9 @@
 }
 .diff-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
 .diff-toggle.on {
-  background: rgba(99,179,237,0.18);
+  background: rgba(255,79,195,0.18);
   color: var(--lane-0);
-  border-color: rgba(99,179,237,0.35);
+  border-color: rgba(255,79,195,0.35);
 }
 
 .diff-banner {
@@ -138,7 +138,7 @@
 
 .diff-line-add    { background: rgba(104,211,145,0.08); }
 .diff-line-remove { background: rgba(252,129,129,0.09); }
-.diff-line-hunk   { background: rgba(99,179,237,0.08); }
+.diff-line-hunk   { background: rgba(255,79,195,0.08); }
 .diff-line-header { background: var(--bg-elevated); }
 .diff-line-context { background: transparent; }
 

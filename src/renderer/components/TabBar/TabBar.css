@@ -45,7 +45,7 @@
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 2px;
-  background: var(--lane-0, #63b3ed);
+  background: var(--lane-0, #ff4fc3);
 }
 
 .tab-name {

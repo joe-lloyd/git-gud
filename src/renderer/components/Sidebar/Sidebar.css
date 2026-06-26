@@ -150,16 +150,16 @@ details[open] > summary .sb-chevron { transform: rotate(90deg); }
 }
 .sb-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .sb-item.selected {
-  background: rgba(99,179,237,0.18);
+  background: rgba(255,79,195,0.18);
   color: var(--text-primary);
 }
 .sb-item.current {
   color: var(--lane-0);
 }
-.sb-item.current.selected { background: rgba(99,179,237,0.28); }
+.sb-item.current.selected { background: rgba(255,79,195,0.28); }
 .sb-item.drop-target {
-  background: rgba(99,179,237,0.25);
-  outline: 1px dashed var(--lane-0, #63b3ed);
+  background: rgba(255,79,195,0.25);
+  outline: 1px dashed var(--lane-0, #ff4fc3);
   outline-offset: -2px;
 }
 

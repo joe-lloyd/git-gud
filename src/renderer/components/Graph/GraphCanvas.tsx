@@ -19,7 +19,7 @@ const FONT_MONO = "11px 'JetBrains Mono', monospace"
 
 // Ref pill colors matching CSS
 const REF_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  local:  { bg: 'rgba(99,179,237,0.18)',  text: '#63b3ed', border: 'rgba(99,179,237,0.3)' },
+  local:  { bg: 'rgba(255,79,195,0.18)',  text: '#ff4fc3', border: 'rgba(255,79,195,0.3)' },
   remote: { bg: 'rgba(104,211,145,0.15)', text: '#68d391', border: 'rgba(104,211,145,0.25)' },
   tag:    { bg: 'rgba(246,173,85,0.15)',  text: '#f6ad55', border: 'rgba(246,173,85,0.25)' },
   head:   { bg: 'rgba(251,182,206,0.2)',  text: '#fbb6ce', border: 'rgba(251,182,206,0.35)' },
@@ -137,7 +137,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
       // Selection highlight
       if (isSelected) {
-        ctx.fillStyle = 'rgba(99,179,237,0.12)'
+        ctx.fillStyle = 'rgba(255,79,195,0.12)'
         ctx.fillRect(0, cy - ROW_H / 2, W, ROW_H)
       } else if (r % 2 === 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.015)'
