@@ -107,6 +107,23 @@ export type CommitResult = {
 export type CommitOutputEvent =
   | { runId: string; stream: 'stdout' | 'stderr'; chunk: string; done?: false }
   | { runId: string; done: true; exitCode: number | null; success: boolean }
+
+// One git command + its response, pushed on `git:activity` for the git console.
+export type GitActivity = {
+  id: string
+  repoPath: string
+  args: string[]
+  output: string
+  failed: boolean
+  exitCode?: number | null
+  durationMs: number
+  ts: number
+}
+
+// Command-console output, pushed on `console:output` keyed by runId.
+export type ConsoleOutputEvent =
+  | { runId: string; stream: 'stdout' | 'stderr'; chunk: string; done?: false }
+  | { runId: string; done: true; exitCode: number | null }
 // Pull carries an extra classifier so the renderer can offer targeted recovery
 // (stash + retry for dirty trees, merge/rebase choice for diverged history).
 export type PullErrorKind = 'dirty' | 'diverged' | 'untracked' | 'conflict' | 'auth' | 'unknown'
@@ -175,6 +192,26 @@ const gitApi = {
     const handler = (_e: unknown, payload: CommitOutputEvent) => cb(payload)
     ipcRenderer.on('git:commit-output', handler)
     return () => { ipcRenderer.removeListener('git:commit-output', handler) }
+  },
+
+  // ── Console dock ──────────────────────────────────────────────────────────
+  // Live feed of every git command + response (the right console).
+  onGitActivity: (cb: (e: GitActivity) => void) => {
+    const handler = (_e: unknown, payload: GitActivity) => cb(payload)
+    ipcRenderer.on('git:activity', handler)
+    return () => { ipcRenderer.removeListener('git:activity', handler) }
+  },
+  // The active worktree root (command-console cwd / prompt).
+  getRepoRoot: (): Promise<string | null> => ipcRenderer.invoke('console:cwd'),
+  // Run a non-interactive command at the worktree root; output streams on
+  // `console:output` keyed by runId. Resolves with the exit code.
+  runConsoleCommand: (runId: string, cmd: string): Promise<{ success: boolean; exitCode?: number | null; error?: string }> =>
+    ipcRenderer.invoke('console:run', runId, cmd),
+  cancelConsoleCommand: (runId: string): Promise<boolean> => ipcRenderer.invoke('console:cancel', runId),
+  onConsoleOutput: (cb: (e: ConsoleOutputEvent) => void) => {
+    const handler = (_e: unknown, payload: ConsoleOutputEvent) => cb(payload)
+    ipcRenderer.on('console:output', handler)
+    return () => { ipcRenderer.removeListener('console:output', handler) }
   },
   setHeadAuthor: (author: string): Promise<Result> =>
     ipcRenderer.invoke('git:set-head-author', author),

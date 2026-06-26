@@ -93,14 +93,16 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const scrollTopRef = useRef(0);
   const rafRef = useRef<number | null>(null);
 
-  // Build graph layout (memoized — only recalculates when commits change)
-  const nodes = useMemo(() => buildGraphLayout(commits), [commits]);
-
-  // Stash SHA lookup — drives diamond node + dashed parent links
+  // Stash SHA lookup — drives the diamond node + dashed parent links, and tells
+  // the layout to give each stash its own dedicated column (so a stash never
+  // reuses an unrelated commit's freed lane and looks falsely connected).
   const stashShaSet = useMemo(
     () => new Set(stashes.map((s) => s.sha)),
     [stashes],
   );
+
+  // Build graph layout (memoized — recalculates when commits or stashes change).
+  const nodes = useMemo(() => buildGraphLayout(commits, stashShaSet), [commits, stashShaSet]);
 
   const numLanes = useMemo(
     () => nodes.reduce((m, n) => Math.max(m, n.lane), 0) + 1,

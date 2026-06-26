@@ -15,8 +15,8 @@ import { SearchBar } from './components/Search/SearchBar'
 import { ContextMenu, useContextMenu } from './components/ContextMenu/ContextMenu'
 import { ToastContainer } from './components/Toast/Toast'
 import { DiffViewer } from './components/DiffViewer/DiffViewer'
-import { CommitOutput, type OutputChunk, type CommitOutputStatus } from './components/CommitOutput/CommitOutput'
 import { MultiSelectDetail } from './components/MultiSelectDetail/MultiSelectDetail'
+import { ConsoleDock } from './components/ConsoleDock/ConsoleDock'
 import { GitHubPanel } from './components/GitHub/GitHubPanel'
 import { Welcome } from './components/Welcome/Welcome'
 import { useSettings, SettingsModal } from './components/Settings/Settings'
@@ -85,37 +85,6 @@ export default function App() {
   // Bumped only when a sidebar branch/tag/stash pick should scroll the graph to
   // that commit. Graph clicks never bump it, so they don't auto-scroll.
   const [scrollRequest, setScrollRequest] = useState(0)
-
-  // ── Live commit/hook output — takes over the center pane while a commit
-  //    with hooks runs, and stays up afterwards so output can be read/copied ──
-  const [commitOutput, setCommitOutput] = useState<{
-    runId: string
-    command: string
-    chunks: OutputChunk[]
-    status: CommitOutputStatus
-    exitCode: number | null
-  } | null>(null)
-
-  useEffect(() => {
-    const unsub = window.gitApi.onCommitOutput((e) => {
-      setCommitOutput((prev) => {
-        if (!prev || e.runId !== prev.runId) return prev   // ignore stale streams
-        if ('done' in e && e.done) {
-          return { ...prev, status: e.success ? 'success' : 'failed', exitCode: e.exitCode }
-        }
-        if ('chunk' in e) {
-          return { ...prev, chunks: [...prev.chunks, { stream: e.stream, text: e.chunk }] }
-        }
-        return prev
-      })
-    })
-    return unsub
-  }, [])
-
-  // Opened by WorkingTree right before it fires a commit that runs hooks.
-  const startCommitOutput = useCallback((runId: string, command: string) => {
-    setCommitOutput({ runId, command, chunks: [], status: 'running', exitCode: null })
-  }, [])
 
   // ── Right-panel width — drag the divider to resize, persisted across runs ──
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
@@ -190,6 +159,50 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('sidebarWidth', String(sidebarWidth))
   }, [sidebarWidth])
+
+  // ── Bottom console dock — visibility + 2-axis resize, all persisted ────────
+  // Visible by default — only hidden if the user explicitly closed it before.
+  const [consoleVisible, setConsoleVisible] = useState(() => localStorage.getItem('console.visible') !== '0')
+  const [consoleHeight, setConsoleHeight] = useState(() => {
+    const v = Number(localStorage.getItem('console.height'))
+    return v >= 120 && v <= 700 ? v : 240
+  })
+  const [consoleSplitPct, setConsoleSplitPct] = useState(() => {
+    const v = Number(localStorage.getItem('console.split'))
+    return v >= 20 && v <= 80 ? v : 50
+  })
+  useEffect(() => { localStorage.setItem('console.visible', consoleVisible ? '1' : '0') }, [consoleVisible])
+  useEffect(() => { localStorage.setItem('console.height', String(consoleHeight)) }, [consoleHeight])
+  useEffect(() => { localStorage.setItem('console.split', String(consoleSplitPct)) }, [consoleSplitPct])
+
+  // Drag the dock's top edge — moving up makes it taller (it's pinned bottom).
+  const startConsoleVDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = consoleHeight
+    document.body.style.cursor = 'row-resize'; document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => setConsoleHeight(Math.min(700, Math.max(120, startH + (startY - ev.clientY))))
+    const onUp = () => {
+      document.body.style.cursor = ''; document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+  }, [consoleHeight])
+
+  // Drag the split between the two consoles (left console width %).
+  const startConsoleSplitDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const body = (e.currentTarget as HTMLElement).parentElement
+    const rect = body?.getBoundingClientRect()
+    if (!rect) return
+    document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => setConsoleSplitPct(Math.min(80, Math.max(20, ((ev.clientX - rect.left) / rect.width) * 100)))
+    const onUp = () => {
+      document.body.style.cursor = ''; document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+  }, [])
 
   // Right panel mode is driven by what's selected: pseudo node (or nothing
   // when the tree is dirty) → WorkingTree; any real commit → CommitDetail.
@@ -855,6 +868,7 @@ export default function App() {
         onSearchToggle={() => setShowSearch(true)}
         onGitHubShow={() => setModal('github')}
         onSettings={() => setModal('settings')}
+        onToggleConsole={() => setConsoleVisible((v) => !v)}
       />
 
       {repo.repoPath && repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) && (
@@ -919,40 +933,45 @@ export default function App() {
           ) : (
             <div className="graph-layout" ref={graphLayoutRef}>
               <div className="graph-center">
-                {commitOutput ? (
-                  <CommitOutput
-                    command={commitOutput.command}
-                    chunks={commitOutput.chunks}
-                    status={commitOutput.status}
-                    exitCode={commitOutput.exitCode}
-                    onClose={() => setCommitOutput(null)}
-                  />
-                ) : activeConflictFile ? (
-                  <ConflictEditor
-                    filePath={activeConflictFile}
-                    onClose={() => setActiveConflictFile(null)}
-                    onResolved={() => { setActiveConflictFile(null); repo.methods.refresh() }}
-                  />
-                ) : activeDiff ? (
-                  <DiffViewer
-                    filePath={activeDiff.path}
-                    staged={activeDiff.staged}
-                    sha={activeDiff.sha ?? null}
-                    onClose={() => setActiveDiff(null)}
-                    onApplied={repo.methods.refresh}
-                  />
-                ) : (
-                  <GraphView
-                    commits={displayCommits}
-                    selectedSha={repo.selectedSha}
-                    selectedShas={new Set(selectedShas)}
-                    scrollRequest={scrollRequest}
-                    onSelectCommit={handleSelectCommit}
-                    onContextMenu={handleCommitContextMenu}
-                    onRefContextMenu={handleRefContextMenu}
-                    onRefDrop={handleRefDrop}
-                    worktreeBranches={new Set(repo.worktrees.filter(w => !w.isMain).map(w => w.branch))}
-                    stashes={repo.stashes}
+                <div className="graph-center-main">
+                  {activeConflictFile ? (
+                    <ConflictEditor
+                      filePath={activeConflictFile}
+                      onClose={() => setActiveConflictFile(null)}
+                      onResolved={() => { setActiveConflictFile(null); repo.methods.refresh() }}
+                    />
+                  ) : activeDiff ? (
+                    <DiffViewer
+                      filePath={activeDiff.path}
+                      staged={activeDiff.staged}
+                      sha={activeDiff.sha ?? null}
+                      onClose={() => setActiveDiff(null)}
+                      onApplied={repo.methods.refresh}
+                    />
+                  ) : (
+                    <GraphView
+                      commits={displayCommits}
+                      selectedSha={repo.selectedSha}
+                      selectedShas={new Set(selectedShas)}
+                      scrollRequest={scrollRequest}
+                      onSelectCommit={handleSelectCommit}
+                      onContextMenu={handleCommitContextMenu}
+                      onRefContextMenu={handleRefContextMenu}
+                      onRefDrop={handleRefDrop}
+                      worktreeBranches={new Set(repo.worktrees.filter(w => !w.isMain).map(w => w.branch))}
+                      stashes={repo.stashes}
+                    />
+                  )}
+                </div>
+
+                {consoleVisible && (
+                  <ConsoleDock
+                    repoPath={repo.repoPath}
+                    height={consoleHeight}
+                    splitPct={consoleSplitPct}
+                    onVDragStart={startConsoleVDrag}
+                    onSplitDragStart={startConsoleSplitDrag}
+                    onClose={() => setConsoleVisible(false)}
                   />
                 )}
               </div>
@@ -992,7 +1011,10 @@ export default function App() {
                       // graph + new commit row is the more useful view.
                       onCommitted={() => { setActiveDiff(null); repo.methods.refresh() }}
                       onSelectDiff={(path, staged) => setActiveDiff({ path, staged })}
-                      onCommitRun={startCommitOutput}
+                      // Commit/hook output now streams to the bottom console
+                      // (git-activity log) instead of taking over the center —
+                      // open the dock so the user sees it.
+                      onCommitRun={() => setConsoleVisible(true)}
                     />
                   ) : opSelectedShas.length > 1 ? (
                     <MultiSelectDetail

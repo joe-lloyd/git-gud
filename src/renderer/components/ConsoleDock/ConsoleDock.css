@@ -1,0 +1,130 @@
+.console-dock {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  background: var(--bg-base);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.cdock-top { width: 100%; }
+
+.cdock-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.cdock-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.cdock-grow { flex: 1; }
+
+.cdock-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* ── Headers ─────────────────────────────────────────────── */
+.cdock-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.cdock-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+.cdock-cwd {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;          /* keep the tail (leaf dir) visible */
+  text-align: left;
+  min-width: 0;
+}
+.cdock-count {
+  font-size: 10px; color: var(--text-muted);
+  background: var(--bg-panel); border-radius: 9px; padding: 0 6px;
+}
+.cdock-spacer { flex: 1; }
+.cdock-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  transition: background 0.12s, color 0.12s;
+}
+.cdock-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.cdock-close { padding: 2px 6px; }
+
+/* ── Log bodies ──────────────────────────────────────────── */
+.cdock-log {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg-deepest);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+.cdock-empty { color: var(--text-muted); font-style: italic; }
+
+.cdock-line { white-space: pre-wrap; word-break: break-word; }
+.cdock-cmd    { color: var(--accent); font-weight: 600; }
+.cdock-stdout { color: var(--text-primary); }
+.cdock-stderr { color: #ffb4b4; }
+.cdock-meta   { color: var(--text-muted); }
+
+/* git activity entries */
+.cdock-entry {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.cdock-entry.failed .cdock-cmdline { color: var(--danger); }
+.cdock-cmdline { color: var(--text-secondary); font-weight: 600; white-space: pre-wrap; word-break: break-word; }
+.cdock-output {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-muted);
+  margin: 2px 0 2px 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+.cdock-status { display: flex; gap: 10px; font-size: 10.5px; }
+.cdock-ok   { color: var(--success); }
+.cdock-fail { color: var(--danger); }
+.cdock-dur  { color: var(--text-muted); }
+
+/* ── Command input row ───────────────────────────────────── */
+.cdock-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-base);
+  flex-shrink: 0;
+}
+.cdock-prompt { color: var(--accent); font-weight: 700; }
+.cdock-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 4px 2px;
+  font-size: 12px;
+  color: var(--text-primary);
+  box-shadow: none;
+}
+.cdock-input:focus { box-shadow: none; border: none; }

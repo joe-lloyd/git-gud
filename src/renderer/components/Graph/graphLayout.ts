@@ -39,7 +39,10 @@ export function getLaneColor(lane: number): string {
   return LANE_COLORS[lane % LANE_COLORS.length]
 }
 
-export function buildGraphLayout(commits: CommitNode[]): GraphNode[] {
+export function buildGraphLayout(
+  commits: CommitNode[],
+  stashShas: Set<string> = new Set(),
+): GraphNode[] {
   const nodes: GraphNode[] = []
   const shaToRow = new Map<string, number>()
   const shaToLane = new Map<string, number>()
@@ -51,6 +54,13 @@ export function buildGraphLayout(commits: CommitNode[]): GraphNode[] {
   // Track which lanes are "occupied" at each row
   // activeLanes[lane] = sha of commit whose line is currently running through it
   const activeLanes: (string | null)[] = []
+
+  // Highest lane index assigned to ANY node or parent so far. A lane can be used
+  // transiently (a commit forks its parent elsewhere, never persisting its own
+  // column in activeLanes), so activeLanes.length alone undercounts. Stashes use
+  // this to claim a column to the right of everything seen — guaranteeing they
+  // never share a lane with an unrelated neighbour.
+  let maxLaneSeen = -1
 
   // Lowest currently-free lane. activeLanes[i] === null means no commit's line
   // is passing through column i, so reuse is safe — keeps the graph compressed
@@ -65,14 +75,23 @@ export function buildGraphLayout(commits: CommitNode[]): GraphNode[] {
   for (let row = 0; row < commits.length; row++) {
     const commit = commits[row]
     const { sha, parents } = commit
+    const isStash = stashShas.has(sha)
 
-    // Determine this commit's lane
+    // Determine this commit's lane.
     let lane: number
     if (shaToLane.has(sha)) {
       lane = shaToLane.get(sha)!
+    } else if (isStash) {
+      // A stash is an unrelated dangling node. If it reuses a just-freed lane it
+      // lands directly under whatever commit vacated that column and its line
+      // continues down, making the two look connected (a stash "child" of an
+      // unrelated commit). Give every stash a column to the right of everything
+      // seen so far so it can never merge into a neighbour's lane.
+      lane = maxLaneSeen + 1
     } else {
       lane = findFreeLane()
     }
+    if (lane > maxLaneSeen) maxLaneSeen = lane
 
     // Assign color based on lane (inherit from first child if possible)
     let color: string
@@ -102,7 +121,9 @@ export function buildGraphLayout(commits: CommitNode[]): GraphNode[] {
         // Another child already claimed this parent — respect that lane
         parentLane = shaToLane.get(parentSha)!
       } else if (pi === 0) {
-        // First parent continues in this commit's lane (mainline lineage)
+        // First parent continues in this commit's lane (mainline lineage).
+        // Stashes are laid out exactly like regular commits here — only their
+        // rendering (diamond node, dashed links) differs, handled in GraphView.
         parentLane = lane
         shaToLane.set(parentSha, parentLane)
         shaToColor.set(parentSha, color)
@@ -116,6 +137,7 @@ export function buildGraphLayout(commits: CommitNode[]): GraphNode[] {
       }
 
       usedLanes.add(parentLane)
+      if (parentLane > maxLaneSeen) maxLaneSeen = parentLane
 
       const parentColor = shaToColor.get(parentSha) ?? color
       const connType = pi > 0 ? 'merge' : parents.length > 1 || lane !== parentLane ? 'fork' : 'straight'

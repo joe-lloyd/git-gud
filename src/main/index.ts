@@ -2,7 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { join } from 'path'
 import * as fs from 'fs'
-import { GitService } from './git-service'
+import { spawn, type ChildProcess } from 'child_process'
+import { GitService, type GitActivity } from './git-service'
 import { GitHubService } from './github-service'
 
 // App icon — resources/icon.png is rasterized from icon.svg by scripts/render-icon.cjs.
@@ -18,6 +19,23 @@ const services = new Map<string, GitService>()
 let gitService: GitService | null = null
 let activeRepoPath: string | null = null
 let githubService: GitHubService | null = null
+
+// Strip ANSI/VT escapes from console + activity output (no terminal emulator).
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
+
+// Forward a git command record to the renderer, but only for the active repo so
+// background services (e.g. tab validation) don't bleed into the log.
+const emitActivity = (rec: GitActivity) => {
+  if (rec.repoPath === activeRepoPath) mainWindow?.webContents.send('git:activity', rec)
+}
+
+// Build a GitService wired for auth + activity logging (one place, all call sites).
+const makeService = (repoPath: string): GitService =>
+  new GitService(repoPath, () => githubService?.getToken() || null, emitActivity)
+
+// In-flight command-console children, keyed by run id, so they can be cancelled.
+const consoleProcs = new Map<string, ChildProcess>()
 let repoWatchers: fs.FSWatcher[] = []
 let repoChangeTimer: NodeJS.Timeout | null = null
 
@@ -34,7 +52,7 @@ function stopRepoWatchers() {
 function activateRepo(repoPath: string): GitService {
   let svc = services.get(repoPath)
   if (!svc) {
-    svc = new GitService(repoPath, () => githubService?.getToken() || null)
+    svc = makeService(repoPath)
     services.set(repoPath, svc)
   }
   gitService = svc
@@ -180,7 +198,7 @@ app.whenReady().then(() => {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     const repoPath = result.filePaths[0]
-    const candidate = new GitService(repoPath, () => githubService?.getToken() || null)
+    const candidate = makeService(repoPath)
     const isRepo = await candidate.isRepo()
     if (!isRepo) {
       const { response } = await dialog.showMessageBox(mainWindow!, {
@@ -218,7 +236,7 @@ app.whenReady().then(() => {
         saveTabState()
         return true
       }
-      const candidate = new GitService(repoPath, () => githubService?.getToken() || null)
+      const candidate = makeService(repoPath)
       const isRepo = await candidate.isRepo()
       if (!isRepo) return false
       services.set(repoPath, candidate)
@@ -289,7 +307,7 @@ app.whenReady().then(() => {
   ipcMain.handle('git:add-tab', async (_event, repoPath: string) => {
     try {
       if (services.has(repoPath)) return true
-      const candidate = new GitService(repoPath, () => githubService?.getToken() || null)
+      const candidate = makeService(repoPath)
       const isRepo = await candidate.isRepo()
       if (!isRepo) return false
       services.set(repoPath, candidate)
@@ -632,6 +650,51 @@ app.whenReady().then(() => {
   ipcMain.handle('git:revert-many', async (_event, shas: string[]) => {
     if (!gitService) return { success: false, error: 'No repo' }
     return gitService.revertMany(shas)
+  })
+
+  // ── Command console ──────────────────────────────────────────────────────
+  // Runs a NON-interactive shell command at the active worktree root, streaming
+  // stdout/stderr to the renderer keyed by runId. Security: user-typed, local,
+  // app-privilege — equivalent to the user's own terminal (documented POC).
+  ipcMain.handle('console:cwd', async () => activeRepoPath)
+
+  ipcMain.handle('console:run', async (_event, runId: string, cmd: string) => {
+    if (!activeRepoPath) return { success: false, error: 'No repository open' }
+    const shell = process.env.SHELL || '/bin/sh'
+    const send = (payload: Record<string, unknown>) =>
+      mainWindow?.webContents.send('console:output', { runId, ...payload })
+
+    let child: ChildProcess
+    try {
+      child = spawn(shell, ['-c', cmd], { cwd: activeRepoPath, env: process.env })
+    } catch (e) {
+      send({ stream: 'stderr', chunk: String(e) + '\n' })
+      send({ done: true, exitCode: null })
+      return { success: false, error: String(e) }
+    }
+    consoleProcs.set(runId, child)
+    child.stdout?.on('data', (d: Buffer) => send({ stream: 'stdout', chunk: d.toString('utf8').replace(ANSI_RE, '') }))
+    child.stderr?.on('data', (d: Buffer) => send({ stream: 'stderr', chunk: d.toString('utf8').replace(ANSI_RE, '') }))
+
+    return new Promise((resolve) => {
+      child.on('error', (err) => {
+        consoleProcs.delete(runId)
+        send({ stream: 'stderr', chunk: String(err) + '\n' })
+        send({ done: true, exitCode: null })
+        resolve({ success: false, error: String(err) })
+      })
+      child.on('close', (code) => {
+        consoleProcs.delete(runId)
+        send({ done: true, exitCode: code })
+        resolve({ success: code === 0, exitCode: code })
+      })
+    })
+  })
+
+  ipcMain.handle('console:cancel', async (_event, runId: string) => {
+    const child = consoleProcs.get(runId)
+    if (child) { try { child.kill('SIGTERM') } catch { /* already gone */ } }
+    return true
   })
 
   ipcMain.handle('git:run-drag-action', async (_event, source: string, target: string, action: 'merge' | 'rebase' | 'checkout') => {

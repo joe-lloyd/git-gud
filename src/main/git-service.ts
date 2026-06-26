@@ -19,6 +19,22 @@ export type CommitStreamResult = {
   hooksRan: boolean;
 };
 
+// One git command + its response, for the git-activity console. `exitCode` is
+// only known for the spawn-based commit path; simple-git's outputHandler gives
+// output but not the code, so `failed` is derived from git's stderr there.
+export type GitActivity = {
+  id: string;
+  repoPath: string;
+  args: string[];
+  output: string;
+  failed: boolean;
+  exitCode?: number | null;
+  durationMs: number;
+  ts: number;
+};
+
+let activitySeq = 0;
+
 export interface CommitNode {
   sha: string;
   shortSha: string;
@@ -100,11 +116,55 @@ export class GitService {
   private git: SimpleGit;
   private repoPath: string;
   private getToken?: () => string | null;
+  private onActivity?: (rec: GitActivity) => void;
 
-  constructor(repoPath: string, getToken?: () => string | null) {
+  constructor(
+    repoPath: string,
+    getToken?: () => string | null,
+    onActivity?: (rec: GitActivity) => void,
+  ) {
     this.repoPath = repoPath;
-    this.git = simpleGit(repoPath);
     this.getToken = getToken;
+    this.onActivity = onActivity;
+    // Central capture of every git command this instance runs. simple-git's
+    // outputHandler is invoked per spawned process with its stdout/stderr
+    // streams (but not the exit code), so we accumulate output and emit when
+    // both streams end, deriving `failed` from git's own error lines.
+    this.git = simpleGit(repoPath).outputHandler((_command, stdout, stderr, args) => {
+      if (!this.onActivity) return;
+      const id = `${Date.now()}-${activitySeq++}`;
+      const start = Date.now();
+      const MAX = 200_000;
+      let out = "";
+      const append = (s: string) => { if (out.length < MAX) out += s; };
+      let pending = 0;
+      let emitted = false;
+      const emit = () => {
+        if (emitted) return;
+        emitted = true;
+        const clean = out.replace(ANSI_RE, "");
+        this.onActivity?.({
+          id,
+          repoPath: this.repoPath,
+          args: args ?? [],
+          output: clean,
+          failed: /^(fatal|error):/m.test(clean),
+          durationMs: Date.now() - start,
+          ts: start,
+        });
+      };
+      const watch = (s: NodeJS.ReadableStream | undefined) => {
+        if (!s) return;
+        pending++;
+        s.on("data", (d: Buffer) => append(d.toString("utf8")));
+        const finish = () => { pending--; if (pending <= 0) emit(); };
+        s.on("end", finish);
+        s.on("error", finish);
+      };
+      watch(stdout);
+      watch(stderr);
+      if (pending === 0) emit(); // no streams — emit an empty record
+    });
   }
 
   private getAuthConfigs(): string[] {
@@ -318,14 +378,31 @@ export class GitService {
   async getConflictState(): Promise<ConflictState> {
     const path = await import("path");
     const fs = await import("fs/promises");
-    const gitDir = path.join(this.repoPath, ".git");
-    const exists = async (p: string) => {
+    // Resolve git's control-file locations via git itself rather than assuming
+    // `‹repo›/.git/…`. In a linked worktree `.git` is a file and the in-progress
+    // merge/rebase state lives under `‹main-gitdir›/worktrees/‹name›/`; only
+    // `git rev-parse --git-path` knows where. (simple-git runs with cwd=repoPath,
+    // so a relative result is relative to repoPath.)
+    const gitPath = async (name: string): Promise<string | null> => {
+      try {
+        const raw = (await this.git.raw(["rev-parse", "--git-path", name])).trim();
+        if (!raw) return null;
+        return path.isAbsolute(raw) ? raw : path.join(this.repoPath, raw);
+      } catch { return null; }
+    };
+    const exists = async (p: string | null) => {
+      if (!p) return false;
       try { await fs.access(p); return true; } catch { return false; }
     };
+    const [mergeHeadP, rebaseMergeP, rebaseApplyP] = await Promise.all([
+      gitPath("MERGE_HEAD"),
+      gitPath("rebase-merge"),
+      gitPath("rebase-apply"),
+    ]);
     const [inMerge, rebaseMerge, rebaseApply] = await Promise.all([
-      exists(path.join(gitDir, "MERGE_HEAD")),
-      exists(path.join(gitDir, "rebase-merge")),
-      exists(path.join(gitDir, "rebase-apply")),
+      exists(mergeHeadP),
+      exists(rebaseMergeP),
+      exists(rebaseApplyP),
     ]);
     const inRebase = rebaseMerge || rebaseApply;
     const rebaseKind = rebaseMerge ? "merge" : rebaseApply ? "apply" : undefined;
@@ -655,6 +732,22 @@ export class GitService {
     const MAX = 2_000_000; // ~2 MB; keep the tail (failures live at the end)
     let output = "";
     let truncated = false;
+    const startedAt = Date.now();
+
+    // The spawn path bypasses simple-git's outputHandler, so it logs its own
+    // activity record (with a real exit code) when it settles.
+    const logActivity = (exitCode: number | null) => {
+      this.onActivity?.({
+        id: `${Date.now()}-${activitySeq++}`,
+        repoPath: this.repoPath,
+        args,
+        output,
+        failed: exitCode !== 0,
+        exitCode,
+        durationMs: Date.now() - startedAt,
+        ts: startedAt,
+      });
+    };
 
     const append = (stream: "stdout" | "stderr", raw: string) => {
       const clean = raw.replace(ANSI_RE, "");
@@ -683,6 +776,7 @@ export class GitService {
       } catch (e: unknown) {
         const msg = String(e);
         append("stderr", msg + "\n");
+        logActivity(null);
         done({ success: false, error: msg, output, exitCode: null, hooksRan });
         return;
       }
@@ -695,11 +789,13 @@ export class GitService {
       // spawn error (e.g. `git` not on PATH) — surface it in the log too.
       child.on("error", (err: Error) => {
         append("stderr", `\n${String(err)}\n`);
+        logActivity(null);
         done({ success: false, error: String(err), output, exitCode: null, hooksRan });
       });
 
       child.on("close", (code: number | null) => {
         const success = code === 0;
+        logActivity(code);
         done({
           success,
           error: success ? undefined : `git commit exited with code ${code}`,

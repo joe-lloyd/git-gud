@@ -17,6 +17,7 @@ interface ToolbarProps {
   onSearchToggle: () => void
   onGitHubShow?: () => void
   onSettings?: () => void
+  onToggleConsole?: () => void
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -35,6 +36,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSearchToggle,
   onGitHubShow,
   onSettings,
+  onToggleConsole,
 }) => {
   const [fetching, setFetching] = useState(false)
   const [pulling, setPulling] = useState(false)
@@ -119,6 +121,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="tb-right">
         <button className="tb-icon-btn" title="GitHub" onClick={onGitHubShow}>🐙</button>
         <button className="tb-icon-btn" title="Search commits" onClick={onSearchToggle}>🔍</button>
+        <button className="tb-icon-btn" title="Toggle console" onClick={onToggleConsole}>▤</button>
         <button className="tb-icon-btn" title="Settings" onClick={onSettings}>⚙</button>
         <button className="tb-icon-btn" title="Refresh" onClick={onRefresh}>⟳</button>
       </div>

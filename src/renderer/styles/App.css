@@ -63,6 +63,17 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The graph/diff/commit-output view fills the center; the console dock (when
+   shown) sits below it, so only the center area is split — the sidebar and
+   right panel still run full height. */
+.graph-center-main {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Vertical drag handle between panes — mirrors .wt-resize-handle (the
