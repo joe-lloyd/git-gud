@@ -3,6 +3,7 @@
   "version": "0.1.1",
   "description": "A beautiful Git Gud inspired by GitKraken",
   "main": "out/main/index.js",
+  "packageManager": "pnpm@10.32.1",
   "author": {
     "name": "Joe Lloyd",
     "email": "joelloyd@codedazur.com"
