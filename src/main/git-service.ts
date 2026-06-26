@@ -1500,6 +1500,92 @@ export class GitService {
     ]);
     return parseRawLog(raw);
   }
+
+  // Reset HEAD (and the working tree) back to a reflog entry — the recovery
+  // path after a bad reset/rebase. Discards anything committed after `sha`.
+  async restoreFromReflog(sha: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      await this.git.raw(["reset", "--hard", sha]);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
+
+  // Dry-run `git clean` — the paths that WOULD be removed, for the Clean modal's
+  // preview. `dirs` adds -d (untracked directories); `ignored` adds -x.
+  async cleanPreview(opts: { dirs: boolean; ignored: boolean }): Promise<string[]> {
+    const args = ["clean", "-n"];
+    if (opts.dirs) args.push("-d");
+    if (opts.ignored) args.push("-x");
+    try {
+      const raw = await this.git.raw(args);
+      return raw
+        .split("\n")
+        .map((l) => l.replace(/^Would remove /, "").trim())
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  // Remove exactly the given paths. The scope flags (-d/-x) are passed so that
+  // selected directories / ignored files actually get removed; `-- <paths>`
+  // scopes the operation to the user's checked selection only.
+  async clean(
+    paths: string[],
+    opts: { dirs: boolean; ignored: boolean },
+  ): Promise<{ success: boolean; error?: string }> {
+    if (paths.length === 0) return { success: true };
+    const args = ["clean", "-f"];
+    if (opts.dirs) args.push("-d");
+    if (opts.ignored) args.push("-x");
+    args.push("--", ...paths);
+    try {
+      await this.git.raw(args);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
+
+  // ── Config / rerere ────────────────────────────────────────────────────────
+  async getConfig(key: string): Promise<string> {
+    try {
+      return (await this.git.raw(["config", "--get", key])).trim();
+    } catch {
+      return ""; // unset → git exits non-zero
+    }
+  }
+
+  async setConfig(key: string, value: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      await this.git.raw(["config", key, value]);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
+
+  // Files rerere is tracking in the current operation (i.e. ones it recorded /
+  // auto-applied a resolution for). Empty when rerere is off or idle.
+  async rerereStatus(): Promise<string[]> {
+    try {
+      const raw = await this.git.raw(["rerere", "status"]);
+      return raw.split("\n").map((s) => s.trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  async rerereForget(path: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      await this.git.raw(["rerere", "forget", path]);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
+  }
 }
 
 // ── Pull error classifier ─────────────────────────────────────────────────────

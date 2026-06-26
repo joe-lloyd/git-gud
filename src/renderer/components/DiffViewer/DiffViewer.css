@@ -5,6 +5,7 @@
   background: var(--bg-base);
   overflow: hidden;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  position: relative; /* anchors the shortcut overlay */
 }
 
 /* ── Header ─────────────────────────────────────────────────── */
@@ -133,6 +134,16 @@
   line-height: 1.6;
 }
 
+/* ── Side-by-side (split) view ──────────────────────────────── */
+/* Two old|new columns. Class tints sit on the cells directly (not the row). */
+.diff-table-sxs .diff-content { width: 46%; white-space: pre-wrap; word-break: break-word; }
+.diff-table-sxs .diff-gutter-new { border-left: 2px solid var(--border); }
+.diff-table-sxs td.diff-line-add    { background: rgba(104,211,145,0.10); }
+.diff-table-sxs td.diff-line-remove { background: rgba(252,129,129,0.11); }
+.diff-table-sxs td.diff-content.diff-line-add    { color: #9ae6b4; }
+.diff-table-sxs td.diff-content.diff-line-remove { color: #feb2b2; }
+.diff-sxs-empty { background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(255,255,255,0.025) 6px, rgba(255,255,255,0.025) 12px); }
+
 /* ── Line types ─────────────────────────────────────────────── */
 .diff-line { vertical-align: top; }
 
@@ -242,4 +253,36 @@
   background: rgba(252,129,129,0.22);
   color: #ffd6d6;
   border-color: var(--danger);
+}
+
+/* ── Interactive-add: focused hunk + shortcut overlay ───────────── */
+.diff-line.focused-hunk td {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.diff-viewer:focus { outline: none; }
+
+.diff-shortcuts {
+  position: absolute;
+  top: 40px;
+  right: 12px;
+  z-index: 20;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-focus);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  padding: 10px 14px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  max-width: 320px;
+}
+.diff-shortcuts-title { font-weight: 700; color: var(--text-primary); margin-bottom: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.diff-shortcuts ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.diff-shortcuts kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  background: var(--bg-deepest);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  color: var(--text-primary);
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConflictState } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
 import { ConfirmModal } from '../AppAux/AuxComponents'
@@ -24,6 +24,22 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
   const [focusedIdx, setFocusedIdx] = useState(0)
   const [confirmAbort, setConfirmAbort] = useState(false)
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  // Files for which rerere has a recorded resolution in this operation (it
+  // auto-reapplies them). Surface a banner so the user can forget a bad one.
+  const [rerereFiles, setRerereFiles] = useState<string[]>([])
+  useEffect(() => {
+    let live = true
+    window.gitApi.rerereStatus().then((f) => { if (live) setRerereFiles(f) }).catch(() => {})
+    return () => { live = false }
+  }, [conflictedFiles.length, inMerge, inRebase])
+
+  const forgetRerere = useCallback(async () => {
+    for (const f of rerereFiles) await window.gitApi.rerereForget(f)
+    toast.success('rerere resolutions forgotten', `${rerereFiles.length} file${rerereFiles.length === 1 ? '' : 's'}`)
+    setRerereFiles([])
+    onRefresh()
+  }, [rerereFiles, toast, onRefresh])
 
   const allResolved = conflictedFiles.length === 0
 
@@ -84,6 +100,17 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
           <div className="conflict-branch">on <span className="mono">{currentBranch}</span></div>
         </div>
       </div>
+
+      {rerereFiles.length > 0 && (
+        <div className="conflict-rerere-banner">
+          <span>
+            <strong>rerere</strong> reapplied a recorded resolution to {rerereFiles.length} file{rerereFiles.length === 1 ? '' : 's'}.
+          </span>
+          <button className="conflict-rerere-forget" onClick={forgetRerere} title="Discard the recorded resolution and restore the raw conflict">
+            Forget
+          </button>
+        </div>
+      )}
 
       <div className="conflict-body">
         {allResolved ? (

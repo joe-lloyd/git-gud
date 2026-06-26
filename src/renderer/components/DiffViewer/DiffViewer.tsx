@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useToasts } from '../Toast/Toast'
 import { resolveLanguage, highlightLines } from '../../lib/highlight'
 import './DiffViewer.css'
@@ -30,6 +30,13 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   // doesn't map cleanly back to the index.
   const [wordDiff, setWordDiff] = useState(false)
   const [wordDiffError, setWordDiffError] = useState<string | null>(null)
+  // Side-by-side (split) vs inline (unified) view. Session-only preference.
+  const [splitView, setSplitView] = useState(false)
+  // Interactive-add: keyboard-driven hunk staging (working-tree mode only).
+  const [focusedHunkIdx, setFocusedHunkIdx] = useState(0)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const hunkRefs = useRef<Map<number, HTMLTableRowElement | null>>(new Map())
   const isCommitMode = sha !== null
 
   const refreshDiff = useCallback(() => {
@@ -193,6 +200,33 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     return { lines, highlightHtml: html }
   }, [diff, lang, wordDiff])
 
+  // Pair the unified lines into side-by-side rows: context spans both columns;
+  // runs of removes/adds within a hunk are zipped (remove[k] ↔ add[k]) so a
+  // modified line shows old-vs-new aligned, with extras on one side.
+  type ParsedLine = typeof lines[number]
+  type SxsRow =
+    | { kind: 'full'; line: ParsedLine }
+    | { kind: 'pair'; left: ParsedLine | null; right: ParsedLine | null }
+  const sideBySideRows: SxsRow[] = useMemo(() => {
+    const rows: SxsRow[] = []
+    let rem: ParsedLine[] = []
+    let add: ParsedLine[] = []
+    const flush = () => {
+      const n = Math.max(rem.length, add.length)
+      for (let k = 0; k < n; k++) rows.push({ kind: 'pair', left: rem[k] ?? null, right: add[k] ?? null })
+      rem = []; add = []
+    }
+    for (const l of lines) {
+      if (l.type === 'remove') { rem.push(l); continue }
+      if (l.type === 'add') { add.push(l); continue }
+      flush()
+      if (l.type === 'context') rows.push({ kind: 'pair', left: l, right: l })
+      else rows.push({ kind: 'full', line: l }) // header / hunk
+    }
+    flush()
+    return rows
+  }, [lines])
+
   const toast = useToasts()
   const [applyError, setApplyError] = useState<string | null>(null)
 
@@ -252,6 +286,30 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     applyPatch(buildLinePatch(hunkStart, targetIdx), { cached: true, reverse: staged })
   }
 
+  // Line indices of each hunk header — the keyboard-navigable hunk list.
+  const hunkStarts = useMemo(() => lines.filter((l) => l.type === 'hunk').map((l) => l.i), [lines])
+
+  // The whole file diff is itself a valid patch — used for stage/discard all.
+  const buildAllPatch = () => lines.map((l) => l.text).join('\n') + '\n'
+  const handleStageAll = () => applyPatch(buildAllPatch(), { cached: true, reverse: staged })
+
+  const handleDiscardLine = (hunkStart: number, targetIdx: number) => {
+    applyPatch(buildLinePatch(hunkStart, targetIdx), { cached: false, reverse: true })
+    if (staged) applyPatch(buildLinePatch(hunkStart, targetIdx), { cached: true, reverse: true })
+  }
+
+  // Discard-all uses the same two-step arm, keyed by a -1 sentinel.
+  const handleDiscardAll = () => {
+    if (discardArmed !== -1) {
+      setDiscardArmed(-1)
+      window.setTimeout(() => setDiscardArmed((cur) => (cur === -1 ? null : cur)), 3000)
+      return
+    }
+    setDiscardArmed(null)
+    applyPatch(buildAllPatch(), { cached: false, reverse: true })
+    if (staged) applyPatch(buildAllPatch(), { cached: true, reverse: true })
+  }
+
   // Discard nukes the chunk from the working tree (unstaged) or from both
   // index + working tree (staged). Two-click confirm keeps an accident from
   // wiping work.
@@ -269,8 +327,48 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     if (staged) applyPatch(buildChunkPatch(hunkStart), { cached: true, reverse: true })
   }
 
+  // ── Interactive-add keyboard control (working-tree, inline view) ──────────
+  // j/k or arrows move the focused hunk; s/Shift+S stage; d/Shift+D discard
+  // (two-step); ? toggles the shortcut overlay.
+  const moveFocus = (delta: number) => {
+    if (hunkStarts.length === 0) return
+    const next = Math.max(0, Math.min(hunkStarts.length - 1, focusedHunkIdx + delta))
+    setFocusedHunkIdx(next)
+    hunkRefs.current.get(hunkStarts[next])?.scrollIntoView({ block: 'nearest' })
+  }
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isCommitMode) return
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+    if (e.key === '?') { e.preventDefault(); setShowShortcuts((v) => !v); return }
+    if (hunkStarts.length === 0) return
+    const focused = hunkStarts[Math.min(focusedHunkIdx, hunkStarts.length - 1)]
+    switch (e.key) {
+      case 'j': case 'ArrowDown': e.preventDefault(); moveFocus(1); break
+      case 'k': case 'ArrowUp':   e.preventDefault(); moveFocus(-1); break
+      case 's': e.preventDefault(); handleStageChunk(focused); break
+      case 'S': e.preventDefault(); handleStageAll(); break
+      case 'd': e.preventDefault(); handleDiscardChunk(focused); break
+      case 'D': e.preventDefault(); handleDiscardAll(); break
+    }
+  }
+
+  // Focus the diff on open in working-tree mode so the hunk shortcuts work
+  // without a click. Clamp the focused hunk if the diff shrank.
+  useEffect(() => {
+    if (!isCommitMode && !loading) bodyRef.current?.focus()
+  }, [loading, isCommitMode, filePath])
+  useEffect(() => {
+    if (focusedHunkIdx >= hunkStarts.length) setFocusedHunkIdx(Math.max(0, hunkStarts.length - 1))
+  }, [hunkStarts.length, focusedHunkIdx])
+
   return (
-    <div className="diff-viewer fade-in">
+    <div
+      className="diff-viewer fade-in"
+      ref={bodyRef}
+      tabIndex={isCommitMode ? undefined : 0}
+      onKeyDown={handleKeyDown}
+    >
       {/* Header bar */}
       <div className="diff-header">
         <span className="diff-header-label">
@@ -284,14 +382,43 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
           <span className="diff-filename">{filePath}</span>
         </span>
         <button
+          className={`diff-toggle ${splitView ? 'on' : ''}`}
+          onClick={() => setSplitView((v) => !v)}
+          disabled={wordDiff}
+          title={wordDiff ? 'Turn off Word diff to use split view' : 'Toggle side-by-side view'}
+        >
+          {splitView ? 'Inline' : 'Side-by-side'}
+        </button>
+        <button
           className={`diff-toggle ${wordDiff ? 'on' : ''}`}
           onClick={() => setWordDiff((v) => !v)}
           title="Toggle word-level diff"
         >
           Word diff
         </button>
+        {!isCommitMode && (
+          <button
+            className={`diff-toggle ${showShortcuts ? 'on' : ''}`}
+            onClick={() => setShowShortcuts((v) => !v)}
+            title="Keyboard shortcuts"
+          >
+            ?
+          </button>
+        )}
         <button className="diff-close" onClick={onClose} title="Close diff (Esc)">✕ Close</button>
       </div>
+      {showShortcuts && !isCommitMode && (
+        <div className="diff-shortcuts">
+          <div className="diff-shortcuts-title">Hunk shortcuts</div>
+          <ul>
+            <li><kbd>j</kbd>/<kbd>k</kbd> or <kbd>↓</kbd>/<kbd>↑</kbd> — move focused hunk</li>
+            <li><kbd>s</kbd> — {staged ? 'unstage' : 'stage'} focused hunk · <kbd>⇧S</kbd> — all hunks</li>
+            <li><kbd>d</kbd> — discard focused hunk (press twice) · <kbd>⇧D</kbd> — all</li>
+            <li><kbd>Alt</kbd>+click a +/− sign — discard that single line</li>
+            <li><kbd>?</kbd> — toggle this panel</li>
+          </ul>
+        </div>
+      )}
       {wordDiffError && <div className="diff-banner">{wordDiffError}</div>}
       {applyError && <div className="diff-banner diff-banner-error">git apply: {applyError}</div>}
 
@@ -334,14 +461,75 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
             </tbody>
           </table>
         </div>
+      ) : splitView ? (
+        <div className="diff-body">
+          <table className="diff-table diff-table-sxs">
+            <tbody>
+              {sideBySideRows.map((row, ri) => {
+                if (row.kind === 'full') {
+                  const { text, type, i } = row.line
+                  return (
+                    <tr key={ri} className={`diff-line diff-line-${type}`}>
+                      <td className="diff-content" colSpan={4}>
+                        {text}
+                        {type === 'hunk' && !isCommitMode && (
+                          <span className="diff-chunk-actions">
+                            <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
+                              {staged ? 'Unstage chunk ↑' : 'Stage chunk ↓'}
+                            </button>
+                            <button
+                              className={`diff-chunk-btn diff-chunk-btn-danger ${discardArmed === i ? 'armed' : ''}`}
+                              onClick={() => handleDiscardChunk(i)}
+                              title={discardArmed === i ? 'Click again within 3s to confirm' : 'Discard this chunk (irreversible)'}
+                            >
+                              {discardArmed === i ? 'Click again to discard ✗' : 'Discard chunk ✗'}
+                            </button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                }
+                const { left, right } = row
+                const cell = (l: ParsedLine | null, side: 'old' | 'new') => {
+                  if (!l) return <><td className="diff-gutter diff-sxs-empty" /><td className="diff-content diff-sxs-empty" /></>
+                  const html = highlightHtml.get(l.i)
+                  const plain = l.text.slice(l.type === 'context' ? 0 : 1)
+                  const cls = l.type === 'remove' ? 'diff-line-remove' : l.type === 'add' ? 'diff-line-add' : 'diff-line-context'
+                  return (
+                    <>
+                      <td className={`diff-gutter diff-gutter-${side} ${cls}`}>{(side === 'old' ? l.oldNo : l.newNo) ?? ''}</td>
+                      <td className={`diff-content ${cls}`}>
+                        {html !== undefined
+                          ? <code className="hljs diff-code" dangerouslySetInnerHTML={{ __html: html }} />
+                          : plain}
+                      </td>
+                    </>
+                  )
+                }
+                return (
+                  <tr key={ri} className="diff-line diff-sxs-row">
+                    {cell(left, 'old')}
+                    {cell(right, 'new')}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="diff-body">
           <table className="diff-table">
             <tbody>
               {lines.map(({ text, type, i, hunkIndex, oldNo, newNo }) => {
                 const lineActionable = !isCommitMode && (type === 'add' || type === 'remove')
-                const lineHint = lineActionable ? (staged ? 'Click to unstage this line' : 'Click to stage this line') : ''
+                const lineHint = lineActionable ? (staged ? 'Click to unstage · Alt-click to discard' : 'Click to stage · Alt-click to discard') : ''
                 const onLineClick = lineActionable ? () => handleStageLine(hunkIndex, i) : undefined
+                // Alt+click on the sign discards that single line instead of staging it.
+                const onSignClick = lineActionable
+                  ? (e: React.MouseEvent) => (e.altKey ? handleDiscardLine(hunkIndex, i) : handleStageLine(hunkIndex, i))
+                  : undefined
+                const isFocusedHunk = type === 'hunk' && i === hunkStarts[focusedHunkIdx]
                 // Highlighted content is only applied to code rows (add /
                 // remove / context). Hunk headers, file headers, and the
                 // "No newline" marker stay literal so their diff styling
@@ -351,12 +539,16 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                   : undefined
                 const plainText = text.slice(type === 'context' ? 0 : 1)
                 return (
-                  <tr key={i} className={`diff-line diff-line-${type} ${lineActionable ? 'diff-line-actionable' : ''}`}>
+                  <tr
+                    key={i}
+                    ref={type === 'hunk' ? (el) => { hunkRefs.current.set(i, el) } : undefined}
+                    className={`diff-line diff-line-${type} ${lineActionable ? 'diff-line-actionable' : ''} ${isFocusedHunk ? 'focused-hunk' : ''}`}
+                  >
                     {/* Gutters and the +/- sign all stage the line — wider hit target. */}
                     <td className="diff-gutter diff-gutter-old" onClick={onLineClick} title={lineHint}>{oldNo ?? ''}</td>
                     <td className="diff-gutter diff-gutter-new" onClick={onLineClick} title={lineHint}>{newNo ?? ''}</td>
                     <td className={`diff-sign ${lineActionable ? 'diff-sign-actionable' : ''}`}
-                        onClick={onLineClick}
+                        onClick={onSignClick}
                         title={lineHint}>
                       {type === 'add' ? '+' : type === 'remove' ? '−' : ''}
                     </td>

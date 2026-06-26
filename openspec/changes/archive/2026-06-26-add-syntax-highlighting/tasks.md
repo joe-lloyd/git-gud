@@ -43,7 +43,7 @@
 
 - [x] 6.1 Run `pnpm typecheck`
 - [x] 6.2 Run `pnpm test` — confirm new unit tests pass and existing tests still pass (highlight suite: 13/13 ✓; two `test/backend/git-service.test.ts` failures are pre-existing on `main`, unrelated to this change)
-- [ ] 6.3 Run `pnpm dev` and manually verify: open a `.ts` diff, a `.json` diff, a `.go` diff, and a `.bin` diff (or any unmapped extension); word-diff toggles cleanly; conflict editor on a `.ts` conflict shows highlighted side panes; clicking a side line inserts plain text into the resolved buffer
+- [x] 6.3 Run `pnpm dev` and manually verify: open a `.ts` diff, a `.json` diff, a `.go` diff, and a `.bin` diff (or any unmapped extension); word-diff toggles cleanly; conflict editor on a `.ts` conflict shows highlighted side panes; clicking a side line inserts plain text into the resolved buffer
 
 ## 7. Docs
 

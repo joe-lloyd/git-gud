@@ -57,7 +57,12 @@ export function useGitRepo() {
       window.gitApi.getWorktrees(),
       window.gitApi.getRemotes(),
     ])
-    setCommits(log)
+    // Keep the same array reference when the log is unchanged (same SHAs in the
+    // same order) — a fresh array every refresh would needlessly re-run the
+    // (now sometimes worker-based) graph layout. Compare cheaply by SHA list.
+    setCommits((prev) =>
+      prev.length === log.length && prev.every((c, i) => c.sha === log[i].sha) ? prev : log,
+    )
     setBranches(branchData)
     setStashes(stashData)
     setTags(tagData)

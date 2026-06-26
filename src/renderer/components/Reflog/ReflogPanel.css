@@ -1,0 +1,68 @@
+.reflog-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.reflog-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+.reflog-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.reflog-sub { font-size: 11px; color: var(--text-muted); }
+.reflog-close {
+  font-size: 12px; color: var(--text-muted); padding: 2px 6px; border-radius: 5px;
+}
+.reflog-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.reflog-empty { padding: 16px; font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+.reflog-list { flex: 1; overflow-y: auto; padding: 4px; }
+
+.reflog-row {
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  transition: background 0.1s;
+}
+.reflog-row:hover { background: var(--bg-hover); }
+.reflog-row.focused { background: var(--bg-active); }
+.reflog-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.04); }
+
+.reflog-row-top { display: flex; align-items: center; gap: 8px; }
+.reflog-sel { font-size: 11px; color: var(--accent); font-weight: 600; }
+.reflog-sha { font-size: 11px; color: var(--text-muted); }
+.reflog-date { font-size: 10.5px; color: var(--text-muted); margin-left: auto; }
+
+.reflog-msg {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reflog-actions { display: flex; gap: 6px; }
+.reflog-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+.reflog-btn:hover { background: var(--accent); color: var(--on-accent); }
+.reflog-btn-ghost {
+  background: rgba(255,255,255,0.05);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.reflog-btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }

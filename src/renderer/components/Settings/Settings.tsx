@@ -61,6 +61,16 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // rerere.enabled is a per-repo git config — load on open, write on toggle.
+  const [rerere, setRerere] = useState<boolean | null>(null)
+  useEffect(() => {
+    window.gitApi.getConfig('rerere.enabled').then((v) => setRerere(v === 'true')).catch(() => setRerere(false))
+  }, [])
+  const toggleRerere = (next: boolean) => {
+    setRerere(next)
+    window.gitApi.setConfig('rerere.enabled', next ? 'true' : 'false').catch(() => {})
+  }
+
   const row: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '12px 0', borderBottom: '1px solid var(--border)', gap: 16,
@@ -108,6 +118,23 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
           </div>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={highContrast} onChange={(e) => setHighContrast(e.target.checked)} style={{ width: 'auto' }} />
+          </label>
+        </div>
+
+        {/* rerere — per-repo git config */}
+        <div style={row}>
+          <div style={labelWrap}>
+            <span style={labelText}>Reuse recorded conflict resolutions</span>
+            <span style={hintText}>git rerere — auto-reapply how you resolved a conflict if it recurs.</span>
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: rerere === null ? 'wait' : 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={rerere === true}
+              disabled={rerere === null}
+              onChange={(e) => toggleRerere(e.target.checked)}
+              style={{ width: 'auto' }}
+            />
           </label>
         </div>
 

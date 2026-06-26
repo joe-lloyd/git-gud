@@ -488,24 +488,16 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  // Run a streaming commit/amend: push each stdout/stderr chunk to the renderer
-  // tagged with the caller's runId, then a terminal `done` event. The invoke
-  // still resolves with the final result (now incl. output/exitCode/hooksRan).
+  // Run a streaming commit/amend. The full command + hook output surfaces in the
+  // git-activity console via commitStreaming's own `git:activity` record; the
+  // invoke resolves with the final result (incl. output/exitCode/hooksRan).
   const runStreamingCommit = async (
     opts: { subject: string; body?: string; noVerify?: boolean; signoff?: boolean; author?: string; amend?: boolean; runId?: string },
   ) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    const runId = opts.runId ?? ''
     try {
-      const result = await gitService.commitStreaming(opts, ({ stream, chunk }) => {
-        mainWindow?.webContents.send('git:commit-output', { runId, stream, chunk })
-      })
-      mainWindow?.webContents.send('git:commit-output', {
-        runId, done: true, exitCode: result.exitCode, success: result.success,
-      })
-      return result
+      return await gitService.commitStreaming(opts, () => { /* output goes to the git-activity log */ })
     } catch (e) {
-      mainWindow?.webContents.send('git:commit-output', { runId, done: true, exitCode: null, success: false })
       return { success: false, error: String(e) }
     }
   }
@@ -839,6 +831,41 @@ app.whenReady().then(() => {
   ipcMain.handle('git:reflog', async (_event, limit = 100) => {
     if (!gitService) return []
     try { return await gitService.getReflog(limit) } catch { return [] }
+  })
+
+  ipcMain.handle('git:reflog-restore', async (_event, sha: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.restoreFromReflog(sha)
+  })
+
+  ipcMain.handle('git:clean-preview', async (_event, opts: { dirs: boolean; ignored: boolean }) => {
+    if (!gitService) return []
+    return gitService.cleanPreview(opts)
+  })
+
+  ipcMain.handle('git:clean', async (_event, paths: string[], opts: { dirs: boolean; ignored: boolean }) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.clean(paths, opts)
+  })
+
+  ipcMain.handle('git:config-get', async (_event, key: string) => {
+    if (!gitService) return ''
+    return gitService.getConfig(key)
+  })
+
+  ipcMain.handle('git:config-set', async (_event, key: string, value: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.setConfig(key, value)
+  })
+
+  ipcMain.handle('git:rerere-status', async () => {
+    if (!gitService) return []
+    return gitService.rerereStatus()
+  })
+
+  ipcMain.handle('git:rerere-forget', async (_event, path: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.rerereForget(path)
   })
 
 })

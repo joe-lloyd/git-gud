@@ -7,11 +7,16 @@
  * the graph lane rendering fast via Canvas.
  */
 
-import React, { useRef, useState, useCallback, useMemo } from "react";
+import React, { useRef, useState, useCallback, useMemo, useEffect } from "react";
 import { buildGraphLayout, GraphNode } from "./graphLayout";
+import GraphLayoutWorker from "./graphLayout.worker?worker";
 import type { CommitNode, StashInfo } from "../../../preload/index";
 import { RefGroup, groupRefs, pickPrimaryRefGroup } from "../../lib/refs";
 import "./GraphView.css";
+
+// Above this commit count, lay the graph out in a Web Worker so a huge history
+// doesn't block the main thread on load.
+const GRAPH_WORKER_THRESHOLD = 5000;
 
 const ROW_H = 36; // px per commit row
 const NODE_R = 10; // node circle radius — matches the .cr-lead band height (20px diameter)
@@ -101,8 +106,31 @@ export const GraphView: React.FC<GraphViewProps> = ({
     [stashes],
   );
 
-  // Build graph layout (memoized — recalculates when commits or stashes change).
-  const nodes = useMemo(() => buildGraphLayout(commits, stashShaSet), [commits, stashShaSet]);
+  // Small histories lay out synchronously (memoized). Large ones go to a worker
+  // (below) so the main thread stays responsive.
+  const syncNodes = useMemo(
+    () => (commits.length <= GRAPH_WORKER_THRESHOLD ? buildGraphLayout(commits, stashShaSet) : null),
+    [commits, stashShaSet],
+  );
+  const [workerNodes, setWorkerNodes] = useState<GraphNode[]>([]);
+  const [layingOut, setLayingOut] = useState(false);
+
+  useEffect(() => {
+    if (commits.length <= GRAPH_WORKER_THRESHOLD) { setWorkerNodes([]); return; }
+    const worker = new GraphLayoutWorker();
+    // Only show the placeholder if layout takes a noticeable beat (>80ms).
+    const slow = setTimeout(() => setLayingOut(true), 80);
+    worker.onmessage = (e: MessageEvent<GraphNode[]>) => {
+      clearTimeout(slow);
+      setWorkerNodes(e.data);
+      setLayingOut(false);
+      worker.terminate();
+    };
+    worker.postMessage({ commits, stashShas: [...stashShaSet] });
+    return () => { clearTimeout(slow); worker.terminate(); };
+  }, [commits, stashShaSet]);
+
+  const nodes = syncNodes ?? workerNodes;
 
   const numLanes = useMemo(
     () => nodes.reduce((m, n) => Math.max(m, n.lane), 0) + 1,
@@ -347,6 +375,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
   return (
     <div className="graph-view" ref={containerRef}>
+      {layingOut && nodes.length === 0 && (
+        <div className="graph-laying-out">Laying out graph…</div>
+      )}
       {/* One horizontal scroller wraps header + body so they pan in lockstep */}
       <div className="graph-h-scroll">
         <div className="graph-h-inner">

@@ -12,7 +12,7 @@ interface WorkingTreeProps {
   onRefresh: () => void
   onCommitted: () => void
   onSelectDiff: (path: string, staged: boolean) => void
-  // Open the live commit-output view (center pane) for a hook-running commit.
+  // Open the bottom console (git-activity log) for a hook-running commit.
   onCommitRun: (runId: string, command: string) => void
 }
 

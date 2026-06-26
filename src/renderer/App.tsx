@@ -17,6 +17,8 @@ import { ToastContainer } from './components/Toast/Toast'
 import { DiffViewer } from './components/DiffViewer/DiffViewer'
 import { MultiSelectDetail } from './components/MultiSelectDetail/MultiSelectDetail'
 import { ConsoleDock } from './components/ConsoleDock/ConsoleDock'
+import { ReflogPanel } from './components/Reflog/ReflogPanel'
+import { CleanModal } from './components/Clean/CleanModal'
 import { GitHubPanel } from './components/GitHub/GitHubPanel'
 import { Welcome } from './components/Welcome/Welcome'
 import { useSettings, SettingsModal } from './components/Settings/Settings'
@@ -51,6 +53,7 @@ type AppModal =
   | 'edit-author'
   | 'toolbar-stash'
   | 'settings'
+  | 'clean'
   | 'confirm-remove-worktree'
   | 'confirm-drop-commits'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
@@ -82,6 +85,7 @@ export default function App() {
   // pivot for shift-range selection.
   const [selectedShas, setSelectedShas] = useState<string[]>([])
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null)
+  const [showReflog, setShowReflog] = useState(false)
   // Bumped only when a sidebar branch/tag/stash pick should scroll the graph to
   // that commit. Graph clicks never bump it, so they don't auto-scroll.
   const [scrollRequest, setScrollRequest] = useState(0)
@@ -992,6 +996,12 @@ export default function App() {
                       onSelectDiff={(path) => { setActiveDiff(null); setActiveConflictFile(path) }}
                       onRefresh={repo.methods.refresh}
                     />
+                  ) : showReflog ? (
+                    <ReflogPanel
+                      repoPath={repo.repoPath}
+                      onClose={() => setShowReflog(false)}
+                      onRestored={() => { setShowReflog(false); repo.methods.refresh() }}
+                    />
                   ) : modal === 'bisect' ? (
                     <BisectWizard
                       commits={repo.commits}
@@ -1053,6 +1063,12 @@ export default function App() {
           <div className="advanced-bar">
             <button className="adv-btn" title="Bisect" onClick={() => setModal('bisect')}>⊘ Bisect</button>
             <button className="adv-btn" title="Patch" onClick={() => setModal('patch')}>⊠ Patch</button>
+            <button
+              className={`adv-btn ${showReflog ? 'active' : ''}`}
+              title="Reflog — recover lost commits"
+              onClick={() => setShowReflog((v) => !v)}
+            >⎌ Reflog</button>
+            <button className="adv-btn" title="Clean untracked/ignored files" onClick={() => setModal('clean')}>🧹 Clean</button>
           </div>
         )}
       </div>
@@ -1070,6 +1086,12 @@ export default function App() {
       )}
       {modal === 'settings' && (
         <SettingsModal {...settings} onClose={closeModal} />
+      )}
+      {modal === 'clean' && (
+        <CleanModal
+          onClose={closeModal}
+          onCleaned={() => { closeModal(); repo.methods.refresh() }}
+        />
       )}
       {modal === 'confirm-drop-commits' && opSelectedShas.length > 0 && (
         <ConfirmModal

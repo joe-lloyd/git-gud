@@ -11,11 +11,11 @@
 
 ## 2. Performance pass
 
-- [ ] 2.1 Confirm `commits` reference stability in `useGitRepo`; add a defensive shallow-equality guard on `setCommits` if needed
+- [x] 2.1 Confirm `commits` reference stability in `useGitRepo`; add a defensive shallow-equality guard on `setCommits` if needed
 - [ ] 2.2 Profile `buildGraphLayout` against a 10k-commit fixture; record current ms cost
-- [ ] 2.3 Extract a `?worker` variant of `buildGraphLayout` (Vite Web Worker import); add a threshold constant (`GRAPH_WORKER_THRESHOLD = 5000`)
-- [ ] 2.4 Switch `GraphView` to call the worker above threshold; show a tiny "Laying out graph…" placeholder if the worker takes > 80 ms
-- [ ] 2.5 Audit Canvas draw loop in `GraphView.tsx` — confirm every iteration is within `[startRow, endRow]`; no full-array sweeps on scroll/select
+- [x] 2.3 Extract a `?worker` variant of `buildGraphLayout` (Vite Web Worker import); add a threshold constant (`GRAPH_WORKER_THRESHOLD = 5000`)
+- [x] 2.4 Switch `GraphView` to call the worker above threshold; show a tiny "Laying out graph…" placeholder if the worker takes > 80 ms
+- [x] 2.5 Audit Canvas draw loop in `GraphView.tsx` — confirm every iteration is within `[startRow, endRow]`; no full-array sweeps on scroll/select
 - [ ] 2.6 Re-run the 10k-commit benchmark and record before/after numbers in `design.md` Decisions section
 
 ## 3. Commit graph — interaction parity
@@ -48,12 +48,12 @@
 
 ## 6. Working-Tree panel + diff viewer
 
-- [ ] 6.1 Refactor `WorkingTree.tsx` into two clearly-labeled lists (Unstaged top, Staged bottom) with `+N / -N` counts already returned by `getStatus`
-- [ ] 6.2 Add per-row Stage / Unstage / Discard buttons; add group-level Stage all / Unstage all
-- [ ] 6.3 Add Discard confirm modal (uses existing `ConfirmModal` in `AuxComponents`)
-- [ ] 6.4 Add the commit form below the lists: subject input, body textarea, "Commit changes" button; disable until subject non-empty AND staged list non-empty
-- [ ] 6.5 Extend `DiffViewer.tsx` with a side-by-side / inline toggle; default to side-by-side; persist preference in `useState` at panel scope (session-only)
-- [ ] 6.6 Verify untracked-file diff still renders against `/dev/null` (already in `getFileDiff`)
+- [x] 6.1 Refactor `WorkingTree.tsx` into two clearly-labeled lists (Unstaged top, Staged bottom) with `+N / -N` counts already returned by `getStatus`
+- [x] 6.2 Add per-row Stage / Unstage / Discard buttons; add group-level Stage all / Unstage all
+- [x] 6.3 Add Discard confirm modal (uses existing `ConfirmModal` in `AuxComponents`)
+- [x] 6.4 Add the commit form below the lists: subject input, body textarea, "Commit changes" button; disable until subject non-empty AND staged list non-empty
+- [x] 6.5 Extend `DiffViewer.tsx` with a side-by-side / inline toggle; default to side-by-side; persist preference in `useState` at panel scope (session-only)
+- [x] 6.6 Verify untracked-file diff still renders against `/dev/null` (already in `getFileDiff`)
 
 ## 6.5 Smoke-test fixes (post-Phase-5)
 

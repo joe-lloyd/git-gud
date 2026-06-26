@@ -1,0 +1,69 @@
+.clean-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.55);
+}
+
+.clean-modal {
+  width: 560px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  box-shadow: 0 16px 50px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+
+.clean-head {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.clean-title { font-size: 15px; font-weight: 700; color: var(--danger); flex: 1; }
+.clean-close { color: var(--text-muted); padding: 2px 6px; border-radius: 5px; }
+.clean-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.clean-scopes {
+  display: flex;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.clean-scopes label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.clean-scopes input { width: auto; }
+
+.clean-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 12px;
+  min-height: 80px;
+}
+.clean-empty { padding: 16px; font-size: 12px; color: var(--text-muted); font-style: italic; }
+.clean-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.clean-row:hover { background: var(--bg-hover); }
+.clean-row input { width: auto; }
+.clean-path { font-size: 12px; color: var(--text-secondary); word-break: break-all; }
+
+.clean-footer { border-top: 1px solid var(--border); padding: 12px 18px; }
+.clean-confirm-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.clean-confirm-label { font-size: 12px; color: var(--text-muted); }
+.clean-confirm-label b { color: var(--danger); }
+.clean-confirm-input { flex: 1; max-width: 160px; padding: 5px 9px; font-size: 13px; }
+.clean-actions { display: flex; gap: 10px; justify-content: flex-end; }

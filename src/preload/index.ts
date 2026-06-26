@@ -102,12 +102,6 @@ export type CommitResult = {
   hooksRan?: boolean
 }
 
-// Pushed on `git:commit-output` while a commit runs: incremental chunks, then a
-// single terminal `done` event carrying the exit code / success.
-export type CommitOutputEvent =
-  | { runId: string; stream: 'stdout' | 'stderr'; chunk: string; done?: false }
-  | { runId: string; done: true; exitCode: number | null; success: boolean }
-
 // One git command + its response, pushed on `git:activity` for the git console.
 export type GitActivity = {
   id: string
@@ -186,14 +180,6 @@ const gitApi = {
     ipcRenderer.invoke('git:commit', opts),
   commitAmend: (opts: CommitOpts & { author?: string }): Promise<CommitResult> =>
     ipcRenderer.invoke('git:commit-amend', opts),
-  // Live commit/hook output. Subscribe before invoking commit; the callback
-  // fires per chunk and once more with `done: true`. Returns an unsubscribe fn.
-  onCommitOutput: (cb: (e: CommitOutputEvent) => void) => {
-    const handler = (_e: unknown, payload: CommitOutputEvent) => cb(payload)
-    ipcRenderer.on('git:commit-output', handler)
-    return () => { ipcRenderer.removeListener('git:commit-output', handler) }
-  },
-
   // ── Console dock ──────────────────────────────────────────────────────────
   // Live feed of every git command + response (the right console).
   onGitActivity: (cb: (e: GitActivity) => void) => {
@@ -301,6 +287,17 @@ const gitApi = {
     ipcRenderer.invoke('patch:save', content, defaultName),
 
   getReflog: (limit?: number): Promise<CommitNode[]> => ipcRenderer.invoke('git:reflog', limit),
+  restoreFromReflog: (sha: string): Promise<Result> => ipcRenderer.invoke('git:reflog-restore', sha),
+
+  cleanPreview: (opts: { dirs: boolean; ignored: boolean }): Promise<string[]> =>
+    ipcRenderer.invoke('git:clean-preview', opts),
+  clean: (paths: string[], opts: { dirs: boolean; ignored: boolean }): Promise<Result> =>
+    ipcRenderer.invoke('git:clean', paths, opts),
+
+  getConfig: (key: string): Promise<string> => ipcRenderer.invoke('git:config-get', key),
+  setConfig: (key: string, value: string): Promise<Result> => ipcRenderer.invoke('git:config-set', key, value),
+  rerereStatus: (): Promise<string[]> => ipcRenderer.invoke('git:rerere-status'),
+  rerereForget: (path: string): Promise<Result> => ipcRenderer.invoke('git:rerere-forget', path),
 
   onGitignoreChanged: (cb: () => void) => {
     const handler = () => cb()

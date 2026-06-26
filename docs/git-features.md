@@ -16,7 +16,7 @@ Status legend:
 | --- | --- | --- |
 | `git log` (all branches) | ✅ supported | Commit graph (main view) |
 | `git log -S <string>` (pickaxe) | ✅ supported | SearchBar "Content" mode |
-| `git reflog` (recovery) | 📅 planned | Right-column Reflog panel → [git-feature-coverage](../openspec/changes/git-feature-coverage/) |
+| `git reflog` (recovery) | ✅ supported | Advanced bar → Reflog panel (restore / copy SHA) |
 | `git show <sha>` (commit diff) | ✅ supported | CommitDetail panel + DiffViewer |
 | `git diff` (working tree) | ✅ supported | DiffViewer |
 | `git diff --word-diff` | ✅ supported | DiffViewer header "Word diff" toggle |
@@ -32,7 +32,7 @@ Status legend:
 | `git reset HEAD <files>` (unstage) | ✅ supported | WorkingTree (unstage button, `Space`) |
 | `git add -p` (hunk-level) | ✅ supported | DiffViewer Stage chunk button |
 | `git add -p` (line-level) | ✅ supported | DiffViewer +/− sign click |
-| `git add -p` (keyboard polish) | 📅 planned | `j/k/s/d/Shift+S/Shift+D` → [git-feature-coverage](../openspec/changes/git-feature-coverage/) |
+| `git add -p` (keyboard polish) | ✅ supported | DiffViewer: `j/k`, `s`/`⇧S`, `d`/`⇧D`, Alt-click line, `?` overlay |
 | Discard hunk | ✅ supported | DiffViewer Discard chunk button (two-step confirm) |
 | Discard file | ✅ supported | WorkingTree `d` / `Delete` |
 | Discard untracked file | ✅ supported | WorkingTree `d` (deletes file from disk) |
@@ -78,9 +78,9 @@ Status legend:
 | `git stash save` / `pop` / `apply` / `drop` | ✅ supported | Sidebar Stashes section |
 | `git reset --hard <sha>` | ✅ supported | Commit context menu (two-step confirm) |
 | `git reset --soft` / `--mixed` | 🟡 partial | Available via interactive rebase; not as direct action |
-| `git reflog` browse + restore | 📅 planned | Right-column Reflog panel → [git-feature-coverage](../openspec/changes/git-feature-coverage/) |
+| `git reflog` browse + restore | ✅ supported | Advanced bar → Reflog panel (restore HEAD / copy SHA) |
 | `git restore <files>` (discard) | ✅ supported | WorkingTree discard (`d` / `Delete`) |
-| `git clean -fdx` | 📅 planned | Advanced bar Clean modal → [git-feature-coverage](../openspec/changes/git-feature-coverage/) |
+| `git clean -fdx` | ✅ supported | Advanced bar → Clean modal (scope toggles + type-to-confirm) |
 
 ## Advanced
 
@@ -91,7 +91,7 @@ Status legend:
 | `git rebase -i` (interactive) | ✅ supported | Commit context menu "Interactive rebase from here" |
 | `git cherry-pick <sha>` | ✅ supported | Commit context menu |
 | `git format-patch` / `git am` / `git apply` | ✅ supported | Advanced bar Patch panel |
-| `git rerere` (reuse resolutions) | 📅 planned | Settings panel toggle → [git-feature-coverage](../openspec/changes/git-feature-coverage/) |
+| `git rerere` (reuse resolutions) | ✅ supported | Settings toggle + auto-resolution banner (Forget) in conflict panel |
 
 ## Not planned (yet)
 

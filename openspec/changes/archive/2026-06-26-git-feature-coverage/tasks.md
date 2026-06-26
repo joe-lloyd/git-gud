@@ -52,55 +52,55 @@
 
 ## 6. interactive-add — keyboard polish for existing engine
 
-- [ ] 6.1 Add a `focusedHunk` state to DiffViewer plus refs per hunk header
-- [ ] 6.2 Implement onKeyDown handler on the DiffViewer container: `j/k`, `ArrowUp/Down` move focus
-- [ ] 6.3 `s` stages the focused hunk (reuses existing handleStageChunk)
-- [ ] 6.4 `Shift+S` stages all hunks in the file
-- [ ] 6.5 `d` arms discard on focused hunk; second `d` within 3s confirms (reuses existing two-step state)
-- [ ] 6.6 `Shift+D` arms discard for all hunks; second press confirms
-- [ ] 6.7 Alt+click on +/− sign discards that single line
-- [ ] 6.8 Add a "?" button toggling a shortcut-overlay panel inside DiffViewer
-- [ ] 6.9 Apply global `:focus-visible` ring to focused hunk header (already global, just ensure it shows)
-- [ ] 6.10 Update `docs/git-features.md`: interactive-add → "supported"
+- [x] 6.1 Add a `focusedHunk` state to DiffViewer plus refs per hunk header
+- [x] 6.2 Implement onKeyDown handler on the DiffViewer container: `j/k`, `ArrowUp/Down` move focus
+- [x] 6.3 `s` stages the focused hunk (reuses existing handleStageChunk)
+- [x] 6.4 `Shift+S` stages all hunks in the file
+- [x] 6.5 `d` arms discard on focused hunk; second `d` within 3s confirms (reuses existing two-step state)
+- [x] 6.6 `Shift+D` arms discard for all hunks; second press confirms
+- [x] 6.7 Alt+click on +/− sign discards that single line
+- [x] 6.8 Add a "?" button toggling a shortcut-overlay panel inside DiffViewer
+- [x] 6.9 Apply global `:focus-visible` ring to focused hunk header (already global, just ensure it shows)
+- [x] 6.10 Update `docs/git-features.md`: interactive-add → "supported"
 
 ## 7. reflog-recovery — new right-panel
 
-- [ ] 7.1 Add `getReflog(limit: number)` to `git-service.ts` → `git reflog --format=%h|%gs|%gd|%aI` parsed into structured entries
-- [ ] 7.2 Add `restoreFromReflog(sha: string)` running `git reset --hard <sha>`
-- [ ] 7.3 IPC handlers + preload signatures for both
-- [ ] 7.4 Create `src/renderer/components/Reflog/ReflogPanel.tsx` rendering entries newest-first
-- [ ] 7.5 Each row: short SHA, action, message, relative date
-- [ ] 7.6 Add "Restore HEAD here" button per row → opens ConfirmModal with "This will discard any commits made after this point" copy
-- [ ] 7.7 Add "Copy SHA" button per row (clipboard + toast)
-- [ ] 7.8 Add Toolbar button "Reflog" that toggles the panel into the right column
-- [ ] 7.9 In App.tsx, extend the right-panel switch: show Reflog when `showReflog === true`, take priority over WorkingTree/CommitDetail/Bisect
-- [ ] 7.10 Implement keyboard nav in ReflogPanel: arrows move focus, Enter opens restore confirm, `c` copies SHA
-- [ ] 7.11 Update `docs/git-features.md`: reflog-recovery → "supported"
+- [x] 7.1 Add `getReflog(limit: number)` to `git-service.ts` → `git reflog --format=%h|%gs|%gd|%aI` parsed into structured entries
+- [x] 7.2 Add `restoreFromReflog(sha: string)` running `git reset --hard <sha>`
+- [x] 7.3 IPC handlers + preload signatures for both
+- [x] 7.4 Create `src/renderer/components/Reflog/ReflogPanel.tsx` rendering entries newest-first
+- [x] 7.5 Each row: short SHA, action, message, relative date
+- [x] 7.6 Add "Restore HEAD here" button per row → opens ConfirmModal with "This will discard any commits made after this point" copy
+- [x] 7.7 Add "Copy SHA" button per row (clipboard + toast)
+- [x] 7.8 Add Toolbar button "Reflog" that toggles the panel into the right column
+- [x] 7.9 In App.tsx, extend the right-panel switch: show Reflog when `showReflog === true`, take priority over WorkingTree/CommitDetail/Bisect
+- [x] 7.10 Implement keyboard nav in ReflogPanel: arrows move focus, Enter opens restore confirm, `c` copies SHA
+- [x] 7.11 Update `docs/git-features.md`: reflog-recovery → "supported"
 
 ## 8. clean-untracked — destructive, deserves care
 
-- [ ] 8.1 Add `cleanPreview(opts: { dirs: boolean; ignored: boolean })` to `git-service.ts` → `git clean -n` with appropriate flags, returns string[]
-- [ ] 8.2 Add `clean(paths: string[])` running `git clean -f -- <paths>` (paths-only, no flags — uncheck-aware)
-- [ ] 8.3 IPC handlers + preload signatures
-- [ ] 8.4 Create `src/renderer/components/Clean/CleanModal.tsx`
-- [ ] 8.5 On open + on scope-toggle change, call `cleanPreview` and render list with per-row checkboxes (default all checked)
-- [ ] 8.6 Three scope toggles: Untracked files (default on), Untracked directories (default on, adds `-d`), Ignored files (default off, adds `-x`)
-- [ ] 8.7 Confirmation input field — Confirm button disabled until user types `delete` (case-insensitive)
-- [ ] 8.8 On confirm: run `clean(checkedPaths)`; toast `Cleaned N files.`
-- [ ] 8.9 Add "Clean…" button to Advanced bar; open modal on click
-- [ ] 8.10 Update `docs/git-features.md`: clean-untracked → "supported"
+- [x] 8.1 Add `cleanPreview(opts: { dirs: boolean; ignored: boolean })` to `git-service.ts` → `git clean -n` with appropriate flags, returns string[]
+- [x] 8.2 Add `clean(paths: string[])` running `git clean -f -- <paths>` (paths-only, no flags — uncheck-aware)
+- [x] 8.3 IPC handlers + preload signatures
+- [x] 8.4 Create `src/renderer/components/Clean/CleanModal.tsx`
+- [x] 8.5 On open + on scope-toggle change, call `cleanPreview` and render list with per-row checkboxes (default all checked)
+- [x] 8.6 Three scope toggles: Untracked files (default on), Untracked directories (default on, adds `-d`), Ignored files (default off, adds `-x`)
+- [x] 8.7 Confirmation input field — Confirm button disabled until user types `delete` (case-insensitive)
+- [x] 8.8 On confirm: run `clean(checkedPaths)`; toast `Cleaned N files.`
+- [x] 8.9 Add "Clean…" button to Advanced bar; open modal on click
+- [x] 8.10 Update `docs/git-features.md`: clean-untracked → "supported"
 
 ## 9. rerere-recording — settings infrastructure
 
-- [ ] 9.1 Add `getConfig(key: string)` and `setConfig(key: string, value: string)` to `git-service.ts` (uses `git config`)
-- [ ] 9.2 Add `rerereForget(path: string)` running `git rerere forget <path>`
-- [ ] 9.3 IPC handlers + preload signatures
-- [ ] 9.4 Create `src/renderer/components/Settings/SettingsModal.tsx` (skeleton supports future settings)
-- [ ] 9.5 First setting: "Reuse recorded merge conflict resolutions (rerere)" toggle, reflecting `rerere.enabled`
-- [ ] 9.6 Add gear icon to Toolbar that opens SettingsModal
-- [ ] 9.7 During merge: detect rerere-applied files (check `.git/rr-cache` presence after the merge) — surface as a banner in WorkingTree
-- [ ] 9.8 Banner has "Forget this resolution" button calling `rerereForget`
-- [ ] 9.9 Update `docs/git-features.md`: rerere-recording → "supported"
+- [x] 9.1 Add `getConfig(key: string)` and `setConfig(key: string, value: string)` to `git-service.ts` (uses `git config`)
+- [x] 9.2 Add `rerereForget(path: string)` running `git rerere forget <path>`
+- [x] 9.3 IPC handlers + preload signatures
+- [x] 9.4 Create `src/renderer/components/Settings/SettingsModal.tsx` (skeleton supports future settings)
+- [x] 9.5 First setting: "Reuse recorded merge conflict resolutions (rerere)" toggle, reflecting `rerere.enabled`
+- [x] 9.6 Add gear icon to Toolbar that opens SettingsModal
+- [x] 9.7 During merge: detect rerere-applied files (check `.git/rr-cache` presence after the merge) — surface as a banner in WorkingTree
+- [x] 9.8 Banner has "Forget this resolution" button calling `rerereForget`
+- [x] 9.9 Update `docs/git-features.md`: rerere-recording → "supported"
 
 ## 10. Wrap-up
 
@@ -108,4 +108,4 @@
 - [ ] 10.2 Verify focus-visible ring shows on all interactive elements introduced
 - [ ] 10.3 Smoke-test each feature against the throwaway repos built by `scripts/build-test-repos.sh`
 - [ ] 10.4 Audit `docs/git-features.md` for completeness — every feature in `git-service.ts` listed
-- [ ] 10.5 Run `pnpm typecheck` and resolve any errors
+- [x] 10.5 Run `pnpm typecheck` and resolve any errors

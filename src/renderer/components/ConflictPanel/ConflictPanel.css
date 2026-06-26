@@ -138,3 +138,26 @@
   background: var(--bg-panel);
   flex-shrink: 0;
 }
+
+/* rerere auto-resolution notice */
+.conflict-rerere-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--accent-subtle);
+  border-bottom: 1px solid var(--accent-border);
+}
+.conflict-rerere-banner strong { color: var(--accent); }
+.conflict-rerere-forget {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.conflict-rerere-forget:hover { background: var(--bg-hover); color: var(--text-primary); }
