@@ -1264,14 +1264,11 @@ export class GitService {
         await fsp.mkdir(path.slice(0, slash), { recursive: true }).catch(() => {});
       }
 
-      // Does the branch already exist locally?
-      let exists = false;
-      try {
-        await this.git.raw(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
-        exists = true;
-      } catch {
-        exists = false;
-      }
+      // Does the branch already exist locally? `branch --list` prints the
+      // branch when it exists and nothing otherwise, exiting 0 either way — more
+      // reliable than relying on `show-ref --quiet`'s exit code through simple-git.
+      const listed = (await this.git.raw(["branch", "--list", branch])).trim();
+      const exists = listed.length > 0;
 
       const args = exists
         ? ["worktree", "add", path, branch]

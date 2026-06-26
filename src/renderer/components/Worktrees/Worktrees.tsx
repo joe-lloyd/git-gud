@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import type { WorktreeInfo } from '../../../preload/index'
+import { worktreeBaseFor, defaultWorktreePath } from '../../lib/worktree-path'
 import './Worktrees.css'
 
 interface WorktreesProps {
@@ -21,20 +22,12 @@ export const Worktrees: React.FC<WorktreesProps> = ({ currentPath, onClose, onSw
   const [confirmForce, setConfirmForce] = useState<{ path: string; error: string } | null>(null)
 
   // Worktrees live in a sibling folder of the project: `‹project›.worktrees/`.
-  // e.g. /a/b/git-gui  →  /a/b/git-gui.worktrees
-  const worktreeBase = (() => {
-    if (!currentPath) return ''
-    const p = currentPath.replace(/\/+$/, '')
-    const slash = p.lastIndexOf('/')
-    const parent = slash >= 0 ? p.slice(0, slash) : ''
-    const name = slash >= 0 ? p.slice(slash + 1) : p
-    return `${parent}/${name}.worktrees`
-  })()
+  const worktreeBase = worktreeBaseFor(currentPath ?? '')
 
   // Keep the path in sync with the branch name until the user edits it directly.
   const onBranchChange = (v: string) => {
     setNewBranch(v)
-    if (!pathEdited) setNewPath(worktreeBase && v ? `${worktreeBase}/${v}` : '')
+    if (!pathEdited) setNewPath(defaultWorktreePath(currentPath ?? '', v))
   }
 
   const load = async () => {

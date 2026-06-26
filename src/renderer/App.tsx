@@ -20,6 +20,7 @@ import { MultiSelectDetail } from './components/MultiSelectDetail/MultiSelectDet
 import { GitHubPanel } from './components/GitHub/GitHubPanel'
 import { Welcome } from './components/Welcome/Welcome'
 import { useSettings, SettingsModal } from './components/Settings/Settings'
+import { rangeBetween, isContiguous } from './lib/selection'
 import {
   ErrorState,
   LoadingState,
@@ -51,6 +52,7 @@ type AppModal =
   | 'toolbar-stash'
   | 'settings'
   | 'confirm-remove-worktree'
+  | 'confirm-drop-commits'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
   | null
 
@@ -346,27 +348,19 @@ export default function App() {
 
   // Are the selected commits an unbroken run in the displayed order? (Squash /
   // drop require contiguity; the main process re-validates regardless.)
-  const selectionContiguous = useMemo(() => {
-    if (opSelectedShas.length < 2) return opSelectedShas.length === 1
-    const order = displayCommits.map(c => c.sha)
-    const idxs = opSelectedShas.map(s => order.indexOf(s)).filter(i => i >= 0).sort((a, b) => a - b)
-    if (idxs.length !== opSelectedShas.length) return false
-    return idxs.every((v, i) => i === 0 || v === idxs[i - 1] + 1)
-  }, [opSelectedShas, displayCommits])
+  const selectionContiguous = useMemo(
+    () => isContiguous(displayCommits.map(c => c.sha), opSelectedShas),
+    [opSelectedShas, displayCommits],
+  )
 
   // Click handler with modifier support. Plain = single; ⌘/ctrl = toggle;
   // shift = contiguous range from the anchor (by displayed row order).
   const handleSelectCommit = useCallback((sha: string, mods?: { shift?: boolean; meta?: boolean }) => {
     const order = displayCommits.map(c => c.sha)
-    if (mods?.shift && selectionAnchor) {
-      const a = order.indexOf(selectionAnchor)
-      const b = order.indexOf(sha)
-      if (a >= 0 && b >= 0) {
-        const [lo, hi] = a < b ? [a, b] : [b, a]
-        setSelectedShas(order.slice(lo, hi + 1))
-        repo.setSelectedSha(sha)
-        return
-      }
+    if (mods?.shift && selectionAnchor && order.includes(selectionAnchor) && order.includes(sha)) {
+      setSelectedShas(rangeBetween(order, selectionAnchor, sha))
+      repo.setSelectedSha(sha)
+      return
     }
     if (mods?.meta) {
       setSelectedShas(prev => prev.includes(sha) ? prev.filter(s => s !== sha) : [...prev, sha])
@@ -703,12 +697,19 @@ export default function App() {
     } else repo.toast.error('Squash Failed', r.error ?? 'Could not squash the selected commits.')
   }, [opSelectedShas, displayCommits, idxOf, repo, clearMultiSelect])
 
-  const bulkDrop = useCallback(async () => {
+  // Drop opens an in-app confirm (no native window.confirm); the actual drop
+  // runs from the modal's onConfirm via doDropCommits.
+  const bulkDrop = useCallback(() => {
     if (opSelectedShas.length === 0) return
-    if (!window.confirm(`Drop ${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} from history?\n\nThis rewrites history and cannot be undone.`)) return
+    setModal('confirm-drop-commits')
+  }, [opSelectedShas])
+
+  const doDropCommits = useCallback(async () => {
+    if (opSelectedShas.length === 0) return
+    const n = opSelectedShas.length
     const r = await window.gitApi.dropCommits(opSelectedShas)
     if (r.success) {
-      repo.toast.success('Dropped', `${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} removed from history.`)
+      repo.toast.success('Dropped', `${n} commit${n === 1 ? '' : 's'} removed from history.`)
       clearMultiSelect(); repo.methods.refresh()
     } else if (r.conflict) {
       repo.toast.error('Drop hit conflicts', 'Replaying later commits conflicted — resolve in the right panel.')
@@ -1047,6 +1048,17 @@ export default function App() {
       )}
       {modal === 'settings' && (
         <SettingsModal {...settings} onClose={closeModal} />
+      )}
+      {modal === 'confirm-drop-commits' && opSelectedShas.length > 0 && (
+        <ConfirmModal
+          title="Drop commits from history?"
+          message={`Remove ${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} from history.`}
+          detail="This rewrites history and cannot be undone."
+          confirmLabel="Drop"
+          danger
+          onClose={closeModal}
+          onConfirm={doDropCommits}
+        />
       )}
       {modal === 'confirm-remove-worktree' && pendingWorktree && (
         <ConfirmModal

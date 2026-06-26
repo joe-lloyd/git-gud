@@ -87,7 +87,7 @@ describe('GitService Integration Tests', () => {
     await service.stage(['final.txt'])
 
     // ACT
-    const result = await service.commit('Add final text')
+    const result = await service.commit({ subject: 'Add final text' })
 
     // ASSERT
     expect(result.success).toBe(true)
@@ -100,7 +100,7 @@ describe('GitService Integration Tests', () => {
     await service.createBranch('feature-a')
     writeFileSync(join(tmpRepoPath, 'feature.txt'), 'feature code')
     await service.stage(['feature.txt'])
-    await service.commit('feature commit')
+    await service.commit({ subject: 'feature commit' })
 
     await service.checkout('main') // Back to main
     

@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react'
 import type { ConflictState } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
+import { ConfirmModal } from '../AppAux/AuxComponents'
 import './ConflictPanel.css'
 
 interface ConflictPanelProps {
@@ -21,6 +22,7 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
   const mode: 'merge' | 'rebase' = inRebase ? 'rebase' : 'merge'
   const toast = useToasts()
   const [focusedIdx, setFocusedIdx] = useState(0)
+  const [confirmAbort, setConfirmAbort] = useState(false)
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
 
   const allResolved = conflictedFiles.length === 0
@@ -45,8 +47,8 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
     else toast.error('Skip failed', r.error)
   }, [onRefresh, toast])
 
-  const handleAbort = useCallback(async () => {
-    if (!window.confirm(`Abort the ${mode}? Your repository will return to the state before this ${mode} started.`)) return
+  const doAbort = useCallback(async () => {
+    setConfirmAbort(false)
     const r = mode === 'rebase'
       ? await window.gitApi.rebaseAbort()
       : await window.gitApi.mergeAbort()
@@ -131,7 +133,7 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
       </div>
 
       <div className="conflict-footer">
-        <button className="btn btn-ghost" onClick={handleAbort}>Abort {mode}</button>
+        <button className="btn btn-ghost" onClick={() => setConfirmAbort(true)}>Abort {mode}</button>
         <div style={{ flex: 1 }} />
         {mode === 'rebase' && (
           <button className="btn btn-ghost" onClick={handleSkip} title="Skip the current commit and continue rebasing">Skip commit</button>
@@ -145,6 +147,17 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
           Continue {mode}
         </button>
       </div>
+
+      {confirmAbort && (
+        <ConfirmModal
+          title={`Abort ${mode}?`}
+          message={`Your repository will return to the state before this ${mode} started.`}
+          confirmLabel={`Abort ${mode}`}
+          danger
+          onClose={() => setConfirmAbort(false)}
+          onConfirm={doAbort}
+        />
+      )}
     </div>
   )
 }

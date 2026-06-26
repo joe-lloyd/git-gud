@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react'
 import type { RepoStatus, FileChange } from '../../../preload/index'
+import { ConfirmModal } from '../AppAux/AuxComponents'
 import './WorkingTree.css'
 
 interface WorkingTreeProps {
@@ -24,6 +25,8 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   const [signoff, setSignoff]         = useState(false)
   const [committing, setCommitting]   = useState(false)
   const [error, setError]             = useState<string | null>(null)
+  // Pending discard awaiting in-app confirmation.
+  const [confirmDiscard, setConfirmDiscard] = useState<{ path: string; staged: boolean; isUntracked: boolean } | null>(null)
   // Amend mode pre-fills HEAD's message and changes the submit op to
   // `commit --amend`. Stashed previous draft so toggling back restores it.
   const [amend, setAmend] = useState(false)
@@ -142,20 +145,25 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   status?.staged.forEach((f) => rows.push({ key: `s:${f.path}`, file: f, staged: true, isUntracked: false }))
 
   // Discard reverts the working tree (and index if staged) back to HEAD for
-  // that file. Two-step confirm via the same path: window.confirm keeps the
-  // surface area small for now — destructive enough that a prompt is right.
-  const handleDiscard = useCallback(async (row: Row) => {
-    const label = row.staged ? 'discard staged + working changes' : 'discard changes'
-    if (!window.confirm(`${label} for ${row.file.path}?\n\nThis cannot be undone.`)) return
-    if (row.isUntracked) {
-      const r = await window.gitApi.discardUntracked([row.file.path])
+  // that file. Destructive, so it routes through an in-app ConfirmModal (native
+  // window.confirm is unreliable in this Electron build).
+  const handleDiscard = useCallback((row: Row) => {
+    setConfirmDiscard({ path: row.file.path, staged: row.staged, isUntracked: row.isUntracked })
+  }, [])
+
+  const doDiscard = useCallback(async () => {
+    const d = confirmDiscard
+    setConfirmDiscard(null)
+    if (!d) return
+    if (d.isUntracked) {
+      const r = await window.gitApi.discardUntracked([d.path])
       if (!r.success) setError(r.error)
     } else {
-      const r = await window.gitApi.discardChanges([row.file.path], { staged: row.staged })
+      const r = await window.gitApi.discardChanges([d.path], { staged: d.staged })
       if (!r.success) setError(r.error)
     }
     onRefresh()
-  }, [onRefresh])
+  }, [confirmDiscard, onRefresh])
 
   // Arrow keys + Enter only — Space and letter shortcuts ate keystrokes when
   // focus was in the commit textarea. Stage / discard live on the row buttons
@@ -334,6 +342,18 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
             : (amend ? `Amend on ${status?.branch ?? 'branch'}` : `Commit to ${status?.branch ?? 'branch'}`)}
         </button>
       </div>
+
+      {confirmDiscard && (
+        <ConfirmModal
+          title="Discard changes?"
+          message={`${confirmDiscard.staged ? 'Discard staged + working changes' : 'Discard changes'} for ${confirmDiscard.path}.`}
+          detail="This reverts the file to HEAD and cannot be undone."
+          confirmLabel="Discard"
+          danger
+          onClose={() => setConfirmDiscard(null)}
+          onConfirm={doDiscard}
+        />
+      )}
     </div>
   )
 }

@@ -10,6 +10,7 @@
 import React, { useRef, useState, useCallback, useMemo } from "react";
 import { buildGraphLayout, GraphNode } from "./graphLayout";
 import type { CommitNode, StashInfo } from "../../../preload/index";
+import { RefGroup, groupRefs, pickPrimaryRefGroup } from "../../lib/refs";
 import "./GraphView.css";
 
 const ROW_H = 36; // px per commit row
@@ -470,118 +471,6 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
 
 CommitRow.displayName = "CommitRow";
 
-// ── Ref grouping ──────────────────────────────────────────────────────────────
-
-interface RefGroup {
-  key: string;
-  name: string; // display name, e.g. "main"
-  isHead: boolean; // HEAD points here
-  hasLocal: boolean; // local branch with this name exists
-  hasRemote: boolean; // remote/*/name exists
-  isTag: boolean; // tag
-  hasWorktree: boolean; // checked out in a worktree
-  tooltip: string; // full list of raw refs
-}
-
-/**
- * Groups the flat refs string array into logical ref groups.
- * E.g. ["HEAD", "main", "origin/main"] → one group {name:"main", isHead, hasLocal, hasRemote}
- * Tags stay as individual groups.
- */
-function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGroup[] {
-  const groups = new Map<string, RefGroup>();
-  let headTarget: string | null = null;
-
-  // First pass: find HEAD → branch mapping
-  // git log --decorate gives "HEAD -> main" but our parser splits them into
-  // separate strings: "HEAD" and "main". HEAD always appears right before
-  // the branch it points to, so we track it separately.
-  for (const ref of refs) {
-    if (ref === "HEAD") {
-      headTarget = "HEAD_standalone";
-      continue;
-    }
-    if (ref.startsWith("tag: ")) continue;
-    // The first non-HEAD, non-tag ref after HEAD is what HEAD points to
-    if (headTarget === "HEAD_standalone") {
-      headTarget = branchBaseName(ref);
-      break;
-    }
-  }
-
-  // Second pass: build groups
-  for (const ref of refs) {
-    if (ref === "HEAD") continue; // handled via headTarget
-    // Skip remote symbolic-HEAD refs (`origin/HEAD`, `upstream/HEAD`). They
-    // mirror the remote's default branch — already shown via that branch's
-    // own ref, so the bare HEAD pill is noise.
-    if (ref.endsWith("/HEAD")) continue;
-
-    if (ref.startsWith("tag: ")) {
-      const tagName = ref.slice(5);
-      groups.set(ref, {
-        key: ref,
-        name: tagName,
-        isHead: false,
-        hasLocal: false,
-        hasRemote: false,
-        isTag: true,
-        hasWorktree: false,
-        tooltip: ref,
-      });
-      continue;
-    }
-
-    const base = branchBaseName(ref);
-    const isRemote = ref.includes("/") && !ref.startsWith("HEAD");
-
-    if (!groups.has(base)) {
-      groups.set(base, {
-        key: base,
-        name: base,
-        isHead: base === headTarget,
-        hasLocal: !isRemote,
-        hasRemote: isRemote,
-        isTag: false,
-        hasWorktree: worktreeBranches.has(base),
-        tooltip: ref,
-      });
-    } else {
-      const g = groups.get(base)!;
-      if (isRemote) g.hasRemote = true;
-      else g.hasLocal = true;
-      g.tooltip += `, ${ref}`;
-    }
-  }
-
-  // If HEAD was standalone (detached), add a HEAD group
-  if (headTarget === "HEAD_standalone") {
-    groups.set("HEAD", {
-      key: "HEAD",
-      name: "HEAD",
-      isHead: true,
-      hasLocal: false,
-      hasRemote: false,
-      isTag: false,
-      hasWorktree: false,
-      tooltip: "HEAD (detached)",
-    });
-  }
-
-  return Array.from(groups.values());
-}
-
-/** Extract the short branch name from any ref form */
-function branchBaseName(ref: string): string {
-  // remote ref: origin/main, upstream/feature/foo → take everything after first segment
-  if (ref.includes("/")) {
-    const parts = ref.split("/");
-    // drop the remote name (first segment), rejoin the rest
-    return parts.slice(1).join("/");
-  }
-  return ref;
-}
-
 // ── RefPillCluster — one pill + "+N" overflow ─────────────────────────────────
 
 // Shows a single representative pill and, when a commit carries more than one
@@ -601,13 +490,8 @@ function RefPillCluster({
 
   if (groups.length === 0) return null;
 
-  // Pick the most meaningful pill to show: current HEAD, then a local branch,
-  // then a tag, else whatever's first.
-  const primary =
-    groups.find((g) => g.isHead) ??
-    groups.find((g) => g.hasLocal && !g.isTag) ??
-    groups.find((g) => g.isTag) ??
-    groups[0];
+  // Pick the most meaningful pill to show (current HEAD, then local, then tag).
+  const primary = pickPrimaryRefGroup(groups)!;
   const rest = groups.length - 1;
 
   if (rest <= 0) {

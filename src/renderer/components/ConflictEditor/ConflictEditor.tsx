@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConflictFile } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
 import { resolveLanguage, highlightLines } from '../../lib/highlight'
+import { ConfirmModal } from '../AppAux/AuxComponents'
 import './ConflictEditor.css'
 
 interface ConflictEditorProps {
@@ -31,6 +32,7 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
   const [file, setFile] = useState<ConflictFile | null>(null)
   const [resolved, setResolved] = useState<string>('')
   const [saving, setSaving] = useState(false)
+  const [confirmMarkers, setConfirmMarkers] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const toast = useToasts()
 
@@ -113,11 +115,8 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
 
   const hasMarkers = resolved.includes('<<<<<<<') || resolved.includes('=======') || resolved.includes('>>>>>>>')
 
-  const handleSave = useCallback(async () => {
-    if (!file) return
-    if (hasMarkers) {
-      if (!window.confirm('The resolved file still contains conflict markers (<<<<<<<). Save anyway?')) return
-    }
+  const doSave = useCallback(async () => {
+    setConfirmMarkers(false)
     setSaving(true)
     try {
       const w = await window.gitApi.writeFile(filePath, resolved)
@@ -127,7 +126,15 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
       toast.success('Resolved', filePath)
       onResolved(filePath)
     } finally { setSaving(false) }
-  }, [file, filePath, resolved, hasMarkers, toast, onResolved])
+  }, [filePath, resolved, toast, onResolved])
+
+  // Saving with conflict markers still present routes through an in-app confirm
+  // (native window.confirm is unreliable in this Electron build).
+  const handleSave = useCallback(() => {
+    if (!file) return
+    if (hasMarkers) { setConfirmMarkers(true); return }
+    doSave()
+  }, [file, hasMarkers, doSave])
 
   if (!file) return <div className="ce-loading">Loading conflict file…</div>
 
@@ -164,6 +171,18 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
           textareaRef={textareaRef}
         />
       </div>
+
+      {confirmMarkers && (
+        <ConfirmModal
+          title="Conflict markers still present"
+          message="The resolved file still contains conflict markers (<<<<<<<)."
+          detail="Save anyway and mark the file resolved?"
+          confirmLabel="Save anyway"
+          danger
+          onClose={() => setConfirmMarkers(false)}
+          onConfirm={doSave}
+        />
+      )}
     </div>
   )
 }

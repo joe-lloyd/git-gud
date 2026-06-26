@@ -18,6 +18,21 @@ pnpm test:repos   # build throwaway test repos under ~/Projects/MyProjects/git-g
 pnpm build:icon   # rebuild app icon from resources/icon.svg
 ```
 
+## Testing
+
+```bash
+pnpm test --run        # run the whole suite once (CI mode)
+pnpm test              # watch mode
+pnpm test --run test/backend/git-service-bulk.test.ts   # a single file
+```
+
+Two tiers:
+
+- **Integration** (`test/backend/`): spin up throwaway git repos in a temp dir and exercise `GitService` — commits, bulk squash/drop/cherry-pick/revert, worktree add/remove, streaming commit capture, range stat. These run the real `git` binary, so they're slower; the vitest `testTimeout` is raised to 20s for them.
+- **Unit** (`src/renderer/test/`, `test/frontend/`): pure helpers — ref grouping/collapse, contiguous-range selection, worktree-path derivation — plus a guard test that fails if any renderer code reintroduces native `window.confirm`/`alert` (use the in-app `ConfirmModal` instead).
+
+> CI follow-up: wire `pnpm test --run` into a GitHub Actions workflow on PRs. Not yet configured.
+
 ## Building installers
 
 ```bash
