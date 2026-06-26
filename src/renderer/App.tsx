@@ -50,6 +50,7 @@ type AppModal =
   | 'edit-author'
   | 'toolbar-stash'
   | 'settings'
+  | 'confirm-remove-worktree'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
   | null
 
@@ -67,6 +68,7 @@ export default function App() {
   const [pendingStash, setPendingStash]   = useState<number | null>(null)
   const [pendingTag, setPendingTag]       = useState<string | null>(null)
   const [pendingHeadAuthor, setPendingHeadAuthor] = useState<string | null>(null)
+  const [pendingWorktree, setPendingWorktree] = useState<{ path: string; name: string; error: string } | null>(null)
   const [selectedRef, setSelectedRef]     = useState<string | null>(null)
   const [showSearch, setShowSearch]       = useState(false)
   const [activeDiff, setActiveDiff]       = useState<{ path: string; staged?: boolean; sha?: string } | null>(null)
@@ -559,15 +561,11 @@ export default function App() {
           danger: true,
           disabled: isMain || isCurrent,
           onClick: async () => {
-            let r = await window.gitApi.removeWorktree(path)
-            if (!r.success) {
-              // Plain remove refuses a dirty/locked worktree — offer to force.
-              if (window.confirm(`Couldn't remove "${name}":\n\n${r.error}\n\nForce remove? Uncommitted changes in that worktree will be lost.`)) {
-                r = await window.gitApi.removeWorktree(path, true)
-              } else return
-            }
+            const r = await window.gitApi.removeWorktree(path)
             if (r.success) { repo.toast.success('Worktree Removed', name); repo.methods.refresh() }
-            else repo.toast.error('Remove Failed', r.error)
+            // Plain remove refuses a dirty/locked worktree — surface an in-app
+            // confirm (native window.confirm is unreliable here) to force it.
+            else { setPendingWorktree({ path, name, error: r.error }); setModal('confirm-remove-worktree') }
           },
         },
         { separator: true, label: '', onClick: () => {} },
@@ -1049,6 +1047,23 @@ export default function App() {
       )}
       {modal === 'settings' && (
         <SettingsModal {...settings} onClose={closeModal} />
+      )}
+      {modal === 'confirm-remove-worktree' && pendingWorktree && (
+        <ConfirmModal
+          title="Force remove worktree?"
+          message={`"${pendingWorktree.name}" has uncommitted or untracked changes, so it can't be removed normally.`}
+          detail={`${pendingWorktree.error}\n\nForce-removing discards those changes. This cannot be undone.`}
+          confirmLabel="Force remove"
+          danger
+          onClose={() => { closeModal(); setPendingWorktree(null) }}
+          onConfirm={async () => {
+            const wt = pendingWorktree   // captured before state clears
+            setPendingWorktree(null)
+            const r = await window.gitApi.removeWorktree(wt.path, true)
+            if (r.success) { repo.toast.success('Worktree Removed', wt.name); repo.methods.refresh() }
+            else repo.toast.error('Remove Failed', r.error)
+          }}
+        />
       )}
       {modal === 'github' && (
         <GitHubPanel

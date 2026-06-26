@@ -700,8 +700,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('git:worktree-add', async (_event, path: string, branch: string) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.addWorktree(path, branch); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
+    return gitService.addWorktree(path, branch)
   })
 
   ipcMain.handle('git:worktree-remove', async (_event, path: string, force?: boolean) => {

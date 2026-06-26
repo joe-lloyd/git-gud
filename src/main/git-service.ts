@@ -1246,8 +1246,41 @@ export class GitService {
     return trees;
   }
 
-  async addWorktree(path: string, branch: string): Promise<void> {
-    await this.git.raw(["worktree", "add", path, branch]);
+  // Add a worktree at `path` for `branch`. If the branch already exists it is
+  // checked out into the new worktree; otherwise a new branch is created
+  // (`-b`). Returns a structured result so the renderer can surface failures
+  // instead of silently no-op'ing. (`path` shadows the imported path module
+  // here, so directory math is done with string ops.)
+  async addWorktree(
+    path: string,
+    branch: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // git creates the leaf worktree dir but not always intermediate parents
+      // (e.g. a fresh `‹project›.worktrees/`), so ensure the parent exists.
+      const slash = path.lastIndexOf("/");
+      if (slash > 0) {
+        const fsp = await import("fs/promises");
+        await fsp.mkdir(path.slice(0, slash), { recursive: true }).catch(() => {});
+      }
+
+      // Does the branch already exist locally?
+      let exists = false;
+      try {
+        await this.git.raw(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+        exists = true;
+      } catch {
+        exists = false;
+      }
+
+      const args = exists
+        ? ["worktree", "add", path, branch]
+        : ["worktree", "add", "-b", branch, path];
+      await this.git.raw(args);
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: String(e) };
+    }
   }
 
   // Plain `worktree remove` refuses a worktree with local modifications,
