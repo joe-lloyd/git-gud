@@ -40,9 +40,10 @@ jobs:
       - name: Build app bundles
         run: pnpm build
 
-      - name: Build icon (macOS only — needs sips/iconutil)
-        if: matrix.os == 'macos-14'
-        run: pnpm build:icon
+      # No icon-render step here: resources/icon.icns and icon.png are
+      # committed, so CI packages from those. Regenerate locally with
+      # `pnpm build:icon` when the SVG changes (it needs the Electron
+      # binary, which --ignore-scripts intentionally skips in CI).
 
       - name: Package + publish
         env:
