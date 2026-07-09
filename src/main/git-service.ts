@@ -22,16 +22,52 @@ export type CommitStreamResult = {
 // One git command + its response, for the git-activity console. `exitCode` is
 // only known for the spawn-based commit path; simple-git's outputHandler gives
 // output but not the code, so `failed` is derived from git's stderr there.
+// `kind` lets the console hide routine read-only polling (status/log/refs…)
+// while always surfacing mutations (rebase, reset, pull…).
 export type GitActivity = {
   id: string;
   repoPath: string;
   args: string[];
   output: string;
   failed: boolean;
+  kind: "read" | "write";
   exitCode?: number | null;
   durationMs: number;
   ts: number;
 };
+
+// Commands that never mutate the repo. Anything not recognized is treated as
+// a write so new mutations are never accidentally hidden from the console.
+const READ_COMMANDS = new Set([
+  "log", "show", "diff", "diff-tree", "status", "for-each-ref",
+  "symbolic-ref", "rev-parse", "rev-list", "reflog", "ls-files", "ls-remote",
+  "cat-file", "merge-base", "describe", "shortlog", "name-rev",
+  "format-patch", "count-objects", "var", "check-ignore",
+]);
+
+export function classifyGitArgs(args: string[]): "read" | "write" {
+  // Skip global flags to find the subcommand: `-c <cfg>` and `-C <dir>` take
+  // a value; other leading dashes are standalone.
+  let i = 0;
+  while (i < args.length) {
+    const a = args[i];
+    if (a === "-c" || a === "-C") { i += 2; continue; }
+    if (a.startsWith("-")) { i++; continue; }
+    break;
+  }
+  const cmd = args[i] ?? "";
+  const sub = args[i + 1] ?? "";
+  if (READ_COMMANDS.has(cmd)) return "read";
+  if (cmd === "stash" && sub === "list") return "read";
+  if (cmd === "worktree" && sub === "list") return "read";
+  if (cmd === "branch" && args.includes("--list")) return "read";
+  if (cmd === "tag" && (i + 1 >= args.length || sub.startsWith("-l"))) return "read";
+  if (cmd === "remote") return sub === "" || sub === "-v" || sub === "show" ? "read" : "write";
+  if (cmd === "config" && args.includes("--get")) return "read";
+  if (cmd === "rerere" && sub === "status") return "read";
+  if (cmd === "clean" && args.includes("-n")) return "read";
+  return "write";
+}
 
 let activitySeq = 0;
 
@@ -115,16 +151,19 @@ export interface CommitOpts {
 export class GitService {
   private git: SimpleGit;
   private repoPath: string;
-  private getToken?: () => string | null;
+  private getAuth?: () => string[];
   private onActivity?: (rec: GitActivity) => void;
 
   constructor(
     repoPath: string,
-    getToken?: () => string | null,
+    // Returns ready-made `-c http.<host>.extraheader=…` pairs for every
+    // signed-in provider (GitHub / GitLab / Bitbucket). Built by the caller so
+    // this class stays provider-agnostic.
+    getAuth?: () => string[],
     onActivity?: (rec: GitActivity) => void,
   ) {
     this.repoPath = repoPath;
-    this.getToken = getToken;
+    this.getAuth = getAuth;
     this.onActivity = onActivity;
     // Central capture of every git command this instance runs. simple-git's
     // outputHandler is invoked per spawned process with its stdout/stderr
@@ -149,6 +188,7 @@ export class GitService {
           args: args ?? [],
           output: clean,
           failed: /^(fatal|error):/m.test(clean),
+          kind: classifyGitArgs(args ?? []),
           durationMs: Date.now() - start,
           ts: start,
         });
@@ -168,13 +208,7 @@ export class GitService {
   }
 
   private getAuthConfigs(): string[] {
-    const token = this.getToken?.();
-    if (!token) return [];
-    const b64 = Buffer.from(`x-access-token:${token}`).toString("base64");
-    return [
-      "-c",
-      `http.https://github.com/.extraheader=AUTHORIZATION: basic ${b64}`,
-    ];
+    return this.getAuth?.() ?? [];
   }
 
   async isRepo(): Promise<boolean> {
@@ -743,6 +777,7 @@ export class GitService {
         args,
         output,
         failed: exitCode !== 0,
+        kind: "write", // always a commit/amend
         exitCode,
         durationMs: Date.now() - startedAt,
         ts: startedAt,
@@ -1354,7 +1389,8 @@ export class GitService {
     try {
       // git creates the leaf worktree dir but not always intermediate parents
       // (e.g. a fresh `‹project›.worktrees/`), so ensure the parent exists.
-      const slash = path.lastIndexOf("/");
+      // Both separators: Windows paths arrive with `\`.
+      const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
       if (slash > 0) {
         const fsp = await import("fs/promises");
         await fsp.mkdir(path.slice(0, slash), { recursive: true }).catch(() => {});

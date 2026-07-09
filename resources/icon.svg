@@ -1,38 +1,64 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- "The Burning Branch" — main branch of four bonfire commits in neon pink,
+       a feature branch off the 2nd node from the bottom carrying two parallel
+       bonfire commits in neon orange; each link wears its branch's color.
+       Node cores are plate-colored so the rails pass cleanly behind the fires.
+       Rasterize with: pnpm build:icon  (renders icon.png; every platform icon,
+       incl. the macOS .icns, is generated from that PNG by electron-builder) -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1c2532"/>
-      <stop offset="1" stop-color="#0b0f15"/>
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
-      <feOffset dx="0" dy="6" result="off"/>
-      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    <radialGradient id="plateGlow" cx="50%" cy="46%" r="70%">
+      <stop offset="0%" stop-color="#ff2d95" stop-opacity="0.09"/>
+      <stop offset="60%" stop-color="#ff2d95" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="#ff2d95" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="flameCoreP" cx="50%" cy="65%" r="60%">
+      <stop offset="0%" stop-color="#ffd7ef"/>
+      <stop offset="45%" stop-color="#ff2d95"/>
+      <stop offset="100%" stop-color="#ff4fc3"/>
+    </radialGradient>
+    <radialGradient id="flameCoreO" cx="50%" cy="65%" r="60%">
+      <stop offset="0%" stop-color="#ffe3c1"/>
+      <stop offset="45%" stop-color="#ff9d2e"/>
+      <stop offset="100%" stop-color="#fb923c"/>
+    </radialGradient>
+    <filter id="fireGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="2.6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+
+    <!-- Bonfire commit node, unit-scale (ring r=8.5); scaled 7× on use.
+         Same drawing as the brand board so every surface shares one mark. -->
+    <g id="fireP">
+      <circle r="8.5" fill="#0d1117" stroke="rgba(255,79,195,0.55)" stroke-width="1.7"/>
+      <path d="M0 -16 C4.5 -10.5 7 -7 7 -3 A7 7 0 1 1 -7 -3 C-7 -7 -4.5 -10.5 0 -16 Z"
+            fill="#ff4fc3" opacity="0.45" filter="url(#fireGlow)"/>
+      <path d="M0 -9 C3 -5.5 4.2 -3.5 4.2 -0.5 A4.2 4.2 0 1 1 -4.2 -0.5 C-4.2 -3.5 -3 -5.5 0 -9 Z"
+            fill="url(#flameCoreP)"/>
+    </g>
+    <g id="fireO">
+      <circle r="8.5" fill="#0d1117" stroke="rgba(251,146,60,0.6)" stroke-width="1.7"/>
+      <path d="M0 -16 C4.5 -10.5 7 -7 7 -3 A7 7 0 1 1 -7 -3 C-7 -7 -4.5 -10.5 0 -16 Z"
+            fill="#fb923c" opacity="0.45" filter="url(#fireGlow)"/>
+      <path d="M0 -9 C3 -5.5 4.2 -3.5 4.2 -0.5 A4.2 4.2 0 1 1 -4.2 -0.5 C-4.2 -3.5 -3 -5.5 0 -9 Z"
+            fill="url(#flameCoreO)"/>
+    </g>
   </defs>
 
-  <rect width="1024" height="1024" rx="220" ry="220" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="220" ry="220" fill="#0d1117"/>
+  <rect width="1024" height="1024" rx="220" ry="220" fill="url(#plateGlow)"/>
 
-  <g filter="url(#shadow)">
-    <!-- main lane (vertical) -->
-    <line x1="360" y1="200" x2="360" y2="824"
-          stroke="#63b3ed" stroke-width="40" stroke-linecap="round"/>
+  <!-- rails: main (pink), branch (orange) -->
+  <line x1="340" y1="866" x2="340" y2="196" stroke="#ff4fc3" stroke-width="34" stroke-linecap="round"/>
+  <path d="M340 646 C340 512 700 570 700 426" fill="none" stroke="#fb923c" stroke-width="34" stroke-linecap="round"/>
+  <line x1="700" y1="426" x2="700" y2="196" stroke="#fb923c" stroke-width="34" stroke-linecap="round"/>
 
-    <!-- branch curve: forks at middle, has its own node, merges back to top -->
-    <path d="M 360 512 C 360 412, 664 456, 664 356 C 664 256, 460 200, 360 200"
-          fill="none" stroke="#f6ad55" stroke-width="40" stroke-linecap="round"/>
+  <!-- main branch: four pink bonfires, bottom → top -->
+  <use href="#fireP" transform="translate(340,866) scale(7)"/>
+  <use href="#fireP" transform="translate(340,646) scale(7)"/>
+  <use href="#fireP" transform="translate(340,426) scale(7)"/>
+  <use href="#fireP" transform="translate(340,206) scale(7)"/>
 
-    <!-- nodes -->
-    <circle cx="360" cy="824" r="84" fill="#63b3ed" stroke="#0b0f15" stroke-width="16"/>
-    <circle cx="360" cy="512" r="84" fill="#63b3ed" stroke="#0b0f15" stroke-width="16"/>
-    <circle cx="664" cy="356" r="84" fill="#f6ad55" stroke="#0b0f15" stroke-width="16"/>
-    <circle cx="360" cy="200" r="84" fill="#63b3ed" stroke="#0b0f15" stroke-width="16"/>
-
-    <!-- inner dots for "filled commit" look matching GraphView -->
-    <circle cx="360" cy="824" r="22" fill="rgba(0,0,0,0.55)"/>
-    <circle cx="360" cy="512" r="22" fill="rgba(0,0,0,0.55)"/>
-    <circle cx="664" cy="356" r="22" fill="rgba(0,0,0,0.55)"/>
-    <circle cx="360" cy="200" r="22" fill="rgba(0,0,0,0.55)"/>
-  </g>
+  <!-- feature branch: two orange bonfires, parallel to the top two -->
+  <use href="#fireO" transform="translate(700,426) scale(7)"/>
+  <use href="#fireO" transform="translate(700,206) scale(7)"/>
 </svg>

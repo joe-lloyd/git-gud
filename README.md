@@ -6,6 +6,25 @@ A desktop Git client built with Electron + React.
 
 - [Git feature coverage](docs/git-features.md) — what we support, what's partial, what's planned.
 
+## Provider sign-in (GitHub · GitLab · Bitbucket)
+
+The Integrations panel connects the app to the major hosts. While connected,
+push/pull/fetch against that host authenticate automatically (per-host
+`http.<host>.extraheader` injection — no credential helper needed), and you can
+create remote repositories from inside the app.
+
+- **GitHub** — works out of the box: the public OAuth client ID ships with the
+  app (`src/renderer/lib/github.ts`) and sign-in uses GitHub's device flow.
+  Set `VITE_GITHUB_CLIENT_ID` in `.env` only to point at your own OAuth app.
+- **GitLab** — sign in with a Personal Access Token (scopes `api`,
+  `write_repository`); self-hosted instances supported via the Host field.
+- **Bitbucket** — sign in with your username plus an app password / API token
+  (Account read; Repositories read/write/admin).
+
+Tokens are stored encrypted on-device via Electron `safeStorage`. The
+`GH_TOKEN` in `.env` is unrelated: it's only for `pnpm release` (uploading
+installers to GitHub Releases).
+
 ## Development
 
 ```bash

@@ -70,10 +70,10 @@ version that diverges from `packageManager`.
 - **THEN** it uses the version declared in `package.json` `packageManager` (no conflicting `version:` input on the setup action)
 - **AND** `pnpm install` runs with `--frozen-lockfile --ignore-scripts`
 
-#### Scenario: Icons come from committed assets
-- **GIVEN** `resources/icon.icns` and `resources/icon.png` are committed
+#### Scenario: Icons come from a single committed PNG
+- **GIVEN** `resources/icon.png` (1024×1024) is committed
 - **WHEN** CI packages the installers
-- **THEN** it uses the committed icon files and does NOT regenerate them (icon generation needs the Electron binary, which `--ignore-scripts` intentionally skips in CI)
+- **THEN** electron-builder derives every platform icon — including the macOS `.icns` — from that PNG, and CI does NOT re-render the PNG from the SVG (that needs the Electron binary, which `--ignore-scripts` intentionally skips in CI)
 
 ### Requirement: Release preconditions are enforced
 

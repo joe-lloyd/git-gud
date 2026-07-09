@@ -97,6 +97,24 @@ button {
   font-size: inherit;
 }
 
+/* ── Modal overlay (shared) ─────────────────────────────────────────────
+   Every popup MUST float above the app, never in document flow (an unstyled
+   overlay renders inline and pushes the whole layout around). Components may
+   still override via inline styles; this is the baseline. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+.modal-content {
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

@@ -17,7 +17,10 @@ directories:
 
 # ── macOS ─────────────────────────────────────────────────────────────────
 mac:
-  icon: resources/icon.icns
+  # Point at the 1024×1024 PNG; electron-builder generates the .icns on the
+  # macOS runner. This keeps a single source of truth (icon.png) for all three
+  # platforms — no committed .icns to drift out of sync with the SVG.
+  icon: resources/icon.png
   category: public.app-category.developer-tools
   # `identity: null` disables code-signing. The app installs fine after a
   # one-time ctrl-click → Open to bypass Gatekeeper. Auto-update on macOS

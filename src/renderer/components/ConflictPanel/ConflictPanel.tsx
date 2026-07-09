@@ -25,6 +25,16 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
   const [confirmAbort, setConfirmAbort] = useState(false)
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
 
+  // Boss-bar HP. The operation's "full health" is the most conflicts we've
+  // seen at once this session (a rebase can add fresh conflicts per replayed
+  // commit, so the max can grow); the unresolved files remaining are the HP
+  // left. The panel unmounts when the operation ends, resetting the fight.
+  const [maxConflicts, setMaxConflicts] = useState(conflictedFiles.length)
+  useEffect(() => {
+    setMaxConflicts((m) => Math.max(m, conflictedFiles.length))
+  }, [conflictedFiles.length])
+  const hpPct = maxConflicts > 0 ? (conflictedFiles.length / maxConflicts) * 100 : 0
+
   // Files for which rerere has a recorded resolution in this operation (it
   // auto-reapplies them). Surface a banner so the user can forget a bad one.
   const [rerereFiles, setRerereFiles] = useState<string[]>([])
@@ -95,9 +105,29 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
   return (
     <div className="conflict-panel" onKeyDown={handleKeyDown}>
       <div className="conflict-header">
-        <div className="conflict-title">
-          <span className="conflict-badge">{mode === 'rebase' ? `Rebase ${rebaseKind === 'merge' ? '(interactive)' : ''}` : 'Merge'} in progress</span>
-          <div className="conflict-branch">on <span className="mono">{currentBranch}</span></div>
+        {/* Boss encounter: the conflict is the boss, unresolved files are its
+            HP. Marking files resolved drains the bar; empty bar = victory. */}
+        <div className="boss-name-row">
+          <span className={`boss-name ${allResolved ? 'defeated' : ''}`}>
+            {allResolved ? 'Victory Achieved' : mode === 'rebase' ? 'Rebase Conflict' : 'Merge Conflict'}
+          </span>
+          {!allResolved && (
+            <span className="boss-hp-count mono">{conflictedFiles.length} / {maxConflicts}</span>
+          )}
+        </div>
+        <div
+          className="boss-bar"
+          role="progressbar"
+          aria-label="Unresolved conflict files"
+          aria-valuemin={0}
+          aria-valuemax={maxConflicts}
+          aria-valuenow={conflictedFiles.length}
+        >
+          <div className={`boss-bar-fill ${allResolved ? 'drained' : ''}`} style={{ width: `${hpPct}%` }} />
+        </div>
+        <div className="conflict-branch">
+          {mode === 'rebase' ? `rebase${rebaseKind === 'merge' ? ' (interactive)' : ''}` : 'merge'} in progress
+          {' '}on <span className="mono">{currentBranch}</span>
         </div>
       </div>
 

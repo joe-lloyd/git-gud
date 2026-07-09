@@ -1,10 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import { join } from 'path'
+import { basename, join } from 'path'
 import * as fs from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
 import { GitService, type GitActivity } from './git-service'
 import { GitHubService } from './github-service'
+import { ProviderService, type HostedProvider } from './provider-service'
 
 // App icon — resources/icon.png is rasterized from icon.svg by scripts/render-icon.cjs.
 // In dev `__dirname` is out/main, in prod it's inside the bundle; both sit one
@@ -19,6 +20,7 @@ const services = new Map<string, GitService>()
 let gitService: GitService | null = null
 let activeRepoPath: string | null = null
 let githubService: GitHubService | null = null
+let providerService: ProviderService | null = null
 
 // Strip ANSI/VT escapes from console + activity output (no terminal emulator).
 // eslint-disable-next-line no-control-regex
@@ -30,9 +32,24 @@ const emitActivity = (rec: GitActivity) => {
   if (rec.repoPath === activeRepoPath) mainWindow?.webContents.send('git:activity', rec)
 }
 
-// Build a GitService wired for auth + activity logging (one place, all call sites).
+// Build a GitService wired for auth + activity logging (one place, all call
+// sites). Auth headers cover every signed-in host: GitHub (OAuth token) plus
+// GitLab / Bitbucket via ProviderService.
 const makeService = (repoPath: string): GitService =>
-  new GitService(repoPath, () => githubService?.getToken() || null, emitActivity)
+  new GitService(
+    repoPath,
+    () => {
+      const configs: string[] = []
+      const ghToken = githubService?.getToken()
+      if (ghToken) {
+        const b64 = Buffer.from(`x-access-token:${ghToken}`).toString('base64')
+        configs.push('-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${b64}`)
+      }
+      if (providerService) configs.push(...providerService.getGitAuthConfigs())
+      return configs
+    },
+    emitActivity,
+  )
 
 // In-flight command-console children, keyed by run id, so they can be cancelled.
 const consoleProcs = new Map<string, ChildProcess>()
@@ -90,27 +107,33 @@ function startRepoWatchers(repoPath: string) {
     )
   } catch { /* repo root unwatchable — ignore */ }
 
-  // 2) .git internals — only HEAD + refs/ + packed-refs.
+  // 2) .git internals — HEAD + refs/ + packed-refs (+ merge/rebase sentinels).
   // Do NOT watch .git/index or .git/logs — both are touched by read-only ops
   // (status, log) and would cause infinite refresh loops.
-  // External commits move HEAD, so they're still caught.
+  //
+  // HEAD and packed-refs are watched via their PARENT directory, not as files:
+  // git updates them by write-to-lock-then-rename, and a file watch dies
+  // silently after the first rename on Windows (and sometimes macOS). A
+  // non-recursive directory watch survives renames.
   const gitDir = join(repoPath, '.git')
-  const watchTargets = [
-    join(gitDir, 'HEAD'),
-    join(gitDir, 'refs'),
-    join(gitDir, 'packed-refs'),
-  ]
-  for (const target of watchTargets) {
-    try {
-      if (!fs.existsSync(target)) continue
-      const isDir = fs.statSync(target).isDirectory()
+  const SENTINELS = new Set(['HEAD', 'packed-refs', 'MERGE_HEAD', 'ORIG_HEAD'])
+  try {
+    if (fs.existsSync(gitDir) && fs.statSync(gitDir).isDirectory()) {
       repoWatchers.push(
-        fs.watch(target, { persistent: false, recursive: isDir }, () => {
-          emit()
+        fs.watch(gitDir, { persistent: false }, (_evt, filename) => {
+          if (filename && SENTINELS.has(filename.replace(/\.lock$/, ''))) emit()
         }),
       )
-    } catch { /* macOS rename or transient — fall back to focus-refresh */ }
-  }
+    }
+  } catch { /* unwatchable — fall back to focus-refresh */ }
+  const refsDir = join(gitDir, 'refs')
+  try {
+    if (fs.existsSync(refsDir)) {
+      repoWatchers.push(
+        fs.watch(refsDir, { persistent: false, recursive: true }, () => emit()),
+      )
+    }
+  } catch { /* recursive unsupported or transient — fall back to focus-refresh */ }
 }
 
 function createWindow(): void {
@@ -182,6 +205,7 @@ app.whenReady().then(() => {
   }
 
   githubService = new GitHubService()
+  providerService = new ProviderService()
   createWindow()
 
   setupAutoUpdater()
@@ -204,7 +228,7 @@ app.whenReady().then(() => {
       const { response } = await dialog.showMessageBox(mainWindow!, {
         type: 'question',
         title: 'Not a Git repository',
-        message: `"${repoPath.split('/').pop()}" is not a Git repository.`,
+        message: `"${basename(repoPath)}" is not a Git repository.`,
         detail: 'Would you like to initialize Git here?',
         buttons: ['Initialize Git', 'Cancel'],
         defaultId: 0,
@@ -350,6 +374,14 @@ app.whenReady().then(() => {
   ipcMain.handle('app:get-recent', async () => getRecentProjects())
   ipcMain.handle('app:add-recent', async (_event, path: string) => addRecentProject(path))
 
+  // Open a URL in the system browser. Renderer code can't reach electron's
+  // shell directly (contextIsolation), so this is the one sanctioned door out.
+  ipcMain.handle('app:open-external', async (_event, url: string) => {
+    if (!/^https?:\/\//i.test(url)) return false
+    await shell.openExternal(url)
+    return true
+  })
+
   // ── GitHub Integration ────────────────────────────────────────────────────────
   ipcMain.handle('github:start-device-flow', async (_event, clientId: string) => {
     if (!githubService) return { success: false, error: 'GitHub service not ready' }
@@ -391,6 +423,37 @@ app.whenReady().then(() => {
       const repos = await githubService.listRepositories()
       return { success: true, repos }
     } catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  // ── GitLab / Bitbucket Integration ─────────────────────────────────────────
+  ipcMain.handle('provider:signin-gitlab', async (_event, host: string, token: string) => {
+    try { return { success: true, user: await providerService!.signInGitLab(host, token) } }
+    catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  ipcMain.handle('provider:signin-bitbucket', async (_event, username: string, token: string) => {
+    try { return { success: true, user: await providerService!.signInBitbucket(username, token) } }
+    catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  ipcMain.handle('provider:signout', async (_event, provider: HostedProvider) => {
+    providerService?.signOut(provider)
+    return true
+  })
+
+  ipcMain.handle('provider:get-user', async (_event, provider: HostedProvider) => {
+    if (!providerService) return null
+    return providerService.getUser(provider)
+  })
+
+  ipcMain.handle('provider:create-repo', async (_event, provider: HostedProvider, name: string, description: string, isPrivate: boolean) => {
+    try { return { success: true, repo: await providerService!.createRepo(provider, name, description, isPrivate) } }
+    catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  ipcMain.handle('provider:list-repos', async (_event, provider: HostedProvider) => {
+    try { return { success: true, repos: await providerService!.listRepos(provider) } }
+    catch (e: any) { return { success: false, error: e.message } }
   })
 
   ipcMain.handle('git:add-remote', async (_event, name: string, url: string) => {
@@ -652,13 +715,23 @@ app.whenReady().then(() => {
 
   ipcMain.handle('console:run', async (_event, runId: string, cmd: string) => {
     if (!activeRepoPath) return { success: false, error: 'No repository open' }
-    const shell = process.env.SHELL || '/bin/sh'
+    // Windows has no /bin/sh — use cmd.exe (or ComSpec) with /d /s /c there.
+    const isWin = process.platform === 'win32'
+    const shellBin = isWin
+      ? (process.env.ComSpec || 'cmd.exe')
+      : (process.env.SHELL || '/bin/sh')
+    const shellArgs = isWin ? ['/d', '/s', '/c', cmd] : ['-c', cmd]
     const send = (payload: Record<string, unknown>) =>
       mainWindow?.webContents.send('console:output', { runId, ...payload })
 
     let child: ChildProcess
     try {
-      child = spawn(shell, ['-c', cmd], { cwd: activeRepoPath, env: process.env })
+      child = spawn(shellBin, shellArgs, {
+        cwd: activeRepoPath,
+        env: process.env,
+        // cmd.exe needs the raw command string; disable arg quoting on Windows.
+        ...(isWin ? { windowsVerbatimArguments: true } : {}),
+      })
     } catch (e) {
       send({ stream: 'stderr', chunk: String(e) + '\n' })
       send({ done: true, exitCode: null })

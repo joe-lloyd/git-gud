@@ -14,7 +14,9 @@ describe('GitService Integration Tests', () => {
     // Create a physical temporary directory for testing actual Git integration
     tmpRepoPath = mkdtempSync(join(tmpdir(), 'git-gud-test-'))
     git = simpleGit(tmpRepoPath)
-    await git.init()
+    // Pin the initial branch — tests reference 'main' and must not depend on
+    // the machine's init.defaultBranch (often 'master').
+    await git.init(['--initial-branch=main'])
     
     // Configure local dummy user to allow commits
     await git.addConfig('user.name', 'Tester')

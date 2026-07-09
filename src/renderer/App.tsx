@@ -976,6 +976,7 @@ export default function App() {
                     onVDragStart={startConsoleVDrag}
                     onSplitDragStart={startConsoleSplitDrag}
                     onClose={() => setConsoleVisible(false)}
+                    onCommandDone={repo.methods.refresh}
                   />
                 )}
               </div>

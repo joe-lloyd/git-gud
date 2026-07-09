@@ -40,9 +40,10 @@ jobs:
       - name: Build app bundles
         run: pnpm build
 
-      # No icon-render step here: resources/icon.icns and icon.png are
-      # committed, so CI packages from those. Regenerate locally with
-      # `pnpm build:icon` when the SVG changes (it needs the Electron
+      # No icon-render step here: resources/icon.png (1024×1024) is committed
+      # and every platform's icon — including the macOS .icns — is generated
+      # from it by electron-builder at package time. Regenerate the PNG locally
+      # with `pnpm build:icon` when the SVG changes (it needs the Electron
       # binary, which --ignore-scripts intentionally skips in CI).
 
       - name: Package + publish

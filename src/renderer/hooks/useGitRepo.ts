@@ -57,11 +57,21 @@ export function useGitRepo() {
       window.gitApi.getWorktrees(),
       window.gitApi.getRemotes(),
     ])
-    // Keep the same array reference when the log is unchanged (same SHAs in the
-    // same order) — a fresh array every refresh would needlessly re-run the
-    // (now sometimes worker-based) graph layout. Compare cheaply by SHA list.
+    // Keep the same array reference when the log is truly unchanged — a fresh
+    // array every refresh would needlessly re-run the (worker-based) graph
+    // layout. But the comparison must include refs and parents, not just SHAs:
+    // a `reset`/branch move can leave the SHA list identical (orphaned commits
+    // stay reachable via origin/*) while HEAD/branch pills move to another node.
+    // Comparing SHAs alone froze those pills at the old tip after a hard reset.
     setCommits((prev) =>
-      prev.length === log.length && prev.every((c, i) => c.sha === log[i].sha) ? prev : log,
+      prev.length === log.length &&
+      prev.every((c, i) =>
+        c.sha === log[i].sha &&
+        c.refs.join('\x1f') === log[i].refs.join('\x1f') &&
+        c.parents.join(' ') === log[i].parents.join(' '),
+      )
+        ? prev
+        : log,
     )
     setBranches(branchData)
     setStashes(stashData)

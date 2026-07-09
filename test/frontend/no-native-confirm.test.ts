@@ -27,7 +27,9 @@ describe('no native confirm/alert in the renderer', () => {
     const offenders: string[] = []
     for (const f of files) {
       const src = readFileSync(f, 'utf-8')
-      src.split('\n').forEach((line, i) => {
+      // Split on \r?\n — with a plain '\n' split, CRLF files leave a trailing
+      // \r that stops the comment-strip regex's $ anchor from matching.
+      src.split(/\r?\n/).forEach((line, i) => {
         const code = line.replace(/\/\/.*$/, '') // strip line comments
         if (/\bwindow\.(confirm|alert)\s*\(/.test(code) || /(^|[^.\w])(confirm|alert)\s*\(/.test(code) && /\bwindow\b/.test(code)) {
           offenders.push(`${f}:${i + 1}: ${line.trim()}`)

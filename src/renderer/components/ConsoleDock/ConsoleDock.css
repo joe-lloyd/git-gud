@@ -66,6 +66,12 @@
   transition: background 0.12s, color 0.12s;
 }
 .cdock-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.cdock-btn-on {
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.cdock-btn-on:hover { background: var(--accent-subtle); color: var(--accent); }
 .cdock-close { padding: 2px 6px; }
 
 /* ── Log bodies ──────────────────────────────────────────── */
@@ -92,7 +98,36 @@
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .cdock-entry.failed .cdock-cmdline { color: var(--danger); }
-.cdock-cmdline { color: var(--text-secondary); font-weight: 600; white-space: pre-wrap; word-break: break-word; }
+.cdock-cmdline {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.cdock-time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  /* nudge onto the command's baseline (row is align-items: flex-start) */
+  padding-top: 1px;
+}
+.cdock-cmdtext { flex: 1; white-space: pre-wrap; word-break: break-word; }
+/* Per-entry copy button — hidden until the row is hovered, so the log stays clean. */
+.cdock-entry-copy {
+  flex-shrink: 0;
+  opacity: 0;
+  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.cdock-entry:hover .cdock-entry-copy { opacity: 1; }
+.cdock-entry-copy:hover { background: var(--bg-hover); color: var(--accent); }
 .cdock-output {
   white-space: pre-wrap;
   word-break: break-word;

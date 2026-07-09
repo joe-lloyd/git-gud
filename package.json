@@ -1,6 +1,6 @@
 {
   "name": "git-gud",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "description": "A beautiful Git Gud inspired by GitKraken",
   "main": "out/main/index.js",
   "packageManager": "pnpm@10.32.1",
@@ -14,7 +14,7 @@
     "preview": "electron-vite preview",
     "test": "vitest",
     "test:repos": "bash scripts/build-test-repos.sh",
-    "build:icon": "electron scripts/render-icon.cjs && bash scripts/build-icns.sh",
+    "build:icon": "electron scripts/render-icon.cjs",
     "typecheck": "tsc --noEmit",
     "dist": "pnpm build && electron-builder",
     "dist:mac": "pnpm build && electron-builder --mac",

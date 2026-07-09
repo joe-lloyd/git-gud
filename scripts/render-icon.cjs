@@ -4,8 +4,8 @@
 //
 // Run:  pnpm exec electron scripts/render-icon.cjs
 //
-// After PNG exists, build the macOS .icns via:
-//   bash scripts/build-icns.sh
+// electron-builder generates every platform icon (incl. the macOS .icns)
+// from this PNG at package time — no separate icns step needed.
 
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
@@ -38,7 +38,12 @@ app.whenReady().then(async () => {
   // Give the WebContents a tick to paint the SVG.
   await new Promise(r => setTimeout(r, 200))
 
-  const img = await win.webContents.capturePage()
+  const captured = await win.webContents.capturePage()
+  // capturePage grabs at the display's backing scale (e.g. a 1.5× display
+  // yields 1536px), so normalize to exactly SIZE×SIZE. electron-builder
+  // generates the macOS .icns and the Windows/Linux icons from this one PNG
+  // and wants a square source that's at least 512×512 (1024 recommended).
+  const img = captured.resize({ width: SIZE, height: SIZE, quality: 'best' })
   fs.writeFileSync(OUT, img.toPNG())
   console.log(`wrote ${OUT} (${img.getSize().width}×${img.getSize().height})`)
 

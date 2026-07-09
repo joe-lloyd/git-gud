@@ -66,9 +66,12 @@ Status legend:
 | `git pull` | ✅ supported | Toolbar Pull button |
 | `git push` | ✅ supported | Toolbar Push button |
 | `git push --force-with-lease` | 🟡 partial | Available via amend workflow (not exposed yet) |
-| `git remote add` | ✅ supported | GitHub panel (auto-adds origin) |
+| `git remote add` | ✅ supported | Integrations panel (auto-adds origin) |
 | `git remote -v` (list) | ✅ supported | Sidebar Remote section |
-| GitHub OAuth + repo create | ✅ supported | GitHub panel |
+| GitHub OAuth + repo create | ✅ supported | Integrations panel (device flow, built-in client ID) |
+| GitLab sign-in + repo create | ✅ supported | Integrations panel (PAT; gitlab.com or self-hosted) |
+| Bitbucket sign-in + repo create | ✅ supported | Integrations panel (app password / API token) |
+| Authenticated push/pull per host | ✅ supported | Automatic for all signed-in providers |
 | `git clone` | 🚫 not planned | Use the OS file dialog to open existing repos |
 
 ## Recovery

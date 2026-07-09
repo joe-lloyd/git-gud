@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GitActivity } from '../../../preload/index'
 import './ConsoleDock.css'
 
@@ -10,13 +10,16 @@ interface ConsoleDockProps {
   onVDragStart: (e: React.MouseEvent) => void
   onSplitDragStart: (e: React.MouseEvent) => void
   onClose: () => void
+  /** Called after a typed command finishes — the app refreshes so graph,
+      sidebar, tags etc. immediately reflect whatever the command changed. */
+  onCommandDone?: () => void
 }
 
 const MAX_GIT_ENTRIES = 500
 const MAX_CONSOLE_CHUNKS = 4000
 
 export const ConsoleDock: React.FC<ConsoleDockProps> = ({
-  repoPath, height, splitPct, onVDragStart, onSplitDragStart, onClose,
+  repoPath, height, splitPct, onVDragStart, onSplitDragStart, onClose, onCommandDone,
 }) => {
   return (
     <div className="console-dock" style={{ height }}>
@@ -25,7 +28,7 @@ export const ConsoleDock: React.FC<ConsoleDockProps> = ({
       </div>
       <div className="cdock-body">
         <div className="cdock-pane" style={{ width: `${splitPct}%` }}>
-          <CommandConsole repoPath={repoPath} />
+          <CommandConsole repoPath={repoPath} onCommandDone={onCommandDone} />
         </div>
         <div className="panel-resize-handle panel-resize-handle--v" onMouseDown={onSplitDragStart} title="Drag to resize">
           <div className="panel-resize-grip panel-resize-grip--v" />
@@ -42,7 +45,7 @@ export const ConsoleDock: React.FC<ConsoleDockProps> = ({
 
 type Line = { stream: 'cmd' | 'stdout' | 'stderr' | 'meta'; text: string }
 
-const CommandConsole: React.FC<{ repoPath: string | null }> = ({ repoPath }) => {
+const CommandConsole: React.FC<{ repoPath: string | null; onCommandDone?: () => void }> = ({ repoPath, onCommandDone }) => {
   const [cwd, setCwd] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [lines, setLines] = useState<Line[]>([])
@@ -60,12 +63,17 @@ const CommandConsole: React.FC<{ repoPath: string | null }> = ({ repoPath }) => 
   }, [repoPath])
 
   // Stream output for the active run.
+  const onDoneRef = useRef(onCommandDone)
+  onDoneRef.current = onCommandDone
   useEffect(() => {
     const unsub = window.gitApi.onConsoleOutput((e) => {
       if (e.runId !== runIdRef.current) return
       if ('done' in e && e.done) {
         setLines((l) => cap([...l, { stream: 'meta', text: `↳ exit ${e.exitCode ?? '—'}` }]))
         setRunId(null)
+        // The command may have rewritten history / refs / the working tree —
+        // reload app state so the graph and sidebar reflect it immediately.
+        onDoneRef.current?.()
         return
       }
       if ('chunk' in e) setLines((l) => cap([...l, { stream: e.stream, text: e.chunk }]))
@@ -153,9 +161,26 @@ const CommandConsole: React.FC<{ repoPath: string | null }> = ({ repoPath }) => 
 
 // ── Right: git activity log ─────────────────────────────────────────────────
 
+// Wall-clock HH:MM:SS for an activity record's start time. Manual pad rather
+// than toLocaleTimeString so it's always 24-hour and locale-independent.
+const fmtTime = (ts: number) => {
+  const d = new Date(ts)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+// Serialize one activity record the way you'd paste it into a terminal/issue.
+const formatEntry = (e: GitActivity) =>
+  `[${fmtTime(e.ts)}] $ git ${e.args.join(' ')}\n${e.output}${e.output.endsWith('\n') || !e.output ? '' : '\n'}↳ ${e.failed ? 'failed' : 'ok'}${e.exitCode != null ? ` (exit ${e.exitCode})` : ''} · ${e.durationMs}ms`
+
 const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => void }> = ({ repoPath, onClose }) => {
   const [entries, setEntries] = useState<GitActivity[]>([])
+  // Default view shows only mutations (rebase, reset, pull…) plus anything
+  // that failed — the routine read-polling (status/log/refs on every refresh)
+  // is noise. Flip to "all" to audit the reads too.
+  const [showReads, setShowReads] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const prevScrollHeightRef = useRef(0)
 
   useEffect(() => { setEntries([]) }, [repoPath]) // reset on repo/worktree switch
 
@@ -169,33 +194,66 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
     return unsub
   }, [])
 
+  // Stored oldest→newest (append order); shown newest-first so the latest
+  // command is always on top and you scroll DOWN into history.
+  const visible = showReads ? entries : entries.filter((e) => e.kind !== 'read' || e.failed)
+  const ordered = useMemo(() => [...visible].reverse(), [visible])
+
+  // New entries are inserted at the TOP. If the user is following (near the
+  // top) keep them pinned to the newest; if they've scrolled down to read
+  // older history, nudge scrollTop by the height that was added above so the
+  // viewport stays visually still instead of jumping.
   useEffect(() => {
     const el = bodyRef.current
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight
-  }, [entries])
+    if (!el) return
+    if (el.scrollTop < 40) {
+      el.scrollTop = 0
+    } else {
+      const delta = el.scrollHeight - prevScrollHeightRef.current
+      if (delta > 0) el.scrollTop += delta
+    }
+    prevScrollHeightRef.current = el.scrollHeight
+  }, [ordered.length])
 
-  const copy = () => {
-    const text = entries.map((e) =>
-      `$ git ${e.args.join(' ')}\n${e.output}${e.output.endsWith('\n') ? '' : '\n'}↳ ${e.failed ? 'failed' : 'ok'}${e.exitCode != null ? ` (exit ${e.exitCode})` : ''} · ${e.durationMs}ms`,
-    ).join('\n\n')
-    navigator.clipboard.writeText(text).catch(() => {})
+  const copyAll = () => {
+    navigator.clipboard.writeText(ordered.map(formatEntry).join('\n\n')).catch(() => {})
+  }
+  const copyOne = (e: GitActivity) => {
+    navigator.clipboard.writeText(formatEntry(e)).catch(() => {})
   }
 
   return (
     <div className="cdock-inner">
       <div className="cdock-head">
         <span className="cdock-title">Git Activity</span>
-        <span className="cdock-count">{entries.length}</span>
+        <span className="cdock-count">{visible.length}{!showReads && entries.length !== visible.length ? ` / ${entries.length}` : ''}</span>
         <span className="cdock-spacer" />
-        <button className="cdock-btn" onClick={copy} title="Copy log">⧉ Copy</button>
+        <button
+          className={`cdock-btn ${showReads ? 'cdock-btn-on' : ''}`}
+          onClick={() => setShowReads(s => !s)}
+          title={showReads ? 'Showing every command — click to hide read-only queries' : 'Read-only queries hidden — click to show everything'}
+        >
+          {showReads ? 'All commands' : 'Changes only'}
+        </button>
+        <button className="cdock-btn" onClick={copyAll} title="Copy visible log">⧉ Copy</button>
         <button className="cdock-btn" onClick={() => setEntries([])} title="Clear">Clear</button>
         <button className="cdock-btn cdock-close" onClick={onClose} title="Hide console">✕</button>
       </div>
       <div className="cdock-log" ref={bodyRef}>
-        {entries.length === 0 && <div className="cdock-empty">No git activity yet.</div>}
-        {entries.map((e) => (
+        {ordered.length === 0 && (
+          <div className="cdock-empty">
+            {entries.length === 0
+              ? 'No git activity yet.'
+              : 'No repo-changing commands yet — switch to "All commands" to see read-only queries.'}
+          </div>
+        )}
+        {ordered.map((e) => (
           <div key={e.id} className={`cdock-entry ${e.failed ? 'failed' : ''}`}>
-            <div className="cdock-cmdline mono">$ git {e.args.join(' ')}</div>
+            <div className="cdock-cmdline mono">
+              <span className="cdock-time" title={new Date(e.ts).toLocaleString()}>{fmtTime(e.ts)}</span>
+              <span className="cdock-cmdtext">$ git {e.args.join(' ')}</span>
+              <button className="cdock-entry-copy" onClick={() => copyOne(e)} title="Copy this command + output">⧉</button>
+            </div>
             {e.output.trim() && <div className="cdock-output mono">{e.output.replace(/\n+$/, '')}</div>}
             <div className="cdock-status">
               <span className={e.failed ? 'cdock-fail' : 'cdock-ok'}>

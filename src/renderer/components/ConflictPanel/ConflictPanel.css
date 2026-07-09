@@ -14,20 +14,53 @@
   flex-shrink: 0;
 }
 
-.conflict-title { display: flex; flex-direction: column; gap: 4px; }
-
-.conflict-badge {
-  display: inline-block;
-  background: var(--warning);
-  color: #1a1308;
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 4px;
-  align-self: flex-start;
+/* ── Boss encounter bar ──────────────────────────────────────────────
+   Souls-style boss health: the conflict is the boss, unresolved files
+   are its HP. Serif nameplate, thin trough, fill drains as files are
+   marked resolved. */
+.boss-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
 }
+.boss-name {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  text-shadow: 0 0 12px rgba(246, 173, 85, 0.35);
+}
+.boss-name.defeated {
+  color: var(--success);
+  text-shadow: 0 0 12px rgba(104, 211, 145, 0.4);
+}
+.boss-hp-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.boss-bar {
+  height: 9px;
+  background: var(--bg-deepest);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.boss-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--danger), var(--warning));
+  box-shadow: 0 0 8px rgba(252, 129, 129, 0.5);
+  transition: width 0.45s ease;
+}
+.boss-bar-fill.drained { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .boss-bar-fill { transition: none; }
+}
+
 .conflict-branch { font-size: 11px; color: var(--text-muted); }
 
 .conflict-body {

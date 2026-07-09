@@ -103,12 +103,14 @@ export type CommitResult = {
 }
 
 // One git command + its response, pushed on `git:activity` for the git console.
+// `kind` distinguishes routine read-only polling from actual mutations.
 export type GitActivity = {
   id: string
   repoPath: string
   args: string[]
   output: string
   failed: boolean
+  kind: 'read' | 'write'
   exitCode?: number | null
   durationMs: number
   ts: number
@@ -348,19 +350,41 @@ const githubApi = {
   listRepos: (): Promise<{ success: boolean; repos?: GitHubRepo[]; error?: string }> => ipcRenderer.invoke('github:list-repos'),
 }
 
+// ── GitLab / Bitbucket ─────────────────────────────────────────────────────
+// Token-based sign-in (GitLab PAT / Bitbucket app password). Same user/repo
+// shapes as the GitHub API above so panels can share components.
+export type HostedProvider = 'gitlab' | 'bitbucket'
+
+const providerApi = {
+  signInGitLab: (host: string, token: string): Promise<{ success: boolean; user?: GitHubUser; error?: string }> =>
+    ipcRenderer.invoke('provider:signin-gitlab', host, token),
+  signInBitbucket: (username: string, token: string): Promise<{ success: boolean; user?: GitHubUser; error?: string }> =>
+    ipcRenderer.invoke('provider:signin-bitbucket', username, token),
+  signOut: (provider: HostedProvider): Promise<boolean> => ipcRenderer.invoke('provider:signout', provider),
+  getUser: (provider: HostedProvider): Promise<GitHubUser | null> => ipcRenderer.invoke('provider:get-user', provider),
+  createRepo: (provider: HostedProvider, name: string, description: string, isPrivate: boolean): Promise<{ success: boolean; repo?: GitHubRepo; error?: string }> =>
+    ipcRenderer.invoke('provider:create-repo', provider, name, description, isPrivate),
+  listRepos: (provider: HostedProvider): Promise<{ success: boolean; repos?: GitHubRepo[]; error?: string }> =>
+    ipcRenderer.invoke('provider:list-repos', provider),
+}
+
 // UI/chrome controls that live in the renderer process (not git). Text scaling
 // uses webFrame's native page zoom so every px-based size scales uniformly and
 // layout math (drag handles etc.) stays consistent.
 const uiApi = {
   setZoomFactor: (factor: number): void => { webFrame.setZoomFactor(factor) },
   getZoomFactor: (): number => webFrame.getZoomFactor(),
+  // Open an http(s) URL in the system browser (main validates the scheme).
+  openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('app:open-external', url),
 }
 
 contextBridge.exposeInMainWorld('gitApi', gitApi)
 contextBridge.exposeInMainWorld('githubApi', githubApi)
+contextBridge.exposeInMainWorld('providerApi', providerApi)
 contextBridge.exposeInMainWorld('uiApi', uiApi)
 
 // Type helper for renderer
 export type GitApi = typeof gitApi
 export type GitHubApi = typeof githubApi
+export type ProviderApi = typeof providerApi
 export type UiApi = typeof uiApi

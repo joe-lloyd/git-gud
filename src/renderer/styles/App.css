@@ -184,11 +184,7 @@
 .welcome p  { font-size: 14px; max-width: 380px; text-align: center; line-height: 1.6; }
 
 .welcome-logo {
-  font-size: 64px;
-  line-height: 1;
-  background: linear-gradient(135deg, var(--lane-0), var(--lane-4));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  display: block;
   margin-bottom: 8px;
+  filter: drop-shadow(0 0 18px rgba(255, 45, 149, 0.35));
 }
