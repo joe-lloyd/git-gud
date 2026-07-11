@@ -1,10 +1,48 @@
-# Git Gud
+<div align="center">
+  <img src="resources/icon.svg" width="120" alt="Git Gud logo" />
+  <h1>Git Gud</h1>
+  <p><strong>A powerful, beautiful Git client with a GitKraken-inspired commit graph.</strong><br/>
+  Built with Electron + React.</p>
+</div>
 
-A desktop Git client built with Electron + React.
+![Commit graph](docs/screenshots/graph.png)
+
+## Features
+
+- **Commit graph** — every branch as a colored lane, with ref pills, tag
+  markers, stash diamonds, and a live "uncommitted changes" node. Handles huge
+  histories via virtualized rows + canvas lanes (large repos lay out in a
+  worker).
+- **Full staging workflow** — file, hunk, and single-line staging; word diff
+  and side-by-side views; amend / skip-hooks / sign-off commit options.
+- **History surgery** — interactive rebase, squash/drop a selected range,
+  cherry-pick, revert, reset, all from the commit context menu.
+- **Drag-and-drop branching** — drop one branch pill onto another to merge,
+  rebase, or checkout.
+- **Conflict tooling** — guided conflict editor with ours/theirs/both per
+  hunk, plus optional `rerere` auto-resolution.
+- **Recovery built in** — reflog browser with restore, bisect wizard, patch
+  import/export, clean with type-to-confirm.
+- **Host integrations** — sign in to GitHub / GitLab / Bitbucket for
+  authenticated push/pull and in-app remote repo creation.
+- **Transparent** — the Git Activity log shows every git command the app runs;
+  a built-in console prompt covers the rest.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/staging.png" alt="Staging and committing" /></td>
+    <td><img src="docs/screenshots/diff.png" alt="Diff viewer with hunk staging" /></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Stage files, hunks, or single lines</em></td>
+    <td align="center"><em>Word diff, side-by-side, chunk staging</em></td>
+  </tr>
+</table>
 
 ## Documentation
 
-- [Git feature coverage](docs/git-features.md) — what we support, what's partial, what's planned.
+- **[User guide](docs/user-guide.md)** — how to use everything, with screenshots.
+- **[Git feature coverage](docs/git-features.md)** — what we support, what's partial, what's planned.
 
 ## Provider sign-in (GitHub · GitLab · Bitbucket)
 
@@ -87,4 +125,5 @@ pnpm release               # reads .env, builds, uploads to the GitHub Release
 - `src/renderer/` — React UI (Sidebar / Graph / DiffViewer / WorkingTree / right-panel slot)
 - `resources/` — app icon source + generated assets
 - `scripts/` — build-time helpers
+- `docs/` — user guide, feature coverage, README screenshots
 - `openspec/changes/` — in-flight feature plans (proposals, specs, tasks)
