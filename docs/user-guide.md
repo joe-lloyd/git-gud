@@ -100,9 +100,10 @@ Click any changed file (working tree or in a commit) to open the diff.
   commit → **Create branch here…**
 - **Checkout** by double-clicking a branch in the sidebar (or right-click →
   checkout). Right-click also offers **rename** and **delete**.
-- **Tags**: right-click a commit → **Tag here** creates an annotated tag; tags
-  live in the sidebar and can be deleted from their context menu. You can also
-  branch from a tag.
+- **Tags**: right-click a commit → **Tag here** creates an annotated tag. The
+  sidebar Tags section lists every tag; right-click one to **push it to the
+  remote**, **delete it locally**, **delete it from the remote**, copy its
+  name, or branch from it.
 - **Stashes**: the toolbar **Stash** button saves one; **Pop** re-applies the
   most recent. The sidebar Stashes section supports apply / drop / **create
   branch from stash**. Stashes appear in the graph as diamond nodes with dashed

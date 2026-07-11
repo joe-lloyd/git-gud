@@ -263,6 +263,12 @@ const gitApi = {
   writeFile:      (filePath: string, content: string): Promise<Result> => ipcRenderer.invoke('git:write-file', filePath, content),
   createTag: (name: string, sha: string): Promise<Result> =>
     ipcRenderer.invoke('git:create-tag', name, sha),
+  deleteTag: (name: string): Promise<Result> =>
+    ipcRenderer.invoke('git:delete-tag', name),
+  pushTag: (remote: string, name: string): Promise<Result> =>
+    ipcRenderer.invoke('git:push-tag', remote, name),
+  deleteRemoteTag: (remote: string, name: string): Promise<Result> =>
+    ipcRenderer.invoke('git:delete-remote-tag', remote, name),
   runDragAction: (
     source: string,
     target: string,

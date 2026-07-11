@@ -821,6 +821,24 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
+  ipcMain.handle('git:delete-tag', async (_event, name: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.deleteTag(name); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:push-tag', async (_event, remote: string, name: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.pushTag(remote, name); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:delete-remote-tag', async (_event, remote: string, name: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.deleteRemoteTag(remote, name); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
   // ── Worktrees ────────────────────────────────────────────────────────
   ipcMain.handle('git:worktrees', async () => {
     if (!gitService) return []

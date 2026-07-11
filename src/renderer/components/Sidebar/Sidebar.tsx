@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import type { BranchData, StashInfo, RemoteInfo, TagInfo, BranchInfo, WorktreeInfo } from '../../../preload/index'
 import { REF_DRAG_MIME } from '../Graph/GraphView'
 import './Sidebar.css'
@@ -7,7 +7,7 @@ import './Sidebar.css'
 // own scroll, mirroring the staged/unstaged splitter in the right panel.
 const SECTION_MIN = 56
 const SECTION_MAX = 720
-const DEFAULT_HEIGHTS: Record<string, number> = { local: 200, remote: 160, stashes: 120, worktrees: 120 }
+const DEFAULT_HEIGHTS: Record<string, number> = { local: 200, remote: 160, stashes: 120, worktrees: 120, tags: 140 }
 const HEIGHTS_KEY = 'sidebar.sectionHeights'
 
 interface SidebarProps {
@@ -207,15 +207,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <SectionResizer onResize={resize('worktrees')} />
 
-        {/* Tags — peek of latest 4, hover for full list */}
-        <CompactTagSection
-          label="TAGS"
-          tags={tags}
-          selectedRef={selectedRef}
-          onSelectRef={onSelectRef}
-          onActivate={onCreateBranchFromTag}
-          onContextMenu={onTagContextMenu}
-        />
+        {/* Tags — full scrollable list, same treatment as every other section */}
+        <ScrollSection label="TAGS" count={tags.length} height={heights.tags}>
+          {tags.length === 0
+            ? <div className="sb-empty">No tags</div>
+            : tags.map((t) => (
+                <SidebarItem
+                  key={t.name}
+                  label={t.name}
+                  icon="🏷"
+                  selected={selectedRef === `tag:${t.name}`}
+                  onClick={() => onSelectRef(`tag:${t.name}`)}
+                  onDoubleClick={() => onCreateBranchFromTag(t.name)}
+                  onContextMenu={(e) => onTagContextMenu(e, t.name)}
+                  title={`${t.name} → ${t.sha.slice(0, 7)}`}
+                />
+              ))
+          }
+        </ScrollSection>
       </nav>
     </aside>
   )
@@ -421,113 +430,6 @@ function SidebarItem({
       <span className="sb-item-icon">{icon}</span>
       <span className="sb-item-label truncate">{label}</span>
     </button>
-  )
-}
-
-// ── Compact peek + hover-overflow sections ────────────────────────────────────
-
-const PEEK_COUNT = 3 // additional rows shown next to the current/latest item
-
-function CompactTagSection({
-  label,
-  tags,
-  selectedRef,
-  onSelectRef,
-  onActivate,
-  onContextMenu,
-}: {
-  label: string
-  tags: TagInfo[]
-  selectedRef: string | null
-  onSelectRef: (ref: string | null) => void
-  onActivate: (tagName: string) => void
-  onContextMenu: (e: React.MouseEvent, tagName: string) => void
-}) {
-  const visible = tags.slice(0, 1 + PEEK_COUNT)
-  const overflow = tags.slice(1 + PEEK_COUNT)
-  const renderRow = (t: TagInfo) => (
-    <SidebarItem
-      key={t.name}
-      label={t.name}
-      icon="🏷"
-      selected={selectedRef === `tag:${t.name}`}
-      onClick={() => onSelectRef(`tag:${t.name}`)}
-      onDoubleClick={() => onActivate(t.name)}
-      onContextMenu={(e) => onContextMenu(e, t.name)}
-      title={`${t.name} → ${t.sha.slice(0, 7)}`}
-    />
-  )
-  return (
-    <CompactSection label={label} count={tags.length} overflow={overflow.length} overflowChildren={overflow.map(renderRow)}>
-      {tags.length === 0
-        ? <div className="sb-empty">No tags</div>
-        : visible.map(renderRow)}
-    </CompactSection>
-  )
-}
-
-/**
- * Section header + a peek list of items always visible. When the user hovers
- * the "N more" footer, the rest of the items appear as a popover anchored to
- * the sidebar, escaping the section so they're not clipped.
- */
-function CompactSection({
-  label,
-  count,
-  overflow,
-  children,
-  overflowChildren,
-}: {
-  label: string
-  count: number
-  overflow: number
-  children: React.ReactNode
-  overflowChildren: React.ReactNode
-}) {
-  const [hoverPos, setHoverPos] = useState<{ left: number; top: number } | null>(null)
-  const footerRef = useRef<HTMLDivElement>(null)
-  const closeTimer = useRef<number | null>(null)
-
-  const open = () => {
-    if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null }
-    const el = footerRef.current
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    setHoverPos({ left: r.right + 6, top: r.top })
-  }
-  const scheduleClose = () => {
-    if (closeTimer.current) window.clearTimeout(closeTimer.current)
-    closeTimer.current = window.setTimeout(() => setHoverPos(null), 120)
-  }
-
-  return (
-    <div className="sb-section sb-compact">
-      <div className="sb-section-header">
-        <span className="sb-section-label">{label}</span>
-        <span className="sb-count">{count}</span>
-      </div>
-      <div className="sb-section-body">{children}</div>
-      {overflow > 0 && (
-        <div
-          ref={footerRef}
-          className="sb-overflow-line"
-          onMouseEnter={open}
-          onMouseLeave={scheduleClose}
-        >
-          + {overflow} more →
-        </div>
-      )}
-      {hoverPos && (
-        <div
-          className="sb-overflow-popover"
-          style={{ left: hoverPos.left, top: hoverPos.top }}
-          onMouseEnter={open}
-          onMouseLeave={scheduleClose}
-        >
-          {overflowChildren}
-        </div>
-      )}
-    </div>
   )
 }
 

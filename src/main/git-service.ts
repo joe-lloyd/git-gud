@@ -71,6 +71,34 @@ export function classifyGitArgs(args: string[]): "read" | "write" {
 
 let activitySeq = 0;
 
+// Auth is injected into network commands as
+//   -c http.<host>.extraheader=AUTHORIZATION: basic <base64-credential>
+// (see main/index.ts and provider-service.ts). Those argv strings flow into
+// the Git Activity log, which renders in the UI — so the credential must be
+// stripped BEFORE an activity record is emitted, and any echo of it in the
+// command output scrubbed too. Exported for tests.
+const REDACTED = "AUTHORIZATION: ␡redacted␡";
+export function redactAuthArgs(args: string[]): { args: string[]; secrets: string[] } {
+  const secrets: string[] = [];
+  const safe = args.map((a) => {
+    const m = /^(http\.[^=]*\.extraheader=)([\s\S]+)$/i.exec(a);
+    if (!m) return a;
+    secrets.push(m[2]);
+    return `${m[1]}${REDACTED}`;
+  });
+  return { args: safe, secrets };
+}
+export function scrubSecrets(output: string, secrets: string[]): string {
+  let s = output;
+  for (const secret of secrets) {
+    s = s.split(secret).join(REDACTED);
+    // Also scrub the bare credential in case git echoes just the value
+    const cred = /\s(\S+)$/.exec(secret)?.[1];
+    if (cred) s = s.split(cred).join("␡redacted␡");
+  }
+  return s;
+}
+
 export interface CommitNode {
   sha: string;
   shortSha: string;
@@ -182,11 +210,13 @@ export class GitService {
         if (emitted) return;
         emitted = true;
         const clean = out.replace(ANSI_RE, "");
+        // Never let injected credentials reach the renderer's activity log.
+        const { args: safeArgs, secrets } = redactAuthArgs(args ?? []);
         this.onActivity?.({
           id,
           repoPath: this.repoPath,
-          args: args ?? [],
-          output: clean,
+          args: safeArgs,
+          output: scrubSecrets(clean, secrets),
           failed: /^(fatal|error):/m.test(clean),
           kind: classifyGitArgs(args ?? []),
           durationMs: Date.now() - start,
@@ -771,11 +801,14 @@ export class GitService {
     // The spawn path bypasses simple-git's outputHandler, so it logs its own
     // activity record (with a real exit code) when it settles.
     const logActivity = (exitCode: number | null) => {
+      // Commits don't carry auth configs today, but route through the same
+      // redaction so this path can never leak if that changes.
+      const { args: safeArgs, secrets } = redactAuthArgs(args);
       this.onActivity?.({
         id: `${Date.now()}-${activitySeq++}`,
         repoPath: this.repoPath,
-        args,
-        output,
+        args: safeArgs,
+        output: scrubSecrets(output, secrets),
         failed: exitCode !== 0,
         kind: "write", // always a commit/amend
         exitCode,
@@ -1349,6 +1382,20 @@ export class GitService {
 
   async createTag(name: string, sha: string): Promise<void> {
     await this.git.raw(["tag", name, sha]);
+  }
+
+  async deleteTag(name: string): Promise<void> {
+    await this.git.raw(["tag", "-d", name]);
+  }
+
+  // Full refs/tags/ path on the wire so a branch with the same name can never
+  // be pushed or deleted by accident.
+  async pushTag(remote: string, name: string): Promise<void> {
+    await this.git.raw([...this.getAuthConfigs(), "push", remote, `refs/tags/${name}`]);
+  }
+
+  async deleteRemoteTag(remote: string, name: string): Promise<void> {
+    await this.git.raw([...this.getAuthConfigs(), "push", remote, "--delete", `refs/tags/${name}`]);
   }
 
   async getWorktrees(): Promise<WorktreeInfo[]> {

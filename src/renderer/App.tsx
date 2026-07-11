@@ -548,13 +548,33 @@ export default function App() {
 
   const handleTagContextMenu = useCallback(
     (e: React.MouseEvent, tagName: string) => {
+      const remote = repo.remotes[0]?.name ?? 'origin'
+      const hasRemote = repo.remotes.length > 0
+      const run = (label: string, op: Promise<{ success: boolean; error?: string }>) =>
+        op.then((r) => {
+          if (r.success) { repo.toast.success(label, `"${tagName}"`); repo.methods.refresh() }
+          else repo.toast.error(`${label} failed`, r.error)
+        })
       openCtx(e, [
         { label: `Create branch from "${tagName}"…`, icon: '⎇', onClick: () => handleCreateBranchFromTag(tagName) },
+        {
+          label: `Push tag to ${remote}`, icon: '↑', disabled: !hasRemote,
+          onClick: () => run('Tag pushed', window.gitApi.pushTag(remote, tagName)),
+        },
         { separator: true, label: '', onClick: () => {} },
         { label: 'Copy tag name', icon: '⎘', onClick: () => navigator.clipboard.writeText(tagName) },
+        { separator: true, label: '', onClick: () => {} },
+        {
+          label: 'Delete local tag', icon: '✕', danger: true,
+          onClick: () => run('Tag deleted', window.gitApi.deleteTag(tagName)),
+        },
+        {
+          label: `Delete tag from ${remote}`, icon: '✕', danger: true, disabled: !hasRemote,
+          onClick: () => run('Remote tag deleted', window.gitApi.deleteRemoteTag(remote, tagName)),
+        },
       ])
     },
-    [openCtx, handleCreateBranchFromTag],
+    [openCtx, handleCreateBranchFromTag, repo.remotes, repo.toast, repo.methods],
   )
 
   const handleWorktreeContextMenu = useCallback(
@@ -929,6 +949,9 @@ export default function App() {
         {/* Home (no repo) shows only the Welcome screen — the sidebar's
             branches/stashes/etc. belong to a repo tab, not the start page. */}
         {repo.repoPath && (<>
+        {/* Sidebar column: scrollable nav on top, advanced bar as a fixed
+            footer BELOW it (in-flow) — never overlapping the last section. */}
+        <div className="sidebar-col">
         <Sidebar
           repoPath={repo.repoPath}
           branches={repo.branches}
@@ -953,6 +976,18 @@ export default function App() {
           onWorktreeManage={() => setModal('worktrees')}
           onRefDrop={handleRefDrop}
         />
+
+        <div className="advanced-bar">
+          <button className="adv-btn" title="Bisect" onClick={() => setModal('bisect')}>⊘ Bisect</button>
+          <button className="adv-btn" title="Patch" onClick={() => setModal('patch')}>⊠ Patch</button>
+          <button
+            className={`adv-btn ${showReflog ? 'active' : ''}`}
+            title="Reflog — recover lost commits"
+            onClick={() => setShowReflog((v) => !v)}
+          >⎌ Reflog</button>
+          <button className="adv-btn" title="Clean untracked/ignored files" onClick={() => setModal('clean')}>🧹 Clean</button>
+        </div>
+        </div>
 
         <div
           className="panel-resize-handle panel-resize-handle--v"
@@ -1096,18 +1131,6 @@ export default function App() {
           )}
         </main>
 
-        {repo.repoPath && (
-          <div className="advanced-bar">
-            <button className="adv-btn" title="Bisect" onClick={() => setModal('bisect')}>⊘ Bisect</button>
-            <button className="adv-btn" title="Patch" onClick={() => setModal('patch')}>⊠ Patch</button>
-            <button
-              className={`adv-btn ${showReflog ? 'active' : ''}`}
-              title="Reflog — recover lost commits"
-              onClick={() => setShowReflog((v) => !v)}
-            >⎌ Reflog</button>
-            <button className="adv-btn" title="Clean untracked/ignored files" onClick={() => setModal('clean')}>🧹 Clean</button>
-          </div>
-        )}
       </div>
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
