@@ -926,6 +926,9 @@ export default function App() {
         ref={appBodyRef}
         style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` } as React.CSSProperties}
       >
+        {/* Home (no repo) shows only the Welcome screen — the sidebar's
+            branches/stashes/etc. belong to a repo tab, not the start page. */}
+        {repo.repoPath && (<>
         <Sidebar
           repoPath={repo.repoPath}
           branches={repo.branches}
@@ -958,6 +961,7 @@ export default function App() {
         >
           <div className="panel-resize-grip panel-resize-grip--v" />
         </div>
+        </>)}
 
         <main className="main-content">
           {!repo.repoPath ? (
