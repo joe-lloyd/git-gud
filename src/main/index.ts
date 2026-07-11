@@ -630,9 +630,9 @@ app.whenReady().then(() => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:push', async () => {
+  ipcMain.handle('git:push', async (_event, force?: boolean) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { return await gitService.push() }
+    try { return await gitService.push(force ?? false) }
     catch (e) { return { success: false, error: String(e) } }
   })
 

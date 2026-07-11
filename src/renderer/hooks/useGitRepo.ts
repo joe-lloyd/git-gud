@@ -204,10 +204,17 @@ export function useGitRepo() {
     else toast.warning('Fetch failed', r.error)
   }, [refresh, toast])
 
-  const handlePush   = useCallback(async () => {
-    const r = await window.gitApi.push()
-    if (r.success) refresh()
-    else toast.error('Push failed', r.error)
+  const handlePush   = useCallback(async (force = false) => {
+    const r = await window.gitApi.push(force)
+    if (r.success) {
+      if (force) toast.success('Force pushed', 'Remote branch now matches your local branch.')
+      refresh()
+    } else if (force && /stale info|remote ref.+has changed/i.test(r.error ?? '')) {
+      // --force-with-lease refused: the remote moved past our last fetch.
+      toast.warning('Force push refused', 'The remote has new commits you haven\'t fetched. Fetch first, review, then retry.')
+    } else {
+      toast.error(force ? 'Force push failed' : 'Push failed', r.error)
+    }
   }, [refresh, toast])
 
   return {

@@ -1006,10 +1006,13 @@ export class GitService {
     }
   }
 
-  async push(): Promise<{ success: boolean; error?: string }> {
+  // `force` uses --force-with-lease (not --force): the push is refused if the
+  // remote moved past what we last fetched, so it can't silently stomp work.
+  async push(force = false): Promise<{ success: boolean; error?: string }> {
+    const forceArgs = force ? ["--force-with-lease"] : [];
     try {
       try {
-        await this.git.raw([...this.getAuthConfigs(), "push"]);
+        await this.git.raw([...this.getAuthConfigs(), "push", ...forceArgs]);
       } catch (err: any) {
         // If push fails because of no upstream branch, try setting it automatically
         if (err.message && err.message.includes("has no upstream branch")) {
@@ -1022,6 +1025,7 @@ export class GitService {
               "-u",
               "origin",
               currentBranch,
+              ...forceArgs,
             ]);
           } else {
             throw err;

@@ -135,7 +135,9 @@ Right-click a commit:
 ## Remotes and host sign-in
 
 - Toolbar **Fetch / Pull / Push** do what they say; ahead/behind counts show on
-  the current-branch pill.
+  the current-branch pill. The **▾** next to Push (or right-clicking Push)
+  offers **Force push** — it uses `--force-with-lease`, so it refuses to
+  overwrite commits you haven't fetched yet.
 - The **Integrations panel** (GitHub icon in the toolbar) signs the app into
   **GitHub** (device flow — no setup needed), **GitLab** (personal access
   token, self-hosted supported), and **Bitbucket** (app password). While

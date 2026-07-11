@@ -65,7 +65,7 @@ Status legend:
 | `git fetch` | ✅ supported | Toolbar Fetch button |
 | `git pull` | ✅ supported | Toolbar Pull button |
 | `git push` | ✅ supported | Toolbar Push button |
-| `git push --force-with-lease` | 🟡 partial | Available via amend workflow (not exposed yet) |
+| `git push --force-with-lease` | ✅ supported | Toolbar Push ▾ menu (also right-click Push) + branch context menu |
 | `git remote add` | ✅ supported | Integrations panel (auto-adds origin) |
 | `git remote -v` (list) | ✅ supported | Sidebar Remote section |
 | GitHub OAuth + repo create | ✅ supported | Integrations panel (device flow, built-in client ID) |

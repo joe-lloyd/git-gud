@@ -515,6 +515,7 @@ export default function App() {
           { label: `Delete "${branchName}"`,         icon: '🗑',  danger: true, disabled: isCurrent, onClick: () => handleDeleteBranch(branchName, false) },
           { separator: true, label: '', onClick: () => {} },
           { label: 'Push to remote',                 icon: '↑',  onClick: () => repo.methods.handlePush() },
+          { label: 'Force push (--force-with-lease)', icon: '⚠', danger: true, disabled: !isCurrent, onClick: () => repo.methods.handlePush(true) },
           { label: 'Pull from remote',               icon: '↓',  onClick: () => handlePull() },
           { separator: true, label: '', onClick: () => {} },
           { label: 'Copy branch name',               icon: '⎘',  onClick: () => navigator.clipboard.writeText(branchName) },
@@ -916,6 +917,16 @@ export default function App() {
         onFetch={repo.methods.handleFetch}
         onPull={handlePull}
         onPush={repo.methods.handlePush}
+        onPushMenu={(e) => {
+          e.preventDefault()
+          openCtx(e, [
+            { label: 'Push', icon: '↑', onClick: () => repo.methods.handlePush() },
+            {
+              label: 'Force push (--force-with-lease)', icon: '⚠', danger: true,
+              onClick: () => repo.methods.handlePush(true),
+            },
+          ])
+        }}
         onStash={() => setModal('toolbar-stash')}
         onPop={handleToolbarPop}
         onRefresh={repo.methods.refresh}

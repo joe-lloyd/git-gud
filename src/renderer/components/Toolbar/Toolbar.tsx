@@ -14,6 +14,8 @@ interface ToolbarProps {
   onPop: () => Promise<void>
   onRefresh: () => void
   onNewBranch: () => void
+  /** Opens the push options menu (force push etc.) — caret click or right-click on Push */
+  onPushMenu?: (e: React.MouseEvent) => void
   onSearchToggle: () => void
   onGitHubShow?: () => void
   onSettings?: () => void
@@ -34,6 +36,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onPop,
   onRefresh,
   onNewBranch,
+  onPushMenu,
   onSearchToggle,
   onGitHubShow,
   onSettings,
@@ -78,13 +81,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <button
           className="tb-btn"
-          title="Push to remote"
+          title="Push to remote (right-click for options)"
           disabled={pushing}
           onClick={withLoading(setPushing, onPush)}
+          onContextMenu={onPushMenu}
         >
           <TbIcon spin={pushing}>↑</TbIcon>
           <span>Push</span>
           {ahead > 0 && <span className="tb-badge ahead">{ahead}</span>}
+        </button>
+        <button
+          className="tb-btn tb-caret"
+          title="Push options…"
+          disabled={pushing}
+          onClick={onPushMenu}
+        >
+          ▾
         </button>
 
         <div className="tb-sep" />

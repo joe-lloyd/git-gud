@@ -218,7 +218,7 @@ const gitApi = {
   fetch: (): Promise<Result> => ipcRenderer.invoke('git:fetch'),
   pull: (opts?: { rebase?: boolean; autoStash?: boolean }): Promise<PullResult> =>
     ipcRenderer.invoke('git:pull', opts),
-  push: (): Promise<Result> => ipcRenderer.invoke('git:push'),
+  push: (force?: boolean): Promise<Result> => ipcRenderer.invoke('git:push', force),
 
   createBranch: (name: string, startPoint?: string): Promise<Result> =>
     ipcRenderer.invoke('git:create-branch', name, startPoint),
