@@ -76,11 +76,14 @@
   z-index: 2;
 }
 
-/* Canvas sticks in view as you scroll */
+/* Canvas rides with the scrolled content — translated to the virtualized row
+   window via inline transform, so nodes stay locked to their DOM rows. */
 .graph-canvas {
-  position: sticky;
+  position: absolute;
   top: 0;
+  left: 0;
   display: block;
+  will-change: transform;
 }
 
 /* DOM rows container — full width, rows include refs+gap+message.

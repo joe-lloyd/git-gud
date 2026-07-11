@@ -1,6 +1,7 @@
 /**
  * GraphView — Hybrid DOM + Canvas approach:
- *  - Canvas: sticky left panel drawing ONLY graph lines + node circles (DPR-aware)
+ *  - Canvas: left panel drawing ONLY graph lines + node circles (DPR-aware),
+ *    anchored to the virtualized row window so it scrolls with the rows
  *  - DOM: virtualized list of commit rows with real HTML text, ref pills, etc.
  *
  * This gives pixel-perfect, crisp text at all DPR values while keeping
@@ -91,12 +92,6 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewHeight, setViewHeight] = useState(600);
-  // Live scroll offset for the canvas. We draw from this ref (not the React
-  // state) so the graph lines repaint in lockstep with native scroll via rAF,
-  // instead of trailing a render commit. The state above still drives DOM row
-  // virtualization.
-  const scrollTopRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
 
   // Stash SHA lookup — drives the diamond node + dashed parent links, and tells
   // the layout to give each stash its own dedicated column (so a stash never
@@ -184,8 +179,14 @@ export const GraphView: React.FC<GraphViewProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  // Draw canvas (lines + circles only — NO text). Reads the live scroll offset
-  // from scrollTopRef so it can be invoked synchronously inside a scroll rAF.
+  // Draw canvas (lines + circles only — NO text). The canvas is anchored to
+  // the virtualized row window inside the scrolled content (same coordinate
+  // space as the DOM rows), so it scrolls natively with the rows and never
+  // needs per-scroll-frame repainting to stay aligned. It only repaints when
+  // the window shifts or data/selection changes.
+  const windowTop = startRow * ROW_H;
+  const windowH = Math.max(0, (endRow - startRow + 1) * ROW_H);
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -194,8 +195,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
     const dpr = window.devicePixelRatio || 1;
     const W = graphWidth;
-    const H = viewHeight;
-    const st = scrollTopRef.current;
+    const H = windowH;
+    const st = windowTop;
+    if (H <= 0) return;
 
     // Only reallocate the bitmap when the size actually changes — resetting
     // canvas.width every scroll frame is needless churn. clearRect handles the
@@ -347,27 +349,16 @@ export const GraphView: React.FC<GraphViewProps> = ({
         ctx.stroke();
       }
     }
-  }, [nodes, viewHeight, graphWidth, selectedSha, selectedShas, stashShaSet]);
+  }, [nodes, windowTop, windowH, graphWidth, selectedSha, selectedShas, stashShaSet]);
 
-  // Repaint on data / size / selection changes (anything in `draw`'s deps).
-  // Scroll-driven repaints go through the rAF in handleScroll instead.
+  // Repaint whenever the row window, data, or selection changes (anything in
+  // `draw`'s deps). No per-scroll repaint is needed for alignment — the canvas
+  // rides along with the scrolled content.
   React.useEffect(() => { draw(); }, [draw]);
 
-  // Cancel any pending scroll frame on unmount.
-  React.useEffect(() => () => {
-    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-  }, []);
-
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const st = e.currentTarget.scrollTop;
-    scrollTopRef.current = st;
-    // Repaint the canvas in lockstep with native scroll (next frame, coalesced),
-    // independent of the React render that updates row virtualization.
-    if (rafRef.current == null) {
-      rafRef.current = requestAnimationFrame(() => { rafRef.current = null; draw(); });
-    }
-    setScrollTop(st);
-  }, [draw]);
+    setScrollTop(e.currentTarget.scrollTop);
+  }, []);
 
   const topSpacerH = startRow * ROW_H;
   const bottomSpacerH = Math.max(0, (nodes.length - 1 - endRow) * ROW_H);
@@ -394,9 +385,15 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
           {/* Scrollable body — vertical only; horizontal handled by outer wrapper */}
           <div className="graph-scroll" ref={scrollRef} onScroll={handleScroll}>
-            {/* Canvas — absolutely overlaid on the graph-gap zone at left: REFS_W */}
+            {/* Canvas — overlaid on the graph-gap zone at left: REFS_W, anchored
+                to the virtualized row window so it scrolls in lockstep with the
+                DOM rows (same content coordinate space — no drift possible). */}
             <div className="graph-canvas-wrap" style={{ left: REFS_W, width: graphWidth, height: totalHeight }}>
-              <canvas ref={canvasRef} className="graph-canvas" />
+              <canvas
+                ref={canvasRef}
+                className="graph-canvas"
+                style={{ transform: `translateY(${windowTop}px)` }}
+              />
             </div>
 
             {/* Virtualized full-width rows: [refs][gap][message][author][date][sha] */}
