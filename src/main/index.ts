@@ -182,8 +182,9 @@ function setupAutoUpdater(): void {
   autoUpdater.on('download-progress', (p) => send('updater:progress', { percent: p.percent }))
   autoUpdater.on('update-downloaded', (info) => send('updater:status', { state: 'downloaded', version: info.version }))
 
-  // First check happens shortly after launch (give the renderer time to
-  // subscribe). After that the updater polls every 4 hours on its own.
+  // One check shortly after launch (give the renderer time to subscribe).
+  // electron-updater does NOT poll by itself — later checks come from the
+  // toolbar "Check for updates" button via the updater:check IPC below.
   setTimeout(() => { autoUpdater.checkForUpdates().catch(() => {}) }, 5_000)
 
   // Renderer can also trigger a manual check (via toolbar / settings).

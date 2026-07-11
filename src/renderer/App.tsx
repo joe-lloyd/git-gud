@@ -638,19 +638,50 @@ export default function App() {
 
   // Auto-update: subscribe once. Informational toasts only — the binary swap
   // happens automatically on next quit (`autoInstallOnAppQuit = true`), so a
-  // "restart to install" hint is all the user needs.
+  // "restart to install" hint is all the user needs. The silent boot check
+  // stays quiet on "no update"; a manual toolbar check reports every outcome.
+  const manualUpdateCheck = useRef(false)
   useEffect(() => {
     const unsub = window.gitApi.onUpdaterStatus((s) => {
       if (s.state === 'available') {
+        manualUpdateCheck.current = false
         repo.toast.info('Update available', `v${s.version} is downloading…`)
       } else if (s.state === 'downloaded') {
         repo.toast.success('Update ready', `v${s.version} — restart Git Gud to install.`)
+      } else if (s.state === 'none') {
+        if (manualUpdateCheck.current) {
+          manualUpdateCheck.current = false
+          repo.toast.success('Up to date', 'You are already on the latest version.')
+        }
       } else if (s.state === 'error') {
-        // Expected during dev runs and on unsigned mac builds. Log only.
-        console.warn('updater error:', s.error)
+        if (manualUpdateCheck.current) {
+          manualUpdateCheck.current = false
+          repo.toast.warning('Update check failed', s.error)
+        } else {
+          // Expected during dev runs and on unsigned mac builds. Log only.
+          console.warn('updater error:', s.error)
+        }
       }
     })
     return () => { unsub?.() }
+  }, [repo.toast])
+
+  // Toolbar "Check for updates" — feedback comes back through the status
+  // subscription above; this only kicks the check off and covers the dev-mode
+  // case where the updater IPC isn't registered at all.
+  const handleCheckUpdates = useCallback(async () => {
+    manualUpdateCheck.current = true
+    repo.toast.info('Checking for updates…')
+    try {
+      const r = await window.gitApi.updaterCheck()
+      if (!r.success) {
+        manualUpdateCheck.current = false
+        repo.toast.warning('Update check failed', r.error)
+      }
+    } catch {
+      manualUpdateCheck.current = false
+      repo.toast.info('Updates unavailable', 'Update checks only work in the installed app, not dev mode.')
+    }
   }, [repo.toast])
 
   // All isolated commit actions live in their own hook
@@ -873,6 +904,7 @@ export default function App() {
         onGitHubShow={() => setModal('github')}
         onSettings={() => setModal('settings')}
         onToggleConsole={() => setConsoleVisible((v) => !v)}
+        onCheckUpdates={handleCheckUpdates}
       />
 
       {repo.repoPath && repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) && (
