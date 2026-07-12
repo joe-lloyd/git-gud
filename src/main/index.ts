@@ -3,7 +3,7 @@ import { autoUpdater } from 'electron-updater'
 import { basename, join } from 'path'
 import * as fs from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
-import { GitService, type GitActivity } from './git-service'
+import { GitService, redactAuthArgs, scrubSecrets, type GitActivity } from './git-service'
 import { GitHubService } from './github-service'
 import { ProviderService, type HostedProvider } from './provider-service'
 
@@ -32,24 +32,51 @@ const emitActivity = (rec: GitActivity) => {
   if (rec.repoPath === activeRepoPath) mainWindow?.webContents.send('git:activity', rec)
 }
 
+// `-c http.<host>.extraheader=…` pairs for every signed-in host — GitHub
+// (OAuth token) plus GitLab / Bitbucket via ProviderService. Shared by every
+// GitService and by the top-level clone handler (which has no service yet).
+function buildAuthConfigs(): string[] {
+  const configs: string[] = []
+  const ghToken = githubService?.getToken()
+  if (ghToken) {
+    const b64 = Buffer.from(`x-access-token:${ghToken}`).toString('base64')
+    configs.push('-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${b64}`)
+  }
+  if (providerService) configs.push(...providerService.getGitAuthConfigs())
+  return configs
+}
+
 // Build a GitService wired for auth + activity logging (one place, all call
-// sites). Auth headers cover every signed-in host: GitHub (OAuth token) plus
-// GitLab / Bitbucket via ProviderService.
+// sites).
 const makeService = (repoPath: string): GitService =>
-  new GitService(
-    repoPath,
-    () => {
-      const configs: string[] = []
-      const ghToken = githubService?.getToken()
-      if (ghToken) {
-        const b64 = Buffer.from(`x-access-token:${ghToken}`).toString('base64')
-        configs.push('-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${b64}`)
-      }
-      if (providerService) configs.push(...providerService.getGitAuthConfigs())
-      return configs
-    },
-    emitActivity,
-  )
+  new GitService(repoPath, buildAuthConfigs, emitActivity)
+
+// Derive a default folder name from a clone URL: strip query/fragment and
+// trailing slashes, take the last path segment (handles both https and
+// scp-like `git@host:owner/repo.git`), drop the `.git` suffix.
+function deriveRepoName(url: string): string {
+  const s = url.trim().replace(/[?#].*$/, '').replace(/[/\\]+$/, '')
+  const seg = s.split(/[/:]/).pop() ?? ''
+  return seg.replace(/\.git$/i, '')
+}
+
+// git clone --progress writes phase lines to stderr, e.g.
+// "Receiving objects:  73% (1234/1690)". Return the LAST match in the chunk
+// (a single read may carry several \r-separated updates).
+function parseCloneProgress(chunk: string): { phase: string; percent: number } | null {
+  const re = /([A-Za-z][A-Za-z ]+?):\s+(\d+)%/g
+  let last: RegExpExecArray | null = null
+  for (let m = re.exec(chunk); m; m = re.exec(chunk)) last = m
+  if (!last) return null
+  return { phase: last[1].trim(), percent: Number(last[2]) }
+}
+
+// Pull the most relevant line out of a failed clone's stderr for the toast.
+function extractCloneError(out: string): string {
+  const lines = out.split('\n').map((l) => l.trim()).filter(Boolean)
+  const fatal = [...lines].reverse().find((l) => /^(fatal|error):/i.test(l))
+  return fatal ?? lines[lines.length - 1] ?? ''
+}
 
 // In-flight command-console children, keyed by run id, so they can be cancelled.
 const consoleProcs = new Map<string, ChildProcess>()
@@ -269,6 +296,74 @@ app.whenReady().then(() => {
       saveTabState()
       return true
     } catch { return false }
+  })
+
+  // ── Clone ───────────────────────────────────────────────────────────
+  // Pick the parent folder the repo will be cloned into.
+  ipcMain.handle('git:clone-dialog', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Choose a folder to clone into',
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
+  // A sensible default parent for clones when the user hasn't picked one.
+  ipcMain.handle('app:default-clone-dir', async () => app.getPath('home'))
+
+  // Clone `url` into `parentDir/name`. Auth headers for every signed-in host are
+  // injected so private repos clone without a credential helper. Progress lines
+  // stream to the renderer on `git:clone-progress`; the invoke resolves with the
+  // final repo path (the renderer opens it as a tab).
+  ipcMain.handle('git:clone', async (_event, opts: { url: string; parentDir: string; name?: string }) => {
+    const url = String(opts?.url ?? '').trim()
+    if (!url) return { success: false, error: 'Enter a repository URL.' }
+    const parentDir = String(opts?.parentDir ?? '').trim()
+    if (!parentDir) return { success: false, error: 'Choose a destination folder.' }
+
+    const name = (opts?.name?.trim() || deriveRepoName(url)).replace(/[/\\]/g, '')
+    if (!name) return { success: false, error: 'Could not determine a folder name — enter one.' }
+    const dest = join(parentDir, name)
+
+    // Refuse to clone into an existing non-empty directory (git would too, but
+    // this gives a clearer message before we spawn anything).
+    try {
+      if (fs.existsSync(dest) && fs.readdirSync(dest).length > 0) {
+        return { success: false, error: `"${name}" already exists in that folder and isn't empty.` }
+      }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+
+    const authConfigs = buildAuthConfigs()
+    const { secrets } = redactAuthArgs(authConfigs)
+    const args = [...authConfigs, 'clone', '--progress', url, dest]
+    const send = (payload: Record<string, unknown>) =>
+      mainWindow?.webContents.send('git:clone-progress', payload)
+
+    return new Promise((resolve) => {
+      let child: ChildProcess
+      try {
+        child = spawn('git', args, { env: process.env })
+      } catch (e) {
+        resolve({ success: false, error: scrubSecrets(String(e), secrets) })
+        return
+      }
+      let errBuf = ''
+      child.stderr?.on('data', (d: Buffer) => {
+        const chunk = scrubSecrets(d.toString('utf8').replace(ANSI_RE, ''), secrets)
+        errBuf += chunk
+        if (errBuf.length > 100_000) errBuf = errBuf.slice(-100_000)
+        const prog = parseCloneProgress(chunk)
+        if (prog) send({ phase: prog.phase, percent: prog.percent })
+      })
+      child.on('error', (err) => resolve({ success: false, error: scrubSecrets(String(err), secrets) }))
+      child.on('close', (code) => {
+        if (code === 0) resolve({ success: true, path: dest })
+        else resolve({ success: false, error: extractCloneError(errBuf) || `git clone exited with code ${code}` })
+      })
+    })
   })
 
   // Flip the active tab. Returns false if the path isn't loaded yet.

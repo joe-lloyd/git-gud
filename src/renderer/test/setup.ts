@@ -59,7 +59,11 @@ Object.defineProperty(window, 'gitApi', {
     onRepoChanged: vi.fn(() => () => {}),
     getRecentProjects: vi.fn().mockResolvedValue([]),
     addRecentProject: vi.fn().mockResolvedValue(undefined),
-    addRemote: vi.fn().mockResolvedValue({ success: true })
+    addRemote: vi.fn().mockResolvedValue({ success: true }),
+    cloneDialog: vi.fn().mockResolvedValue(null),
+    defaultCloneDir: vi.fn().mockResolvedValue('/home/user'),
+    clone: vi.fn().mockResolvedValue({ success: true, path: '/home/user/repo' }),
+    onCloneProgress: vi.fn(() => () => {}),
   },
 })
 
@@ -68,8 +72,19 @@ Object.defineProperty(window, 'githubApi', {
     startDeviceFlow: vi.fn(),
     pollToken: vi.fn(),
     logout: vi.fn(),
-    getUser: vi.fn(),
+    getUser: vi.fn().mockResolvedValue(null),
     createRepo: vi.fn(),
-    listRepos: vi.fn(),
+    listRepos: vi.fn().mockResolvedValue({ success: true, repos: [] }),
+  }
+})
+
+Object.defineProperty(window, 'providerApi', {
+  value: {
+    signInGitLab: vi.fn(),
+    signInBitbucket: vi.fn(),
+    signOut: vi.fn(),
+    getUser: vi.fn().mockResolvedValue(null),
+    createRepo: vi.fn(),
+    listRepos: vi.fn().mockResolvedValue({ success: true, repos: [] }),
   }
 })

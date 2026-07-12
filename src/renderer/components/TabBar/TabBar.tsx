@@ -6,11 +6,11 @@ interface TabBarProps {
   activePath: string | null
   onActivate: (path: string) => void
   onClose: (path: string) => void
-  onOpen: () => void
+  onOpenMenu: (e: React.MouseEvent) => void
   onGoHome: () => void
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onOpen, onGoHome }) => {
+export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onOpenMenu, onGoHome }) => {
   if (tabs.length === 0) return null
   return (
     <div className="tab-bar">
@@ -51,7 +51,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, on
           </div>
         )
       })}
-      <button className="tab-new" onClick={onOpen} title="Open repository">
+      <button className="tab-new" onClick={onOpenMenu} title="Open or clone a repository">
         +
       </button>
     </div>

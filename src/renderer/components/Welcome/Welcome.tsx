@@ -2,12 +2,13 @@ import React from 'react'
 
 interface WelcomeProps {
   onOpen: () => void
+  onClone: () => void
   onSelectRecent: (path: string) => void
 }
 
 const RECENT_CAP = 10
 
-export function Welcome({ onOpen, onSelectRecent }: WelcomeProps) {
+export function Welcome({ onOpen, onClone, onSelectRecent }: WelcomeProps) {
   const [recent, setRecent] = React.useState<string[]>([])
   React.useEffect(() => { window.gitApi.getRecentProjects().then(setRecent) }, [])
 
@@ -53,9 +54,14 @@ export function Welcome({ onOpen, onSelectRecent }: WelcomeProps) {
       <h1>Git Gud</h1>
       <p>A powerful, beautiful Git client with a GitKraken-inspired commit graph.</p>
 
-      <button className="btn btn-primary" style={{ fontSize: 14, padding: '10px 28px', marginTop: 10 }} onClick={onOpen}>
-        Open Repository
-      </button>
+      <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+        <button className="btn btn-primary" style={{ fontSize: 14, padding: '10px 28px' }} onClick={onOpen}>
+          Open Repository
+        </button>
+        <button className="btn btn-ghost" style={{ fontSize: 14, padding: '10px 24px' }} onClick={onClone}>
+          Clone from Remote…
+        </button>
+      </div>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>⌘O to open · ⌘F to search · ⌘R to refresh</p>
 
       {visible.length > 0 && (

@@ -20,6 +20,7 @@ import { ConsoleDock } from './components/ConsoleDock/ConsoleDock'
 import { ReflogPanel } from './components/Reflog/ReflogPanel'
 import { CleanModal } from './components/Clean/CleanModal'
 import { GitHubPanel } from './components/GitHub/GitHubPanel'
+import { CloneModal } from './components/Clone/CloneModal'
 import { Welcome } from './components/Welcome/Welcome'
 import { useSettings, SettingsModal } from './components/Settings/Settings'
 import { rangeBetween, isContiguous } from './lib/selection'
@@ -43,6 +44,7 @@ type AppModal =
   | 'bisect'
   | 'patch'
   | 'github'
+  | 'clone'
   | 'new-branch'
   | 'rename-branch'
   | 'confirm-delete-branch'
@@ -250,6 +252,15 @@ export default function App() {
     setPendingTag(null)
     setPendingHeadAuthor(null)
   }, [])
+
+  // The "+" tab / "Open Repository" entry points offer a choice: pick a local
+  // folder, or clone from a remote (any URL or a signed-in service).
+  const openRepoSourceMenu = useCallback((e: React.MouseEvent) => {
+    openCtx(e, [
+      { label: 'Open Local Repository…', icon: '📁', onClick: () => repo.methods.handleOpenRepo() },
+      { label: 'Clone Remote Repository…', icon: '⬇', onClick: () => setModal('clone') },
+    ])
+  }, [openCtx, repo.methods])
 
   // ── Smart pull ──────────────────────────────────────────────────────
   // Pulls and reacts to common failure modes:
@@ -904,7 +915,7 @@ export default function App() {
         activePath={repo.repoPath}
         onActivate={repo.methods.switchTab}
         onClose={repo.methods.closeTab}
-        onOpen={repo.methods.handleOpenRepo}
+        onOpenMenu={openRepoSourceMenu}
         onGoHome={repo.methods.handleGoHome}
       />
 
@@ -1011,7 +1022,7 @@ export default function App() {
 
         <main className="main-content">
           {!repo.repoPath ? (
-            <Welcome onOpen={repo.methods.handleOpenRepo} onSelectRecent={repo.methods.loadRepo} />
+            <Welcome onOpen={repo.methods.handleOpenRepo} onClone={() => setModal('clone')} onSelectRecent={repo.methods.loadRepo} />
           ) : repo.loading ? (
             <LoadingState />
           ) : repo.error ? (
@@ -1190,6 +1201,13 @@ export default function App() {
             if (r.success) { repo.toast.success('Worktree Removed', wt.name); repo.methods.refresh() }
             else repo.toast.error('Remove Failed', r.error)
           }}
+        />
+      )}
+      {modal === 'clone' && (
+        <CloneModal
+          onClose={closeModal}
+          onCloned={repo.methods.loadRepo}
+          onOpenIntegrations={() => setModal('github')}
         />
       )}
       {modal === 'github' && (

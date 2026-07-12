@@ -141,9 +141,27 @@ export type GitHubRepo = {
   clone_url: string
 }
 
+// Live progress for an in-flight clone, pushed on `git:clone-progress`.
+export type CloneProgress = { phase: string; percent: number }
+export type CloneResult =
+  | { success: true; path: string }
+  | { success: false; error: string }
+
 const gitApi = {
   openDialog: (): Promise<string | null> => ipcRenderer.invoke('git:open-dialog'),
   openPath: (path: string): Promise<boolean> => ipcRenderer.invoke('git:open-path', path),
+
+  // ── Clone ──────────────────────────────────────────────────────────────────
+  // Pick the parent folder for a clone; null if the dialog was dismissed.
+  cloneDialog: (): Promise<string | null> => ipcRenderer.invoke('git:clone-dialog'),
+  defaultCloneDir: (): Promise<string> => ipcRenderer.invoke('app:default-clone-dir'),
+  clone: (opts: { url: string; parentDir: string; name?: string }): Promise<CloneResult> =>
+    ipcRenderer.invoke('git:clone', opts),
+  onCloneProgress: (cb: (p: CloneProgress) => void) => {
+    const handler = (_e: unknown, payload: CloneProgress) => cb(payload)
+    ipcRenderer.on('git:clone-progress', handler)
+    return () => { ipcRenderer.removeListener('git:clone-progress', handler) }
+  },
   addTab: (path: string): Promise<boolean> => ipcRenderer.invoke('git:add-tab', path),
   activatePath: (path: string): Promise<boolean> => ipcRenderer.invoke('git:activate-path', path),
   closeTab: (path: string): Promise<boolean> => ipcRenderer.invoke('git:close-tab', path),
