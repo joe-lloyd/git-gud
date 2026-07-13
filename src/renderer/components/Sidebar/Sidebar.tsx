@@ -25,6 +25,7 @@ interface SidebarProps {
   onApplyStash: (index: number) => void
   onCreateBranchFromTag: (tagName: string) => void
   onOpenRepo: () => void
+  onRevealRepo: () => void
   onGoHome: () => void
   onBranchContextMenu: (e: React.MouseEvent, branchName: string, kind: 'local' | 'remote') => void
   onStashContextMenu: (e: React.MouseEvent, index: number) => void
@@ -51,6 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onApplyStash,
   onCreateBranchFromTag,
   onOpenRepo,
+  onRevealRepo,
   onGoHome,
   onBranchContextMenu,
   onStashContextMenu,
@@ -60,7 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onWorktreeManage,
   onRefDrop,
 }) => {
-  const repoName = repoPath ? repoPath.split('/').pop() : null
+  const repoName = repoPath ? repoPath.split(/[/\\]/).filter(Boolean).pop() : null
 
   // Group remote branches by remote (first path segment)
   const remoteGroups = groupRemoteBranches(branches.remote)
@@ -87,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="sb-repo">
         {repoName ? (
           <>
-            <button className="sb-repo-name" onClick={onOpenRepo} title={repoPath!}>
+            <button className="sb-repo-name" onClick={onRevealRepo} title={`${repoPath!}\n(click to open folder)`}>
               <span className="sb-repo-icon">⎇</span>
               <span className="truncate">{repoName}</span>
             </button>

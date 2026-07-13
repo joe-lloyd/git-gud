@@ -27,7 +27,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, on
         </svg>
       </button>
       {tabs.map((path) => {
-        const name = path.split('/').filter(Boolean).pop() ?? path
+        const name = path.split(/[/\\]/).filter(Boolean).pop() ?? path
         const isActive = path === activePath
         return (
           <div

@@ -478,6 +478,14 @@ app.whenReady().then(() => {
     return true
   })
 
+  // Reveal a folder in the OS file manager (Explorer/Finder). Used by the
+  // sidebar repo-name button to open the current project's folder.
+  ipcMain.handle('app:show-in-folder', async (_event, path: string) => {
+    if (!path) return false
+    const err = await shell.openPath(path)
+    return err === ''
+  })
+
   // ── GitHub Integration ────────────────────────────────────────────────────────
   ipcMain.handle('github:start-device-flow', async (_event, clientId: string) => {
     if (!githubService) return { success: false, error: 'GitHub service not ready' }

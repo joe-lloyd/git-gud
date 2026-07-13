@@ -78,6 +78,15 @@ Object.defineProperty(window, 'githubApi', {
   }
 })
 
+Object.defineProperty(window, 'uiApi', {
+  value: {
+    setZoomFactor: vi.fn(),
+    getZoomFactor: vi.fn(() => 1),
+    openExternal: vi.fn().mockResolvedValue(true),
+    showInFolder: vi.fn().mockResolvedValue(true),
+  }
+})
+
 Object.defineProperty(window, 'providerApi', {
   value: {
     signInGitLab: vi.fn(),

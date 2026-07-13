@@ -400,6 +400,8 @@ const uiApi = {
   getZoomFactor: (): number => webFrame.getZoomFactor(),
   // Open an http(s) URL in the system browser (main validates the scheme).
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('app:open-external', url),
+  // Reveal a folder in the OS file manager (Explorer/Finder).
+  showInFolder: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-in-folder', path),
 }
 
 contextBridge.exposeInMainWorld('gitApi', gitApi)

@@ -989,6 +989,7 @@ export default function App() {
           onApplyStash={handleApplyStash}
           onCreateBranchFromTag={handleCreateBranchFromTag}
           onOpenRepo={repo.methods.handleOpenRepo}
+          onRevealRepo={() => { if (repo.repoPath) window.uiApi.showInFolder(repo.repoPath) }}
           onGoHome={repo.methods.handleGoHome}
           onBranchContextMenu={handleBranchContextMenu}
           onStashContextMenu={handleStashContextMenu}
