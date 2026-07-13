@@ -320,6 +320,9 @@ export class GitService {
       // empty for lightweight tags, where %(objectname) is already the commit.
       const raw = await this.git.raw([
         "for-each-ref",
+        // Newest first. creatordate = tagger date for annotated tags, commit
+        // date for lightweight tags, so both kinds sort by when they appeared.
+        "--sort=-creatordate",
         "--format=%(refname:short)\x1f%(objectname)\x1f%(*objectname)",
         "refs/tags",
       ]);
