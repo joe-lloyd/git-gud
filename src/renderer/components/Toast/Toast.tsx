@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react'
+import { Icon, IconName } from '../Icons/Icon'
 import './Toast.css'
 
 export type ToastType = 'error' | 'warning' | 'success' | 'info'
@@ -67,11 +68,11 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
     requestAnimationFrame(() => setVisible(true))
   }, [])
 
-  const icons: Record<ToastType, string> = {
-    error:   '✕',
-    warning: '⚠',
-    success: '✓',
-    info:    'ℹ',
+  const icons: Record<ToastType, IconName> = {
+    error:   'x-circle',
+    warning: 'warning',
+    success: 'check-circle',
+    info:    'info',
   }
 
   // Parse git error messages to be more readable
@@ -89,14 +90,14 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
       className={`toast toast-${toast.type} ${visible ? 'toast-enter' : ''}`}
       role="alert"
     >
-      <span className={`toast-icon toast-icon-${toast.type}`}>{icons[toast.type]}</span>
+      <span className={`toast-icon toast-icon-${toast.type}`}><Icon name={icons[toast.type]} size={15} /></span>
       <div className="toast-body">
         <div className="toast-title">{toast.title}</div>
         {friendlyMessage && (
           <pre className="toast-message">{friendlyMessage}</pre>
         )}
       </div>
-      <button className="toast-close" onClick={() => onRemove(toast.id)}>✕</button>
+      <button className="toast-close" onClick={() => onRemove(toast.id)}><Icon name="x" size={12} /></button>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import type { CommitNode, FileChange } from '../../../preload/index'
+import { Icon, IconName } from '../Icons/Icon'
 import './CommitDetail.css'
 
 interface CommitDetailProps {
@@ -48,8 +49,9 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
     )
   }
 
-  const statusIcon: Record<string, string> = {
-    M: '✎', A: '+', D: '−', R: '→', C: '⊕', U: '!',
+  // Same visual language as WorkingTree's status icons.
+  const statusIcon: Record<string, IconName> = {
+    M: 'edit', A: 'plus', D: 'minus', R: 'arrow-right', C: 'copy', U: 'question',
   }
   const statusColor: Record<string, string> = {
     M: '#f6ad55', A: '#68d391', D: '#fc8181', R: '#b794f4', C: '#76e4f7', U: '#fc8181',
@@ -117,7 +119,7 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
                     className="cd-file-status"
                     style={{ color: statusColor[f.status] ?? '#8b949e' }}
                   >
-                    {statusIcon[f.status] ?? '?'}
+                    <Icon name={statusIcon[f.status] ?? 'question'} size={12} />
                   </span>
                   <span className="cd-file-path truncate">{f.path}</span>
                 </button>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useToasts } from '../Toast/Toast'
+import { Icon } from '../Icons/Icon'
 import './CleanModal.css'
 
 interface CleanModalProps {
@@ -62,8 +63,8 @@ export const CleanModal: React.FC<CleanModalProps> = ({ onClose, onCleaned }) =>
     <div className="modal-overlay clean-overlay" onClick={onClose}>
       <div className="clean-modal fade-in" onClick={(e) => e.stopPropagation()}>
         <div className="clean-head">
-          <span className="clean-title">⚠ Clean working tree</span>
-          <button className="clean-close" onClick={onClose}>✕</button>
+          <span className="clean-title"><Icon name="warning" size={13} /> Clean working tree</span>
+          <button className="clean-close" onClick={onClose}><Icon name="x" size={13} /></button>
         </div>
 
         <div className="clean-scopes">

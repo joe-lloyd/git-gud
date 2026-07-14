@@ -43,6 +43,7 @@
 
 - **[User guide](docs/user-guide.md)** — how to use everything, with screenshots.
 - **[Git feature coverage](docs/git-features.md)** — what we support, what's partial, what's planned.
+- **[Design system](docs/design/design-system.md)** — color tokens, typography, components; plus the **[icon reference](docs/design/icons.md)** every UI icon must come from.
 
 ## Provider sign-in (GitHub · GitLab · Bitbucket)
 

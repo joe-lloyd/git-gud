@@ -156,6 +156,7 @@ export interface RepoStatus {
   ahead: number;
   behind: number;
   conflict?: ConflictState;
+  inBisect: boolean;
 }
 
 export interface ConflictState {
@@ -434,7 +435,24 @@ export class GitService {
       ahead,
       behind,
       conflict: await this.getConflictState(),
+      inBisect: await this.isBisecting(),
     };
+  }
+
+  // A bisect session is in progress iff git's BISECT_LOG control file exists —
+  // same sentinel-file approach as getConflictState, and the same reason to go
+  // through `rev-parse --git-path` (linked worktrees keep it under the main
+  // gitdir's worktrees/‹name›/ directory).
+  async isBisecting(): Promise<boolean> {
+    const path = await import("path");
+    const fs = await import("fs/promises");
+    try {
+      const raw = (await this.git.raw(["rev-parse", "--git-path", "BISECT_LOG"])).trim();
+      if (!raw) return false;
+      const p = path.isAbsolute(raw) ? raw : path.join(this.repoPath, raw);
+      await fs.access(p);
+      return true;
+    } catch { return false; }
   }
 
   // Detect mid-flight merge/rebase + enumerate unmerged paths. Reads .git

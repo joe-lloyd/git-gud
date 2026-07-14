@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConflictState } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
 import { ConfirmModal } from '../AppAux/AuxComponents'
+import { Icon } from '../Icons/Icon'
 import './ConflictPanel.css'
 
 interface ConflictPanelProps {
@@ -171,7 +172,7 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
                   className={`conflict-file-row ${focusedIdx === i ? 'focused' : ''}`}
                   onClick={() => { setFocusedIdx(i); onSelectDiff(path) }}
                 >
-                  <span className="conflict-file-icon">⚠</span>
+                  <span className="conflict-file-icon"><Icon name="warning" size={13} /></span>
                   <span className="conflict-file-path mono truncate" title={path}>{path}</span>
                   <span
                     className="conflict-mark-btn"
@@ -180,7 +181,7 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
                     onClick={(e) => { e.stopPropagation(); handleMarkResolved(path) }}
                     title="Mark this file as resolved (stages it)"
                   >
-                    Mark resolved ✓
+                    Mark resolved <Icon name="check" size={11} />
                   </span>
                 </button>
               ))}

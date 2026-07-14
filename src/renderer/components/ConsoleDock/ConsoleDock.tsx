@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GitActivity } from '../../../preload/index'
+import { Icon } from '../Icons/Icon'
 import './ConsoleDock.css'
 
 interface ConsoleDockProps {
@@ -235,9 +236,9 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
         >
           {showReads ? 'All commands' : 'Changes only'}
         </button>
-        <button className="cdock-btn" onClick={copyAll} title="Copy visible log">⧉ Copy</button>
+        <button className="cdock-btn" onClick={copyAll} title="Copy visible log"><Icon name="copy" size={11} /> Copy</button>
         <button className="cdock-btn" onClick={() => setEntries([])} title="Clear">Clear</button>
-        <button className="cdock-btn cdock-close" onClick={onClose} title="Hide console">✕</button>
+        <button className="cdock-btn cdock-close" onClick={onClose} title="Hide console"><Icon name="x" size={12} /></button>
       </div>
       <div className="cdock-log" ref={bodyRef}>
         {ordered.length === 0 && (
@@ -252,12 +253,12 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
             <div className="cdock-cmdline mono">
               <span className="cdock-time" title={new Date(e.ts).toLocaleString()}>{fmtTime(e.ts)}</span>
               <span className="cdock-cmdtext">$ git {e.args.join(' ')}</span>
-              <button className="cdock-entry-copy" onClick={() => copyOne(e)} title="Copy this command + output">⧉</button>
+              <button className="cdock-entry-copy" onClick={() => copyOne(e)} title="Copy this command + output"><Icon name="copy" size={11} /></button>
             </div>
             {e.output.trim() && <div className="cdock-output mono">{e.output.replace(/\n+$/, '')}</div>}
             <div className="cdock-status">
               <span className={e.failed ? 'cdock-fail' : 'cdock-ok'}>
-                {e.failed ? '✗ failed' : '✓ ok'}{e.exitCode != null ? ` (exit ${e.exitCode})` : ''}
+                <Icon name={e.failed ? 'x' : 'check'} size={10} /> {e.failed ? 'failed' : 'ok'}{e.exitCode != null ? ` (exit ${e.exitCode})` : ''}
               </span>
               <span className="cdock-dur">{e.durationMs}ms</span>
             </div>

@@ -87,6 +87,10 @@ html, body, #root {
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
 
+/* Central icon set (components/Icons/Icon.tsx). Icons sit inline with text —
+   the slight negative offset optically centers them against the x-height. */
+.gg-icon { flex-shrink: 0; vertical-align: -0.125em; }
+
 /* ── Buttons ──────────────────────────────────────────────────────────── */
 button {
   cursor: pointer;

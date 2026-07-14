@@ -13,6 +13,7 @@ import { BisectWizard } from './components/Bisect/BisectWizard'
 import { PatchPanel } from './components/Patch/PatchPanel'
 import { SearchBar } from './components/Search/SearchBar'
 import { ContextMenu, useContextMenu } from './components/ContextMenu/ContextMenu'
+import { Icon } from './components/Icons/Icon'
 import { ToastContainer } from './components/Toast/Toast'
 import { DiffViewer } from './components/DiffViewer/DiffViewer'
 import { MultiSelectDetail } from './components/MultiSelectDetail/MultiSelectDetail'
@@ -257,8 +258,8 @@ export default function App() {
   // folder, or clone from a remote (any URL or a signed-in service).
   const openRepoSourceMenu = useCallback((e: React.MouseEvent) => {
     openCtx(e, [
-      { label: 'Open Local Repository…', icon: '📁', onClick: () => repo.methods.handleOpenRepo() },
-      { label: 'Clone Remote Repository…', icon: '⬇', onClick: () => setModal('clone') },
+      { label: 'Open Local Repository…', icon: 'folder', onClick: () => repo.methods.handleOpenRepo() },
+      { label: 'Clone Remote Repository…', icon: 'download', onClick: () => setModal('clone') },
     ])
   }, [openCtx, repo.methods])
 
@@ -521,23 +522,23 @@ export default function App() {
       if (kind === 'local') {
         const isCurrent = repo.status?.branch === branchName
         openCtx(e, [
-          { label: `Checkout "${branchName}"`,       icon: '⎇',  disabled: isCurrent, onClick: () => handleCheckout(branchName) },
-          { label: `Rename "${branchName}"…`,        icon: '✎',  onClick: () => { setPendingRef({ name: branchName, kind }); setModal('rename-branch') } },
-          { label: `Delete "${branchName}"`,         icon: '🗑',  danger: true, disabled: isCurrent, onClick: () => handleDeleteBranch(branchName, false) },
+          { label: `Checkout "${branchName}"`,       icon: 'branch',  disabled: isCurrent, onClick: () => handleCheckout(branchName) },
+          { label: `Rename "${branchName}"…`,        icon: 'edit',  onClick: () => { setPendingRef({ name: branchName, kind }); setModal('rename-branch') } },
+          { label: `Delete "${branchName}"`,         icon: 'trash',  danger: true, disabled: isCurrent, onClick: () => handleDeleteBranch(branchName, false) },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Push to remote',                 icon: '↑',  onClick: () => repo.methods.handlePush() },
-          { label: 'Force push (--force-with-lease)', icon: '⚠', danger: true, disabled: !isCurrent, onClick: () => repo.methods.handlePush(true) },
-          { label: 'Pull from remote',               icon: '↓',  onClick: () => handlePull() },
+          { label: 'Push to remote',                 icon: 'arrow-up',  onClick: () => repo.methods.handlePush() },
+          { label: 'Force push (--force-with-lease)', icon: 'warning', danger: true, disabled: !isCurrent, onClick: () => repo.methods.handlePush(true) },
+          { label: 'Pull from remote',               icon: 'arrow-down',  onClick: () => handlePull() },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Copy branch name',               icon: '⎘',  onClick: () => navigator.clipboard.writeText(branchName) },
+          { label: 'Copy branch name',               icon: 'copy',  onClick: () => navigator.clipboard.writeText(branchName) },
         ])
       } else {
         const shortName = branchName.split('/').slice(1).join('/')
         openCtx(e, [
-          { label: `Checkout "${shortName}" (track)`, icon: '⎇',  onClick: () => handleCheckoutRemote(branchName) },
-          { label: `Delete remote "${branchName}"`,   icon: '🗑',  danger: true, onClick: () => { setPendingRef({ name: branchName, kind }); setModal('confirm-delete-remote-branch') } },
+          { label: `Checkout "${shortName}" (track)`, icon: 'branch',  onClick: () => handleCheckoutRemote(branchName) },
+          { label: `Delete remote "${branchName}"`,   icon: 'trash',  danger: true, onClick: () => { setPendingRef({ name: branchName, kind }); setModal('confirm-delete-remote-branch') } },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Copy ref name',                   icon: '⎘',  onClick: () => navigator.clipboard.writeText(branchName) },
+          { label: 'Copy ref name',                   icon: 'copy',  onClick: () => navigator.clipboard.writeText(branchName) },
         ])
       }
     },
@@ -547,12 +548,12 @@ export default function App() {
   const handleStashContextMenu = useCallback(
     (e: React.MouseEvent, index: number) => {
       openCtx(e, [
-        { label: 'Apply stash',                icon: '↧',  onClick: () => handleApplyStash(index) },
-        { label: 'Pop stash',                  icon: '↥',  onClick: () => handlePopStash(index) },
+        { label: 'Apply stash',                icon: 'stash-apply',  onClick: () => handleApplyStash(index) },
+        { label: 'Pop stash',                  icon: 'stash-pop',  onClick: () => handlePopStash(index) },
         { separator: true, label: '', onClick: () => {} },
-        { label: 'Create branch from stash…',  icon: '⎇',  onClick: () => { setPendingStash(index); setModal('stash-branch') } },
+        { label: 'Create branch from stash…',  icon: 'branch',  onClick: () => { setPendingStash(index); setModal('stash-branch') } },
         { separator: true, label: '', onClick: () => {} },
-        { label: 'Drop stash',                 icon: '🗑',  danger: true, onClick: () => { setPendingStash(index); setModal('confirm-drop-stash') } },
+        { label: 'Drop stash',                 icon: 'trash',  danger: true, onClick: () => { setPendingStash(index); setModal('confirm-drop-stash') } },
       ])
     },
     [openCtx, handleApplyStash, handlePopStash],
@@ -568,20 +569,20 @@ export default function App() {
           else repo.toast.error(`${label} failed`, r.error)
         })
       openCtx(e, [
-        { label: `Create branch from "${tagName}"…`, icon: '⎇', onClick: () => handleCreateBranchFromTag(tagName) },
+        { label: `Create branch from "${tagName}"…`, icon: 'branch', onClick: () => handleCreateBranchFromTag(tagName) },
         {
-          label: `Push tag to ${remote}`, icon: '↑', disabled: !hasRemote,
+          label: `Push tag to ${remote}`, icon: 'arrow-up', disabled: !hasRemote,
           onClick: () => run('Tag pushed', window.gitApi.pushTag(remote, tagName)),
         },
         { separator: true, label: '', onClick: () => {} },
-        { label: 'Copy tag name', icon: '⎘', onClick: () => navigator.clipboard.writeText(tagName) },
+        { label: 'Copy tag name', icon: 'copy', onClick: () => navigator.clipboard.writeText(tagName) },
         { separator: true, label: '', onClick: () => {} },
         {
-          label: 'Delete local tag', icon: '✕', danger: true,
+          label: 'Delete local tag', icon: 'trash', danger: true,
           onClick: () => run('Tag deleted', window.gitApi.deleteTag(tagName)),
         },
         {
-          label: `Delete tag from ${remote}`, icon: '✕', danger: true, disabled: !hasRemote,
+          label: `Delete tag from ${remote}`, icon: 'trash', danger: true, disabled: !hasRemote,
           onClick: () => run('Remote tag deleted', window.gitApi.deleteRemoteTag(remote, tagName)),
         },
       ])
@@ -594,13 +595,13 @@ export default function App() {
       const name = path.split('/').pop() || path
       const isCurrent = path === repo.repoPath
       openCtx(e, [
-        { label: `Switch to "${name}"`, icon: '⎇', disabled: isCurrent, onClick: () => repo.methods.loadRepo(path) },
+        { label: `Switch to "${name}"`, icon: 'branch', disabled: isCurrent, onClick: () => repo.methods.loadRepo(path) },
         { separator: true, label: '', onClick: () => {} },
-        { label: 'Manage worktrees…', icon: '⊞', onClick: () => setModal('worktrees') },
+        { label: 'Manage worktrees…', icon: 'worktree', onClick: () => setModal('worktrees') },
         { separator: true, label: '', onClick: () => {} },
         {
           label: `Remove worktree`,
-          icon: '🗑',
+          icon: 'trash',
           danger: true,
           disabled: isMain || isCurrent,
           onClick: async () => {
@@ -612,7 +613,7 @@ export default function App() {
           },
         },
         { separator: true, label: '', onClick: () => {} },
-        { label: 'Copy path', icon: '⎘', onClick: () => navigator.clipboard.writeText(path) },
+        { label: 'Copy path', icon: 'copy', onClick: () => navigator.clipboard.writeText(path) },
       ])
     },
     [openCtx, repo.repoPath, repo.methods, repo.toast],
@@ -659,10 +660,10 @@ export default function App() {
       const sourceShort = source.includes('/') ? source.split('/').slice(1).join('/') : source
       const targetShort = target.includes('/') ? target.split('/').slice(1).join('/') : target
       openCtx(e, [
-        { label: `Merge "${sourceShort}" → "${targetShort}"`, icon: '⊗', onClick: () => runDragAction(source, target, 'merge') },
-        { label: `Rebase "${sourceShort}" onto "${targetShort}"`, icon: '↺', onClick: () => runDragAction(source, target, 'rebase') },
+        { label: `Merge "${sourceShort}" → "${targetShort}"`, icon: 'merge', onClick: () => runDragAction(source, target, 'merge') },
+        { label: `Rebase "${sourceShort}" onto "${targetShort}"`, icon: 'rebase', onClick: () => runDragAction(source, target, 'rebase') },
         { separator: true, label: '', onClick: () => {} },
-        { label: `Checkout "${targetShort}"`, icon: '⎇', onClick: () => runDragAction(source, target, 'checkout') },
+        { label: `Checkout "${targetShort}"`, icon: 'branch', onClick: () => runDragAction(source, target, 'checkout') },
       ])
     },
     [openCtx, runDragAction],
@@ -810,13 +811,13 @@ export default function App() {
     openCtx(e, [
       { label: `${n} commits selected`, disabled: true, onClick: () => {} },
       { separator: true, label: '', onClick: () => {} },
-      { label: 'Squash into one commit', icon: '⊞', disabled: !selectionContiguous, onClick: bulkSquash },
-      { label: 'Cherry-pick onto current branch', icon: '⊕', onClick: bulkCherryPick },
-      { label: 'Revert commits', icon: '↶', onClick: bulkRevert },
-      { label: rangeNote ?? 'Drop from history', icon: '🗑', danger: true, disabled: !selectionContiguous, onClick: bulkDrop },
+      { label: 'Squash into one commit', icon: 'squash', disabled: !selectionContiguous, onClick: bulkSquash },
+      { label: 'Cherry-pick onto current branch', icon: 'cherry-pick', onClick: bulkCherryPick },
+      { label: 'Revert commits', icon: 'revert', onClick: bulkRevert },
+      { label: rangeNote ?? 'Drop from history', icon: 'trash', danger: true, disabled: !selectionContiguous, onClick: bulkDrop },
       { separator: true, label: '', onClick: () => {} },
-      { label: 'Copy SHAs', icon: '⧉', onClick: copySelectedShas },
-      { label: 'Clear selection', icon: '✕', onClick: clearMultiSelect },
+      { label: 'Copy SHAs', icon: 'copy', onClick: copySelectedShas },
+      { label: 'Clear selection', icon: 'x', onClick: clearMultiSelect },
     ])
   }, [opSelectedShas, selectionContiguous, openCtx, bulkSquash, bulkCherryPick, bulkRevert, bulkDrop, copySelectedShas, clearMultiSelect])
 
@@ -845,46 +846,63 @@ export default function App() {
       (commit?.refs.find(isRemote) ? stripRemote(commit!.refs.find(isRemote)!) : null)
 
     const isHead = !!commit?.refs.includes('HEAD')
+    const currentBranch = repo.status?.branch ?? ''
+    const detached = !currentBranch || currentBranch === 'HEAD'
+    const inBisect = !!repo.status?.inBisect
+
+    // Bisect marks check out the next candidate commit — refresh so the graph
+    // follows, and surface git's "N revisions left" line.
+    const bisectMark = async (good: boolean) => {
+      try {
+        const out = good ? await window.gitApi.bisectGood(sha) : await window.gitApi.bisectBad(sha)
+        repo.toast.info(good ? 'Marked as good' : 'Marked as bad', out?.split('\n')[0] ?? '')
+      } catch (err) {
+        repo.toast.error('Bisect failed', String(err))
+      }
+      repo.methods.refresh()
+    }
 
     openCtx(e, [
-      { label: 'Checkout (detached HEAD)',       icon: '⎇',  onClick: () => actions.checkoutSha(sha) },
-      { label: 'Create branch here…',            icon: '⎇',  onClick: () => actions.requestBranchHere(sha) },
+      { label: 'Checkout (detached HEAD)',       icon: 'commit',  onClick: () => actions.checkoutSha(sha) },
+      { label: 'Create branch here…',            icon: 'branch',  onClick: () => actions.requestBranchHere(sha) },
 
       { separator: true, label: '', onClick: () => {} },
 
-      { label: 'Cherry-pick',                    icon: '⊕',  onClick: () => actions.cherryPick(sha) },
-      { label: 'Revert commit',                  icon: '↶',  onClick: () => actions.revert(sha) },
-      { label: 'Rebase onto this commit',        icon: '↺',  onClick: () => actions.rebaseTo(sha) },
-      { label: 'Interactive rebase from here…',  icon: '↺',  onClick: () => actions.interactiveRebaseFrom(sha) },
+      { label: 'Cherry-pick',                    icon: 'cherry-pick',  onClick: () => actions.cherryPick(sha) },
+      { label: 'Revert commit',                  icon: 'revert',  onClick: () => actions.revert(sha) },
+      { label: 'Rebase onto this commit',        icon: 'rebase',  onClick: () => actions.rebaseTo(sha) },
+      { label: 'Interactive rebase from here…',  icon: 'rebase',  onClick: () => actions.interactiveRebaseFrom(sha) },
 
-      // ── Both merge directions ──────────────────────────────────────────
+      // ── Both merge directions — each hidden/disabled when it would be a
+      //    self-merge (commit is HEAD / target is the current branch) ────────
       {
         label: 'Merge this into current branch',
-        icon: '⊗',
+        icon: 'merge',
+        disabled: isHead,
         onClick: () => actions.mergeThisIntoCurrent(sha),
       },
       {
         label: localBranch
           ? `Merge current branch into "${localBranch}"`
           : 'Merge current branch into this (no local branch)',
-        icon: '⊗',
-        disabled: !localBranch,
+        icon: 'merge',
+        disabled: !localBranch || detached || localBranch === currentBranch,
         onClick: () => localBranch && actions.mergeCurrentIntoThis(localBranch),
       },
 
       { separator: true, label: '', onClick: () => {} },
 
-      { label: 'Reset → Soft',   icon: '🔄', onClick: () => actions.resetSoft(sha) },
-      { label: 'Reset → Mixed',  icon: '🔄', onClick: () => actions.resetMixed(sha) },
-      { label: 'Reset → Hard',   icon: '🔄', danger: true, onClick: () => actions.requestResetHard(sha) },
+      { label: 'Reset → Soft',   icon: 'reset', onClick: () => actions.resetSoft(sha) },
+      { label: 'Reset → Mixed',  icon: 'reset', onClick: () => actions.resetMixed(sha) },
+      { label: 'Reset → Hard',   icon: 'reset', danger: true, onClick: () => actions.requestResetHard(sha) },
 
       { separator: true, label: '', onClick: () => {} },
 
-      { label: 'Create tag here…', icon: '🏷', onClick: () => actions.requestTagHere(sha) },
-      { label: 'Export patch…',    icon: '📋', onClick: () => { repo.setSelectedSha(sha); setModal('patch') } },
+      { label: 'Create tag here…', icon: 'tag', onClick: () => actions.requestTagHere(sha) },
+      { label: 'Export patch…',    icon: 'file-diff', onClick: () => { repo.setSelectedSha(sha); setModal('patch') } },
       {
         label: 'Edit author…',
-        icon: '✎',
+        icon: 'edit',
         disabled: !isHead,
         onClick: async () => {
           const current = await window.gitApi.getHeadAuthor().catch(() => '')
@@ -894,11 +912,13 @@ export default function App() {
         },
       },
 
-      { separator: true, label: '', onClick: () => {} },
-
-      { label: 'Mark as Bisect Good', icon: '✓', onClick: () => window.gitApi.bisectGood(sha) },
-      { label: 'Mark as Bisect Bad',  icon: '✗', danger: true, onClick: () => window.gitApi.bisectBad(sha) },
-
+      // Bisect marks only exist while a bisect session is running — outside
+      // one, `git bisect good/bad` errors and the entries are just noise.
+      ...(inBisect ? [
+        { separator: true, label: '', onClick: () => {} },
+        { label: 'Mark as Bisect Good', icon: 'check-circle', onClick: () => bisectMark(true) },
+        { label: 'Mark as Bisect Bad',  icon: 'x-circle', danger: true, onClick: () => bisectMark(false) },
+      ] : []),
     ])
   }, [actions, repo, openCtx, opSelectedShas, selectedShas, openBulkCommitMenu])
 
@@ -931,9 +951,9 @@ export default function App() {
         onPushMenu={(e) => {
           e.preventDefault()
           openCtx(e, [
-            { label: 'Push', icon: '↑', onClick: () => repo.methods.handlePush() },
+            { label: 'Push', icon: 'arrow-up', onClick: () => repo.methods.handlePush() },
             {
-              label: 'Force push (--force-with-lease)', icon: '⚠', danger: true,
+              label: 'Force push (--force-with-lease)', icon: 'warning', danger: true,
               onClick: () => repo.methods.handlePush(true),
             },
           ])
@@ -951,7 +971,7 @@ export default function App() {
 
       {repo.repoPath && repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) && (
         <div className="conflict-bar">
-          <span className="conflict-bar-icon">⚠</span>
+          <span className="conflict-bar-icon"><Icon name="warning" size={14} /></span>
           <span className="conflict-bar-label">
             {repo.status.conflict.inRebase ? 'REBASE' : 'MERGE'} IN PROGRESS
           </span>
@@ -1001,14 +1021,14 @@ export default function App() {
         />
 
         <div className="advanced-bar">
-          <button className="adv-btn" title="Bisect" onClick={() => setModal('bisect')}>⊘ Bisect</button>
-          <button className="adv-btn" title="Patch" onClick={() => setModal('patch')}>⊠ Patch</button>
+          <button className="adv-btn" title="Bisect" onClick={() => setModal('bisect')}><Icon name="bisect" size={13} /> Bisect</button>
+          <button className="adv-btn" title="Patch" onClick={() => setModal('patch')}><Icon name="file-diff" size={13} /> Patch</button>
           <button
             className={`adv-btn ${showReflog ? 'active' : ''}`}
             title="Reflog — recover lost commits"
             onClick={() => setShowReflog((v) => !v)}
-          >⎌ Reflog</button>
-          <button className="adv-btn" title="Clean untracked/ignored files" onClick={() => setModal('clean')}>🧹 Clean</button>
+          ><Icon name="history" size={13} /> Reflog</button>
+          <button className="adv-btn" title="Clean untracked/ignored files" onClick={() => setModal('clean')}><Icon name="clean" size={13} /> Clean</button>
         </div>
         </div>
 

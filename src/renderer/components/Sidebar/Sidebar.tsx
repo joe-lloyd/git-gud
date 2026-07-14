@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import type { BranchData, StashInfo, RemoteInfo, TagInfo, BranchInfo, WorktreeInfo } from '../../../preload/index'
 import { REF_DRAG_MIME } from '../Graph/GraphView'
+import { Icon, IconName } from '../Icons/Icon'
 import './Sidebar.css'
 
 // Resizable sidebar sections — each section body has a drag-set height and its
@@ -90,11 +91,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {repoName ? (
           <>
             <button className="sb-repo-name" onClick={onRevealRepo} title={`${repoPath!}\n(click to open folder)`}>
-              <span className="sb-repo-icon">⎇</span>
+              <span className="sb-repo-icon"><Icon name="branch" size={13} /></span>
               <span className="truncate">{repoName}</span>
             </button>
             <button className="sb-home-btn" onClick={onGoHome} title="Close repository">
-              ← Home
+              <Icon name="home" size={12} /> Home
             </button>
           </>
         ) : (
@@ -167,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <SidebarItem
                   key={s.index}
                   label={s.message}
-                  icon="≡"
+                  icon="stash"
                   selected={selectedRef === `stash:${s.index}`}
                   onClick={() => onSelectRef(`stash:${s.index}`)}
                   onDoubleClick={() => onApplyStash(s.index)}
@@ -196,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <SidebarItem
                     key={w.path}
                     label={`${w.branch || 'detached'}${w.isMain ? '  (main)' : ''}`}
-                    icon={isCurrent ? '◉' : '⊞'}
+                    icon={isCurrent ? 'dot-circle' : 'worktree'}
                     selected={isCurrent}
                     onClick={() => onWorktreeClick(w.path)}
                     onContextMenu={(e) => onWorktreeContextMenu(e, w.path, w.isMain)}
@@ -217,7 +218,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <SidebarItem
                   key={t.name}
                   label={t.name}
-                  icon="🏷"
+                  icon="tag"
                   selected={selectedRef === `tag:${t.name}`}
                   onClick={() => onSelectRef(`tag:${t.name}`)}
                   onDoubleClick={() => onCreateBranchFromTag(t.name)}
@@ -318,7 +319,7 @@ function RemoteGroup({
     <details className="sb-remote-group" open>
       <summary className="sb-remote-header" title={url}>
         <span className="sb-chevron">›</span>
-        <span className="sb-remote-icon">⛅</span>
+        <span className="sb-remote-icon"><Icon name="cloud" size={12} /></span>
         <span className="sb-remote-name">{remote}</span>
         <span className="sb-count">{items.length}</span>
       </summary>
@@ -396,7 +397,9 @@ function BranchRow({
       title={name}
       style={isRemote ? { paddingLeft: 28 } : undefined}
     >
-      <span className="sb-item-icon">{isCurrent ? '✓' : (isRemote ? '↳' : '○')}</span>
+      <span className="sb-item-icon">
+        <Icon name={isCurrent ? 'check' : (isRemote ? 'corner-down-right' : 'circle')} size={12} />
+      </span>
       <span className="sb-item-label truncate" style={isCurrent ? { fontWeight: 600 } : undefined}>
         {name}
       </span>
@@ -414,7 +417,7 @@ function SidebarItem({
   title,
 }: {
   label: string
-  icon: string
+  icon: IconName
   selected: boolean
   onClick: () => void
   onDoubleClick?: () => void
@@ -429,7 +432,7 @@ function SidebarItem({
       onContextMenu={onContextMenu}
       title={title ?? label}
     >
-      <span className="sb-item-icon">{icon}</span>
+      <span className="sb-item-icon"><Icon name={icon} size={12} /></span>
       <span className="sb-item-label truncate">{label}</span>
     </button>
   )

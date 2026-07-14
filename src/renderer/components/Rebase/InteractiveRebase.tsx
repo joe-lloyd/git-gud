@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react'
+import { Icon } from '../Icons/Icon'
 import './InteractiveRebase.css'
 
 interface RebaseCommit {
@@ -87,7 +88,7 @@ export const InteractiveRebase: React.FC<InteractiveRebaseProps> = ({ commits, o
         <div className="ir-header">
           <h2>Interactive Rebase</h2>
           <p className="ir-hint">Drag to reorder · Click action to cycle · Double-click message to reword</p>
-          <button className="ir-close" onClick={onClose}>✕</button>
+          <button className="ir-close" onClick={onClose}><Icon name="x" size={13} /></button>
         </div>
 
         <div className="ir-body">

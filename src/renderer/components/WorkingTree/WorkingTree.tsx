@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react'
 import type { RepoStatus, FileChange } from '../../../preload/index'
 import { ConfirmModal } from '../AppAux/AuxComponents'
+import { Icon } from '../Icons/Icon'
 import './WorkingTree.css'
 
 interface WorkingTreeProps {
@@ -211,9 +212,9 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
             Changes {unstagedCount > 0 && <span className="wt-count">{unstagedCount}</span>}
           </span>
           {unstagedCount > 0 && (
-            <button className="wt-header-btn" onClick={handleStageAll}>Stage all ↓</button>
+            <button className="wt-header-btn" onClick={handleStageAll}>Stage all <Icon name="arrow-down" size={11} /></button>
           )}
-          <button className="wt-refresh-btn" onClick={onRefresh} title="Refresh">⟳</button>
+          <button className="wt-refresh-btn" onClick={onRefresh} title="Refresh"><Icon name="refresh" size={12} /></button>
         </div>
         <div className="wt-files">
           {loading && <div className="wt-loading">Loading…</div>}
@@ -227,7 +228,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
               statusCode={r.file.status}
               label={statusLabel[r.file.status] ?? (r.isUntracked ? 'Untracked' : 'Unknown')}
               color={statusColor[r.file.status] ?? (r.isUntracked ? '#68d391' : '#8b949e')}
-              actionIcon="↓"
+              action="stage"
               onAction={() => handleStage([r.file.path])}
               onDiscard={() => handleDiscard(r)}
               onSelect={() => { setFocusedIdx(idx); onSelectDiff(r.file.path, false) }}
@@ -250,7 +251,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
           {stagedCount > 0 && (
             <button className="wt-header-btn"
               onClick={() => status && handleUnstage(status.staged.map(f => f.path))}>
-              Unstage all ↑
+              Unstage all <Icon name="arrow-up" size={11} />
             </button>
           )}
         </div>
@@ -263,7 +264,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
               rowRef={(el) => { rowRefs.current[idx] = el }}
               focused={focusedIdx === idx}
               statusCode={r.file.status} label={statusLabel[r.file.status] ?? 'Unknown'} color={statusColor[r.file.status] ?? '#8b949e'}
-              actionIcon="↑"
+              action="unstage"
               onAction={() => handleUnstage([r.file.path])}
               onDiscard={() => handleDiscard(r)}
               onSelect={() => { setFocusedIdx(idx); onSelectDiff(r.file.path, true) }}
@@ -286,7 +287,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
         </label>
         {amend && (status?.ahead ?? 0) === 0 && (
           <div className="wt-amend-warn">
-            ⚠ This commit has been pushed — amending will require force-push.
+            <Icon name="warning" size={12} /> This commit has been pushed — amending will require force-push.
           </div>
         )}
 
@@ -360,12 +361,12 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
 
 // ── FileRow ───────────────────────────────────────────────────────────────────
 
-function FileRow({ file, statusCode, label, color, actionIcon, onAction, onDiscard, focused, onSelect, rowRef }: {
+function FileRow({ file, statusCode, label, color, action, onAction, onDiscard, focused, onSelect, rowRef }: {
   file: FileChange
   statusCode: string
   label: string
   color: string
-  actionIcon: string
+  action: 'stage' | 'unstage'
   onAction: () => void
   onDiscard: () => void
   focused?: boolean
@@ -396,16 +397,16 @@ function FileRow({ file, statusCode, label, color, actionIcon, onAction, onDisca
         onClick={(e) => { e.stopPropagation(); onDiscard() }}
         title="Discard"
       >
-        ✗
+        <Icon name="x" size={12} />
       </span>
       <span
         className="wt-file-action"
         role="button"
         tabIndex={-1}
         onClick={(e) => { e.stopPropagation(); onAction() }}
-        title={actionIcon === '↓' ? 'Stage' : 'Unstage'}
+        title={action === 'stage' ? 'Stage' : 'Unstage'}
       >
-        {actionIcon}
+        <Icon name={action === 'stage' ? 'arrow-down' : 'arrow-up'} size={12} />
       </span>
     </button>
   )

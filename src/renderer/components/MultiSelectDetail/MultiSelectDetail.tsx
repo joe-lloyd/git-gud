@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import type { CommitNode } from '../../../preload/index'
+import { Icon } from '../Icons/Icon'
 import './MultiSelectDetail.css'
 
 interface MultiSelectDetailProps {
@@ -69,14 +70,14 @@ export const MultiSelectDetail: React.FC<MultiSelectDetailProps> = ({
 
       {/* Bulk actions */}
       <div className="msd-actions">
-        <button className="btn btn-primary" disabled={!contiguous} onClick={onSquash} title={contiguous ? 'Combine into one commit' : 'Selection must be adjacent'}>⊞ Squash</button>
-        <button className="btn btn-ghost" onClick={onCherryPick} title="Apply onto current branch">⊕ Cherry-pick</button>
-        <button className="btn btn-ghost" onClick={onRevert} title="Revert on current branch">↶ Revert</button>
-        <button className="btn btn-danger" disabled={!contiguous} onClick={onDrop} title={contiguous ? 'Remove from history' : 'Selection must be adjacent'}>🗑 Drop</button>
+        <button className="btn btn-primary" disabled={!contiguous} onClick={onSquash} title={contiguous ? 'Combine into one commit' : 'Selection must be adjacent'}><Icon name="squash" size={13} /> Squash</button>
+        <button className="btn btn-ghost" onClick={onCherryPick} title="Apply onto current branch"><Icon name="cherry-pick" size={13} /> Cherry-pick</button>
+        <button className="btn btn-ghost" onClick={onRevert} title="Revert on current branch"><Icon name="revert" size={13} /> Revert</button>
+        <button className="btn btn-danger" disabled={!contiguous} onClick={onDrop} title={contiguous ? 'Remove from history' : 'Selection must be adjacent'}><Icon name="trash" size={13} /> Drop</button>
       </div>
       <div className="msd-actions msd-actions-sub">
-        <button className="btn btn-ghost" onClick={onCopyShas}>⧉ Copy SHAs</button>
-        <button className="btn btn-ghost" onClick={onClear}>✕ Clear</button>
+        <button className="btn btn-ghost" onClick={onCopyShas}><Icon name="copy" size={13} /> Copy SHAs</button>
+        <button className="btn btn-ghost" onClick={onClear}><Icon name="x" size={13} /> Clear</button>
       </div>
 
       {/* Selected commit list */}

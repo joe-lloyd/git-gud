@@ -27,5 +27,5 @@
 .cm-item.danger { color: var(--danger); }
 .cm-item.danger:hover:not(:disabled) { background: rgba(252,129,129,0.12); }
 .cm-item:disabled { opacity: 0.35; cursor: not-allowed; }
-.cm-icon { font-size: 13px; width: 16px; text-align: center; }
+.cm-icon { width: 16px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .cm-sep { height: 1px; background: var(--border); margin: 3px 0; }

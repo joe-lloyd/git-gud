@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
+import { Icon, IconName } from '../Icons/Icon'
 import './ContextMenu.css'
 
 export interface ContextMenuAction {
   label: string
-  icon?: string
+  icon?: IconName
   danger?: boolean
   disabled?: boolean
   separator?: boolean
@@ -36,7 +37,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, actions, onClose
               disabled={a.disabled}
               onClick={(e) => { e.stopPropagation(); if (!a.disabled) a.onClick() }}
             >
-              {a.icon && <span className="cm-icon">{a.icon}</span>}
+              {a.icon && <span className="cm-icon"><Icon name={a.icon} size={14} /></span>}
               {a.label}
             </button>
           )

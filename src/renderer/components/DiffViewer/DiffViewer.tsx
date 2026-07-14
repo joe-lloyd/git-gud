@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useToasts } from '../Toast/Toast'
 import { resolveLanguage, highlightLines } from '../../lib/highlight'
+import { Icon } from '../Icons/Icon'
 import './DiffViewer.css'
 
 // Files larger than this skip syntax highlighting — tokenization scales with
@@ -405,7 +406,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
             ?
           </button>
         )}
-        <button className="diff-close" onClick={onClose} title="Close diff (Esc)">✕ Close</button>
+        <button className="diff-close" onClick={onClose} title="Close diff (Esc)"><Icon name="x" size={12} /> Close</button>
       </div>
       {showShortcuts && !isCommitMode && (
         <div className="diff-shortcuts">
@@ -475,14 +476,14 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                         {type === 'hunk' && !isCommitMode && (
                           <span className="diff-chunk-actions">
                             <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
-                              {staged ? 'Unstage chunk ↑' : 'Stage chunk ↓'}
+                              {staged ? <>Unstage chunk <Icon name="arrow-up" size={11} /></> : <>Stage chunk <Icon name="arrow-down" size={11} /></>}
                             </button>
                             <button
                               className={`diff-chunk-btn diff-chunk-btn-danger ${discardArmed === i ? 'armed' : ''}`}
                               onClick={() => handleDiscardChunk(i)}
                               title={discardArmed === i ? 'Click again within 3s to confirm' : 'Discard this chunk (irreversible)'}
                             >
-                              {discardArmed === i ? 'Click again to discard ✗' : 'Discard chunk ✗'}
+                              {discardArmed === i ? <>Click again to discard <Icon name="x" size={11} /></> : <>Discard chunk <Icon name="x" size={11} /></>}
                             </button>
                           </span>
                         )}
@@ -559,14 +560,14 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                       {type === 'hunk' && !isCommitMode && (
                         <span className="diff-chunk-actions">
                           <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
-                            {staged ? 'Unstage chunk ↑' : 'Stage chunk ↓'}
+                            {staged ? <>Unstage chunk <Icon name="arrow-up" size={11} /></> : <>Stage chunk <Icon name="arrow-down" size={11} /></>}
                           </button>
                           <button
                             className={`diff-chunk-btn diff-chunk-btn-danger ${discardArmed === i ? 'armed' : ''}`}
                             onClick={() => handleDiscardChunk(i)}
                             title={discardArmed === i ? 'Click again within 3s to confirm' : 'Discard this chunk (irreversible)'}
                           >
-                            {discardArmed === i ? 'Click again to discard ✗' : 'Discard chunk ✗'}
+                            {discardArmed === i ? <>Click again to discard <Icon name="x" size={11} /></> : <>Discard chunk <Icon name="x" size={11} /></>}
                           </button>
                         </span>
                       )}

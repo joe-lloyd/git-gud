@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Icon } from '../Icons/Icon'
 
 interface ErrorBoundaryState { err: Error | null }
 
@@ -26,7 +27,7 @@ export class ErrorBoundary extends React.Component<
           background: 'var(--bg-deepest)', color: 'var(--text-primary)',
         }}
       >
-        <div style={{ fontSize: 36, color: 'var(--danger)' }}>⚠</div>
+        <div style={{ color: 'var(--danger)' }}><Icon name="warning" size={36} /></div>
         <h2 style={{ margin: 0, fontSize: 18 }}>Something broke in the UI</h2>
         <pre
           style={{
@@ -48,7 +49,7 @@ export class ErrorBoundary extends React.Component<
 export function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <div className="welcome">
-      <div style={{ fontSize: 32, color: 'var(--danger)' }}>⚠</div>
+      <div style={{ color: 'var(--danger)' }}><Icon name="warning" size={32} /></div>
       <p style={{ color: 'var(--danger)', maxWidth: 400, textAlign: 'center' }}>{error}</p>
       <button className="btn btn-ghost" onClick={onRetry}>Retry</button>
     </div>
@@ -58,7 +59,7 @@ export function ErrorState({ error, onRetry }: { error: string; onRetry: () => v
 export function LoadingState() {
   return (
     <div className="welcome">
-      <div style={{ fontSize: 32, display: 'inline-block' }} className="spin">⟳</div>
+      <div style={{ display: 'inline-block' }} className="spin"><Icon name="refresh" size={32} /></div>
       <p>Loading repository…</p>
     </div>
   )
@@ -193,7 +194,9 @@ export function ConfirmModal({
         onClick={e => e.stopPropagation()}
       >
         {/* Icon */}
-        <div style={{ fontSize: 30, marginBottom: 12, lineHeight: 1 }}>{danger ? '⚠️' : 'ℹ️'}</div>
+        <div style={{ marginBottom: 12, lineHeight: 1, color: danger ? 'var(--danger)' : 'var(--text-muted)' }}>
+          <Icon name={danger ? 'warning' : 'info'} size={30} />
+        </div>
         <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--text-primary)' }}>{title}</h3>
         <p style={{ margin: '0 0 6px', fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>{message}</p>
         {detail && <p style={{ margin: '0 0 20px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>{detail}</p>}
@@ -242,7 +245,7 @@ export function ChoiceModal({ title, message, detail, actions, onClose }: Choice
         style={{ width: 420, padding: 28, background: 'var(--bg-elevated)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 16px 50px rgba(0,0,0,0.6)' }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ fontSize: 30, marginBottom: 12, lineHeight: 1 }}>❓</div>
+        <div style={{ marginBottom: 12, lineHeight: 1, color: 'var(--text-muted)' }}><Icon name="question" size={30} /></div>
         <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h3>
         <p style={{ margin: '0 0 6px', fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>{message}</p>
         {detail && <p style={{ margin: '0 0 20px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>{detail}</p>}

@@ -3,6 +3,7 @@ import type { ConflictFile } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
 import { resolveLanguage, highlightLines } from '../../lib/highlight'
 import { ConfirmModal } from '../AppAux/AuxComponents'
+import { Icon } from '../Icons/Icon'
 import './ConflictEditor.css'
 
 interface ConflictEditorProps {
@@ -149,14 +150,14 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
         <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Saving…' : 'Save & Mark Resolved'}
         </button>
-        <button className="ce-close" onClick={onClose} title="Close (Esc)">✕</button>
+        <button className="ce-close" onClick={onClose} title="Close (Esc)"><Icon name="x" size={13} /></button>
       </div>
 
       <div className="ce-toolbar">
-        <button className="ce-action" onClick={() => setResolved(panes.current.fullText)}>⇐ Take all current</button>
-        <button className="ce-action" onClick={() => setResolved(panes.incoming.fullText)}>Take all incoming ⇒</button>
+        <button className="ce-action" onClick={() => setResolved(panes.current.fullText)}><Icon name="arrow-left" size={12} /> Take all current</button>
+        <button className="ce-action" onClick={() => setResolved(panes.incoming.fullText)}>Take all incoming <Icon name="arrow-right" size={12} /></button>
         <div style={{ flex: 1 }} />
-        {hasMarkers && <span className="ce-warning">⚠ Conflict markers still present</span>}
+        {hasMarkers && <span className="ce-warning"><Icon name="warning" size={12} /> Conflict markers still present</span>}
       </div>
 
       <div className="ce-body">

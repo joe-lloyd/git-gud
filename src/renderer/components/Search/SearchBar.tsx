@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import type { CommitNode } from '../../../preload/index'
+import { Icon } from '../Icons/Icon'
 import './SearchBar.css'
 
 interface SearchBarProps {
@@ -64,7 +65,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ commits, onSelect, onClose
         </div>
 
         <div className="search-input-row">
-          <span className="search-icon">🔍</span>
+          <span className="search-icon"><Icon name="search" size={14} /></span>
           <input
             ref={inputRef}
             className="search-input"
@@ -77,7 +78,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ commits, onSelect, onClose
             }}
           />
           {query && (
-            <button className="search-clear" onClick={() => setQuery('')}>✕</button>
+            <button className="search-clear" onClick={() => setQuery('')}><Icon name="x" size={12} /></button>
           )}
         </div>
 

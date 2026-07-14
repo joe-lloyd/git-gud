@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import type { WorktreeInfo } from '../../../preload/index'
 import { worktreeBaseFor, defaultWorktreePath } from '../../lib/worktree-path'
+import { Icon } from '../Icons/Icon'
 import './Worktrees.css'
 
 interface WorktreesProps {
@@ -80,7 +81,7 @@ export const Worktrees: React.FC<WorktreesProps> = ({ currentPath, onClose, onSw
         <div className="ir-header">
           <h2>Worktrees</h2>
           <span style={{ flex: 1 }} />
-          <button className="ir-close" onClick={onClose}>✕</button>
+          <button className="ir-close" onClick={onClose}><Icon name="x" size={13} /></button>
         </div>
 
         <div className="wtp-body">
@@ -110,7 +111,7 @@ export const Worktrees: React.FC<WorktreesProps> = ({ currentPath, onClose, onSw
               <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                 {t.path !== currentPath && (
                   <button className="btn btn-primary" style={{ fontSize: 11 }} onClick={() => handleSwitch(t.path)}>
-                    Switch →
+                    Switch <Icon name="arrow-right" size={11} />
                   </button>
                 )}
                 {!t.isMain && (

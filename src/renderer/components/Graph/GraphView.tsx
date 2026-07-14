@@ -13,6 +13,7 @@ import { buildGraphLayout, GraphNode } from "./graphLayout";
 import GraphLayoutWorker from "./graphLayout.worker?worker";
 import type { CommitNode, StashInfo } from "../../../preload/index";
 import { RefGroup, groupRefs, pickPrimaryRefGroup } from "../../lib/refs";
+import { Icon } from "../Icons/Icon";
 import "./GraphView.css";
 
 // Above this commit count, lay the graph out in a Web Worker so a huge history
@@ -590,11 +591,11 @@ function RefPill({
 
   // Build tooltip lines
   const lines: string[] = [];
-  if (group.isTag)  lines.push("🏷  tag");
-  if (group.isHead) lines.push("◉  current HEAD");
-  if (group.hasLocal  && !group.isTag) lines.push("⎇  local branch");
-  if (group.hasRemote && !group.isTag) lines.push("↑  remote branch");
-  if (group.hasWorktree) lines.push("⊞  checked out in worktree");
+  if (group.isTag)  lines.push("tag");
+  if (group.isHead) lines.push("current HEAD");
+  if (group.hasLocal  && !group.isTag) lines.push("local branch");
+  if (group.hasRemote && !group.isTag) lines.push("remote branch");
+  if (group.hasWorktree) lines.push("checked out in worktree");
   lines.push(group.tooltip);
 
   const isTag = group.isTag;
@@ -662,11 +663,11 @@ function RefPill({
         onContextMenu={onContextMenu ? (e) => onContextMenu(e, refName, kind) : undefined}
         data-ref-name={refName}
       >
-        {isTag          && <span className="rp-icon">🏷</span>}
-        {group.isHead   && <span className="rp-icon rp-head">◉</span>}
-        {group.hasLocal && !isTag && <span className="rp-icon rp-local">⎇</span>}
-        {group.hasRemote && <span className="rp-icon rp-remote">↑</span>}
-        {group.hasWorktree && <span className="rp-icon rp-worktree">⊞</span>}
+        {isTag          && <span className="rp-icon"><Icon name="tag" size={10} /></span>}
+        {group.isHead   && <span className="rp-icon rp-head"><Icon name="dot-circle" size={10} /></span>}
+        {group.hasLocal && !isTag && <span className="rp-icon rp-local"><Icon name="branch" size={10} /></span>}
+        {group.hasRemote && <span className="rp-icon rp-remote"><Icon name="cloud" size={10} /></span>}
+        {group.hasWorktree && <span className="rp-icon rp-worktree"><Icon name="worktree" size={10} /></span>}
         <span className="rp-name">{group.name}</span>
       </span>
 

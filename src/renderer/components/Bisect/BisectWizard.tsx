@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import type { CommitNode } from '../../../preload/index'
+import { Icon } from '../Icons/Icon'
 import './BisectWizard.css'
 
 interface BisectWizardProps {
@@ -62,7 +63,7 @@ export const BisectWizard: React.FC<BisectWizardProps> = ({ commits, onClose }) 
       <div className="bisect-header">
         <h2>Git Bisect</h2>
         <span className="bisect-hint">Binary search for the first bad commit</span>
-        <button className="bisect-close" onClick={onClose}>✕</button>
+        <button className="bisect-close" onClick={onClose}><Icon name="x" size={13} /></button>
       </div>
 
       <div className="bisect-body">
@@ -97,7 +98,7 @@ export const BisectWizard: React.FC<BisectWizardProps> = ({ commits, onClose }) 
             <>
               <div className="bisect-output mono">{output || 'Bisect started — mark commits below'}</div>
               {state === 'done' && (
-                <div className="bisect-result">✅ Bug introduced found! See output above.</div>
+                <div className="bisect-result"><Icon name="check-circle" size={13} /> Bug introduced found! See output above.</div>
               )}
               <div className="bisect-commit-list">
                 {visibleCommits.map((c) => {
@@ -112,12 +113,12 @@ export const BisectWizard: React.FC<BisectWizardProps> = ({ commits, onClose }) 
                       <span className="ir-msg truncate">{c.message}</span>
                       {!isGood && !isBad && state === 'running' && (
                         <div className="bisect-actions">
-                          <button className="bisect-btn good" onClick={() => handleGood(c.sha)}>Good ✓</button>
-                          <button className="bisect-btn bad" onClick={() => handleBad(c.sha)}>Bad ✗</button>
+                          <button className="bisect-btn good" onClick={() => handleGood(c.sha)}>Good <Icon name="check" size={11} /></button>
+                          <button className="bisect-btn bad" onClick={() => handleBad(c.sha)}>Bad <Icon name="x" size={11} /></button>
                         </div>
                       )}
-                      {isGood && <span className="bisect-tag good">✓ good</span>}
-                      {isBad  && <span className="bisect-tag bad">✗ bad</span>}
+                      {isGood && <span className="bisect-tag good"><Icon name="check" size={10} /> good</span>}
+                      {isBad  && <span className="bisect-tag bad"><Icon name="x" size={10} /> bad</span>}
                     </div>
                   )
                 })}

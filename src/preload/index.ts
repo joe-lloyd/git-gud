@@ -36,6 +36,8 @@ export type RepoStatus = {
   ahead: number
   behind: number
   conflict?: ConflictState
+  // True while a `git bisect` session is in progress (BISECT_LOG exists).
+  inBisect: boolean
 }
 
 // Snapshot of in-flight merge/rebase. Empty conflictedFiles + inMerge/inRebase

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import type { RepoStatus } from '../../../preload/index'
+import { Icon } from '../Icons/Icon'
 import './PatchPanel.css'
 
 interface PatchPanelProps {
@@ -119,7 +120,7 @@ export const PatchPanel: React.FC<PatchPanelProps> = ({ status, onClose }) => {
           <button className={`patch-tab ${mode === 'apply'  ? 'active' : ''}`} onClick={() => setMode('apply')}>Apply</button>
         </div>
         <span style={{ flex: 1 }} />
-        <button className="patch-close" onClick={onClose}>✕</button>
+        <button className="patch-close" onClick={onClose}><Icon name="x" size={13} /></button>
       </div>
 
       <div className="patch-body">

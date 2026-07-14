@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { CommitNode } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
 import { ConfirmModal } from '../AppAux/AuxComponents'
+import { Icon } from '../Icons/Icon'
 import './ReflogPanel.css'
 
 interface ReflogPanelProps {
@@ -57,7 +58,7 @@ export const ReflogPanel: React.FC<ReflogPanelProps> = ({ repoPath, onClose, onR
         <span className="reflog-title">Reflog</span>
         <span className="reflog-sub">HEAD history — recover lost commits</span>
         <span style={{ flex: 1 }} />
-        <button className="reflog-close" onClick={onClose} title="Close">✕</button>
+        <button className="reflog-close" onClick={onClose} title="Close"><Icon name="x" size={13} /></button>
       </div>
 
       {loading ? (
