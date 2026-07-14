@@ -18,7 +18,10 @@
     "typecheck": "tsc --noEmit",
     "dist": "pnpm build && electron-builder",
     "dist:mac": "pnpm build && electron-builder --mac",
-    "release": "bash scripts/release.sh"
+    "release": "bash scripts/release.sh",
+    "release:major": "bash scripts/bump-release.sh major",
+    "release:minor": "bash scripts/bump-release.sh minor",
+    "release:patch": "bash scripts/bump-release.sh patch"
   },
   "dependencies": {
     "@octokit/rest": "^19.0.13",
