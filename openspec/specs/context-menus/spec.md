@@ -1,7 +1,7 @@
 # context-menus Specification
 
 ## Purpose
-TBD - created by archiving change gitkraken-clone-audit-and-complete. Update Purpose after archive.
+TBD - created by archiving change clone-audit-and-complete. Update Purpose after archive.
 ## Requirements
 ### Requirement: Right-click on a commit node opens the commit context menu
 

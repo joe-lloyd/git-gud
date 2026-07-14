@@ -8,7 +8,7 @@
 - Document five capabilities at requirement level: workspace layout/resizing, appearance settings, the commit graph view, multi-select commit operations, and worktree management.
 - Each requirement is written as a verifiable behavior (WHEN/THEN scenarios) so it can back a regression test or manual check.
 - No code changes — this is documentation only. It records the contract that existing code already satisfies (and, where this session fixed a bug, the corrected behavior).
-- Capabilities already owned by in-flight changes (`add-commit-hook-output` → commit output, `add-syntax-highlighting` → diff/conflict highlighting, `git-feature-coverage` → reflog/amend/pickaxe/etc., `gitkraken-clone-audit-and-complete` → graph performance/context menus) are **out of scope here** and referenced rather than re-specified.
+- Capabilities already owned by in-flight changes (`add-commit-hook-output` → commit output, `add-syntax-highlighting` → diff/conflict highlighting, `git-feature-coverage` → reflog/amend/pickaxe/etc., `clone-audit-and-complete` → graph performance/context menus) are **out of scope here** and referenced rather than re-specified.
 
 ## Capabilities
 

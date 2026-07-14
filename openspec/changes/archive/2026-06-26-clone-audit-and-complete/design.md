@@ -129,6 +129,6 @@ Rollback: revert the merge commit. No state migration to undo.
 
 ## Open Questions
 
-- Should the diff viewer default to **side-by-side** or **inline**? Proposal says "side-by-side or inline" — pick a default and add a toggle. Recommend side-by-side default to match GitKraken's visual identity.
+- Should the diff viewer default to **side-by-side** or **inline**? Proposal says "side-by-side or inline" — pick a default and add a toggle. Recommend side-by-side default to match the app's visual identity.
 - Tag double-click: detached-HEAD checkout, or open "Create branch from tag"? Recommend the latter; safer.
 - Drag-and-drop on the sidebar: should dragging a branch onto another sidebar branch also trigger the menu? Recommend yes (consistency), confirm in implementation.

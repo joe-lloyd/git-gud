@@ -1,7 +1,7 @@
 // GitHub OAuth (device flow) client ID.
 //
 // This is a PUBLIC identifier, not a secret — device-flow apps ship their
-// client ID in the binary (the gh CLI and GitKraken do the same). The user
+// client ID in the binary (the gh CLI does the same). The user
 // still has to approve the sign-in on github.com, and the resulting token is
 // stored encrypted via safeStorage on this machine only.
 //

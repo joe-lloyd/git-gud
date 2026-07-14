@@ -61,7 +61,7 @@ Tasks added in response to user feedback from the first smoke test:
 
 - [x] 6.5.1 Refresh after focus / FS-watcher / mutation no longer shows a spinner — `useGitRepo` split into `loadRepo` (heavyweight, sets loading) and `refresh`/`fetchAll` (silent). Refresh no longer calls `openPath`, so it doesn't recreate the main-process `GitService` or restart the watcher.
 - [x] 6.5.2 Project-switch bug after commit/branch creation — root cause was `refresh` re-calling `openPath`. Fixed by silent refresh above. Multi-tab architecture also makes the active service explicit so future races can't sneak in.
-- [x] 6.5.3 Multi-repo tabs (GitKraken-style) — main holds `services: Map<path, GitService>` + an active pointer; new IPCs `git:activate-path`, `git:close-tab`, `git:active-path`, `git:open-tabs`. Renderer tracks `openTabs[]`; new `<TabBar>` at the top renders one tab per open repo with close (×) + middle-click close + new (+) buttons.
+- [x] 6.5.3 Multi-repo tabs (browser-style) — main holds `services: Map<path, GitService>` + an active pointer; new IPCs `git:activate-path`, `git:close-tab`, `git:active-path`, `git:open-tabs`. Renderer tracks `openTabs[]`; new `<TabBar>` at the top renders one tab per open repo with close (×) + middle-click close + new (+) buttons.
 - [x] 6.5.4 LOCAL BRANCHES + TAGS sidebar sections compressed to "current + 3 peek + N more →" with a hover popover anchored to the side that shows the overflow without clipping. Current branch always sorted to top.
 
 - [ ] 7.1 Smoke-test: open a real GitHub repo, run end-to-end flow (open → scroll → stage → commit → branch → merge via DnD → close); zero console errors
@@ -69,4 +69,4 @@ Tasks added in response to user feedback from the first smoke test:
 - [ ] 7.3 Exercise every context menu surface (commit, local branch, remote branch, sidebar stash, ref pill) and confirm all actions complete cleanly
 - [ ] 7.4 Exercise drag-and-drop merge between two branches against a dirty working tree; confirm autostash + restore works in both success and failure (force a conflict)
 - [ ] 7.5 Update README screenshots and short demo gif (optional but recommended)
-- [ ] 7.6 Run `openspec archive --change gitkraken-clone-audit-and-complete` after merging
+- [ ] 7.6 Run `openspec archive --change clone-audit-and-complete` after merging

@@ -1,7 +1,7 @@
 /**
  * Graph layout algorithm.
  * Assigns each commit to a "lane" (column) for rendering.
- * Produces GitKraken-style colored lanes with bezier curves connecting parents.
+ * Produces colored lanes with bezier curves connecting parents.
  */
 
 import type { CommitNode } from '../../preload/index'

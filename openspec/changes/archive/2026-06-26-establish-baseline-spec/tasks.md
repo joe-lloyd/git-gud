@@ -8,7 +8,7 @@
 
 ## 2. Reconcile and finalize
 
-- [x] 2.1 Naming decision: keep baseline `commit-graph` as the concrete render/interaction spec; the graph *performance* capabilities in `gitkraken-clone-audit-and-complete` stay separate and unarchived — reconcile only if/when that change archives.
+- [x] 2.1 Naming decision: keep baseline `commit-graph` as the concrete render/interaction spec; the graph *performance* capabilities in `clone-audit-and-complete` stay separate and unarchived — reconcile only if/when that change archives.
 - [x] 2.2 `openspec validate establish-baseline-spec` passes with no errors.
 - [x] 2.3 No divergences found in section 1 — specs were authored directly from current code (including this session's fixes), so none needed correcting.
 

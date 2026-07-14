@@ -1,7 +1,7 @@
 # working-tree-panel Specification
 
 ## Purpose
-TBD - created by archiving change gitkraken-clone-audit-and-complete. Update Purpose after archive.
+TBD - created by archiving change clone-audit-and-complete. Update Purpose after archive.
 ## Requirements
 ### Requirement: Working-Tree panel shows split Unstaged / Staged lists
 

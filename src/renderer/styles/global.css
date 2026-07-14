@@ -2,7 +2,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* Core palette — dark, rich, GitKraken-inspired */
+  /* Core palette — dark, rich, neon-accented */
   --bg-deepest:    #0d1117;
   --bg-base:       #13181f;
   --bg-elevated:   #1a2030;
@@ -220,17 +220,15 @@ button {
 /* Hover commit row → bump the row's own ref pills */
 /* No hover lift/shadow on ref pills — hovering a pill only opens its tooltip. */
 
-/* Icon spans inside a pill */
+/* Icon spans inside a pill — icons inherit the pill's color (in the graph
+   that's the commit's lane color, set inline by RefPill). */
 .rp-icon {
-  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
   line-height: 1;
   flex-shrink: 0;
   opacity: 0.9;
 }
-.rp-head    { color: #fbb6ce; font-size: 10px; }
-.rp-local   { color: #ff4fc3; }
-.rp-remote  { color: #68d391; font-size: 11px; font-weight: 700; }
-.rp-worktree { color: #f6ad55; font-size: 10px; }
 .rp-name { overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Ref pill hover tooltip ───────────────────────────────────────────── */

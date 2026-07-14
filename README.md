@@ -1,7 +1,7 @@
 <div align="center">
   <img src="resources/icon.svg" width="120" alt="Git Gud logo" />
   <h1>Git Gud</h1>
-  <p><strong>A powerful, beautiful Git client with a GitKraken-inspired commit graph.</strong><br/>
+  <p><strong>A powerful, beautiful Git client with a lane-colored commit graph.</strong><br/>
   Built with Electron + React.</p>
 </div>
 

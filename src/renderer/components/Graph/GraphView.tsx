@@ -468,6 +468,7 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
           {isStash && <span className="cr-stash-badge" title="Stash">◆</span>}
           <RefPillCluster
             groups={groups}
+            laneColor={node.color}
             onContextMenu={onRefContextMenu}
             onRefDrop={onRefDrop}
           />
@@ -509,10 +510,12 @@ CommitRow.displayName = "CommitRow";
 // remote / worktree) in a popover that escapes the clipped refs column.
 function RefPillCluster({
   groups,
+  laneColor,
   onContextMenu,
   onRefDrop,
 }: {
   groups: RefGroup[];
+  laneColor?: string;
   onContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
   onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
 }) {
@@ -526,7 +529,7 @@ function RefPillCluster({
   const rest = groups.length - 1;
 
   if (rest <= 0) {
-    return <RefPill group={primary} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />;
+    return <RefPill group={primary} laneColor={laneColor} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />;
   }
 
   const open = (e: React.MouseEvent<HTMLElement>) => {
@@ -541,7 +544,7 @@ function RefPillCluster({
 
   return (
     <>
-      <RefPill group={primary} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />
+      <RefPill group={primary} laneColor={laneColor} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />
       <span
         className="ref-pill ref-more"
         onMouseEnter={open}
@@ -558,7 +561,7 @@ function RefPillCluster({
           onMouseLeave={scheduleClose}
         >
           {groups.map((g) => (
-            <RefPill key={g.key} group={g} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />
+            <RefPill key={g.key} group={g} laneColor={laneColor} onContextMenu={onContextMenu} onRefDrop={onRefDrop} />
           ))}
         </div>
       )}
@@ -573,10 +576,13 @@ export const REF_DRAG_MIME = "application/x-git-ref";
 
 function RefPill({
   group,
+  laneColor,
   onContextMenu,
   onRefDrop,
 }: {
   group: RefGroup;
+  /** The lane color of the commit this ref sits on — pills match their line. */
+  laneColor?: string;
   onContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
   onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
 }) {
@@ -608,6 +614,21 @@ function RefPill({
     : group.hasRemote
     ? "ref-pill ref-remote"
     : "ref-pill ref-local";
+
+  // Pills take the lane color of the commit they label, so a ref reads as part
+  // of its branch line. The checked-out ref (HEAD) is the one solid-filled
+  // pill; everything else is a tint of the same hue. Ref *kind* is carried by
+  // the icon (branch / cloud / tag), not the color. The class colors above
+  // stay as the fallback for pills rendered outside the graph.
+  const laneStyle: React.CSSProperties | undefined = laneColor
+    ? group.isHead
+      ? { background: laneColor, borderColor: laneColor, color: "var(--on-accent)" }
+      : {
+          background: `color-mix(in srgb, ${laneColor} 16%, transparent)`,
+          borderColor: `color-mix(in srgb, ${laneColor} 45%, transparent)`,
+          color: laneColor,
+        }
+    : undefined;
 
   // Tags can't be merge/rebase/checkout sources.
   // Local branches are draggable; remote branches are draggable (we'll auto-create
@@ -653,6 +674,7 @@ function RefPill({
     <>
       <span
         className={`${cls} ${dragOver ? 'ref-drop-target' : ''}`}
+        style={laneStyle}
         draggable={isDraggable}
         onDragStart={isDraggable ? handleDragStart : undefined}
         onDragOver={handleDragOver}

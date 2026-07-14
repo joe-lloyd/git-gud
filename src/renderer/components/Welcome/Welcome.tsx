@@ -52,7 +52,7 @@ export function Welcome({ onOpen, onClone, onSelectRecent }: WelcomeProps) {
         <use href="#wlFireO" transform="translate(66,17) scale(0.62)"/>
       </svg>
       <h1>Git Gud</h1>
-      <p>A powerful, beautiful Git client with a GitKraken-inspired commit graph.</p>
+      <p>A powerful, beautiful Git client with a lane-colored commit graph.</p>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
         <button className="btn btn-primary" style={{ fontSize: 14, padding: '10px 28px' }} onClick={onOpen}>

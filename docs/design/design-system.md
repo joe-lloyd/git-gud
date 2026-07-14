@@ -8,7 +8,7 @@ here — not from a hardcoded value.
 
 ## Color
 
-Dark, rich, GitKraken-inspired. Neon hot pink is the single brand accent.
+Dark, rich, neon-accented. Neon hot pink is the single brand accent.
 
 ### Surfaces
 

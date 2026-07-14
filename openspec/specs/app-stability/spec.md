@@ -1,7 +1,7 @@
 # app-stability Specification
 
 ## Purpose
-TBD - created by archiving change gitkraken-clone-audit-and-complete. Update Purpose after archive.
+TBD - created by archiving change clone-audit-and-complete. Update Purpose after archive.
 ## Requirements
 ### Requirement: Boot without runtime errors
 

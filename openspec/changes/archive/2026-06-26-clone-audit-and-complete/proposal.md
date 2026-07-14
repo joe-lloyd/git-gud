@@ -1,13 +1,13 @@
 ## Why
 
-`git-gud` aims to be a GitKraken-style desktop Git client but the codebase is partially broken and the GitKraken UX parity is incomplete (drag-and-drop merge/rebase, full context menus on every surface, fluid graph rendering at scale, and an authoritative diff/staging panel). Before adding more features, the app must launch error-free, accurately mirror `.git` state, and render large histories without jank. Then it must close the GitKraken UX gap so the product is recognizable to users coming from GitKraken.
+`git-gud` aims to be a graph-first desktop Git client but the codebase is partially broken and UX parity with commercial Git clients is incomplete (drag-and-drop merge/rebase, full context menus on every surface, fluid graph rendering at scale, and an authoritative diff/staging panel). Before adding more features, the app must launch error-free, accurately mirror `.git` state, and render large histories without jank. Then it must close the UX gap so the product feels immediately familiar to users coming from commercial Git clients.
 
 ## What Changes
 
 - Run a codebase audit pass: fix runtime exceptions, broken imports, console errors, and any state desync between the UI and `.git` (`useGitRepo` cache invalidation on focus/refresh/file-watch).
 - Optimize commit-graph rendering for large repos: viewport-clipped canvas draws, memoized layout, off-main-thread parsing for very large histories where appropriate.
 - Promote `simple-git` usage to a single, well-typed adapter; tighten error handling so merge conflicts, detached HEAD, and missing upstream all surface as toast errors rather than crashes.
-- **GitKraken UX parity**:
+- **Flagship-client UX parity**:
   - Multi-colored, per-branch-consistent commit graph; hover highlights the branch label; click populates the right panel.
   - Drag a branch pointer onto another branch and choose **Merge / Rebase / Checkout** from a contextual drop menu.
   - Left sidebar: collapsible accordion sections for Local Branches, Remote Branches (grouped by remote), Stashes, Tags. Single-click selects; double-click on branch checks out.
