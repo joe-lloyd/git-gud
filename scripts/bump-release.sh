@@ -36,6 +36,8 @@ version="$(node -p "require('./package.json').version")"
 git add package.json
 git commit -m "release v$version"
 git tag "v$version"
-git push --follow-tags
+# Push branch and tag explicitly — --follow-tags skips lightweight tags, and a
+# release where the tag silently stays local never triggers CI.
+git push origin HEAD "v$version"
 
 echo "released v$version — CI is building installers (Actions → Release)."
