@@ -285,7 +285,105 @@ mkdir -p "$PATCH/.patches"
 git_in "$PATCH" format-patch -q -o .patches main..feature/yell >/dev/null
 
 # ════════════════════════════════════════════════════════════════════════════
-# 4. solo — minimal pristine repo (a "fresh start" target).
+# 4. graph-lab — commit-graph lane rendering. Two topologies that the lane
+#    allocator used to get wrong (see BUG_LIST.md):
+#      A. siblings sharing a parent, with an unrelated tip dated between them
+#         → the unrelated tip used to land IN the sibling's fork lane, with the
+#           fork line drawn straight through its node (a parent/child link that
+#           does not exist)
+#      B. a trunk pushed outboard by two branch tips that then end
+#         → the trunk used to stay stranded in the outer lane forever, with the
+#           inner columns sitting empty all the way to the root
+#    Commit dates are explicit because the graph is laid out in --date-order:
+#    the interleaving IS the test.
+# ════════════════════════════════════════════════════════════════════════════
+
+say "Building graph-lab-false-edge + graph-lab-stranded-lane"
+
+# Commit into $1 on an explicit date. The graph is laid out in --date-order,
+# so the dates ARE the test — they decide which row each commit lands on.
+gcommit() {
+  local dir="$1"; local day="$2"; local msg="$3"
+  write_file "$dir" "c${day}.txt" "$msg"
+  GIT_AUTHOR_DATE="2026-03-${day}T12:00:00Z" GIT_COMMITTER_DATE="2026-03-${day}T12:00:00Z" \
+  GIT_AUTHOR_NAME="$AUTHOR_NAME" GIT_AUTHOR_EMAIL="$AUTHOR_EMAIL" \
+  GIT_COMMITTER_NAME="$AUTHOR_NAME" GIT_COMMITTER_EMAIL="$AUTHOR_EMAIL" \
+  git -C "$dir" commit -q -m "$msg"
+}
+
+# ── 4a. graph-lab-false-edge ───────────────────────────────────────────────
+# Two siblings share a parent. The first claims the parent's column; the second
+# has to fork back into it, and that fork is drawn as a vertical run down the
+# SECOND sibling's own column. An unrelated tip dated between them used to be
+# handed that column — putting its node right on the line, which reads as a
+# parent/child link that does not exist.
+FALSE_EDGE="$OUT/graph-lab-false-edge"
+init_repo "$FALSE_EDGE"
+
+gcommit "$FALSE_EDGE" 01 "root of the unrelated branch"
+git_in "$FALSE_EDGE" branch drifter
+gcommit "$FALSE_EDGE" 02 "shared parent of both siblings"
+
+git_in "$FALSE_EDGE" checkout -q -b sibling/one
+gcommit "$FALSE_EDGE" 05 "sibling one (claims the shared parent's lane)"
+
+git_in "$FALSE_EDGE" checkout -q -b sibling/two main
+gcommit "$FALSE_EDGE" 06 "sibling two (forks back to the shared parent)"
+
+git_in "$FALSE_EDGE" checkout -q drifter
+gcommit "$FALSE_EDGE" 04 "UNRELATED tip — must not sit on the fork line"
+git_in "$FALSE_EDGE" checkout -q main
+
+# ── 4b. graph-lab-stranded-lane ────────────────────────────────────────────
+# Two branches off a shared base, both merged back into main. The second merge
+# parent's chain reaches the base first and claims an outer column for it, so
+# the whole remaining trunk used to inherit that outer column and keep it all
+# the way to the root — with the inner columns sitting visibly empty.
+STRANDED="$OUT/graph-lab-stranded-lane"
+init_repo "$STRANDED"
+
+gcommit "$STRANDED" 01 "trunk: root"
+gcommit "$STRANDED" 02 "trunk: second"
+gcommit "$STRANDED" 03 "trunk: third"
+gcommit "$STRANDED" 04 "trunk: fourth"
+gcommit "$STRANDED" 05 "shared base of both feature branches"
+
+# The feature commits are dated AFTER the mainline commit, so they sit above it
+# in --date-order and their chain reaches the shared base first. That is what
+# hands the base an outer column.
+git_in "$STRANDED" checkout -q main
+gcommit "$STRANDED" 06 "trunk: mainline work alongside the features"
+
+git_in "$STRANDED" checkout -q -b feature/two main~1
+gcommit "$STRANDED" 07 "feature two: the work"
+git_in "$STRANDED" checkout -q -b feature/one main~1
+gcommit "$STRANDED" 08 "feature one: the work"
+
+git_in "$STRANDED" checkout -q main
+GIT_AUTHOR_DATE="2026-03-09T12:00:00Z" GIT_COMMITTER_DATE="2026-03-09T12:00:00Z" \
+  git_in "$STRANDED" merge -q --no-ff -m "Merge feature/two" feature/two
+GIT_AUTHOR_DATE="2026-03-10T12:00:00Z" GIT_COMMITTER_DATE="2026-03-10T12:00:00Z" \
+  git_in "$STRANDED" merge -q --no-ff -m "Merge feature/one" feature/one
+gcommit "$STRANDED" 11 "trunk: latest"
+
+# ════════════════════════════════════════════════════════════════════════════
+# 5. lock-lab — a repo wedged by a stale .git/index.lock, as a crashed git
+#    process would leave it. Staging anything must offer "Remove Lock & Retry"
+#    instead of dead-ending on git's fatal.
+# ════════════════════════════════════════════════════════════════════════════
+
+say "Building lock-lab (stale index.lock)"
+
+LOCK="$OUT/lock-lab"
+init_repo "$LOCK"
+write_file "$LOCK" README.md "# Lock lab\n\nStaging here hits a stale index.lock.\n"
+commit_in "$LOCK" "init"
+echo "edit me" > "$LOCK/needs-staging.txt"
+# The stale lock itself — no git process owns it, exactly the crashed-process case.
+: > "$LOCK/.git/index.lock"
+
+# ════════════════════════════════════════════════════════════════════════════
+# 6. solo — minimal pristine repo (a "fresh start" target).
 # ════════════════════════════════════════════════════════════════════════════
 
 say "Building solo (minimal clean repo)"

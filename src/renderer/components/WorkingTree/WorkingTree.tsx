@@ -28,6 +28,9 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   const [error, setError]             = useState<string | null>(null)
   // Pending discard awaiting in-app confirmation.
   const [confirmDiscard, setConfirmDiscard] = useState<{ path: string; staged: boolean; isUntracked: boolean } | null>(null)
+  // A stage/unstage that hit a stale `.git/index.lock`. Holds the operation so
+  // it can be re-run verbatim once the user OKs removing the lock.
+  const [lockedOp, setLockedOp] = useState<{ label: string; retry: () => Promise<void> } | null>(null)
   // Amend mode pre-fills HEAD's message and changes the submit op to
   // `commit --amend`. Stashed previous draft so toggling back restores it.
   const [amend, setAmend] = useState(false)
@@ -62,16 +65,32 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   // ── Git ops ───────────────────────────────────────────────────────
   // Mutations call onRefresh so App-level status updates and all consumers
   // (this panel + graph + sidebar) see the new state.
-  const handleStage   = async (files: string[]) => {
-    const r = await window.gitApi.stage(files)
-    if (!r.success) setError(r.error)
+  // A crashed git process leaves `.git/index.lock` behind and every subsequent
+  // index write fails with a fatal the user can't clear from here. Park the
+  // operation and offer to remove the lock rather than dead-ending them.
+  const runIndexOp = async (label: string, op: () => Promise<{ success: boolean; error?: string; indexLocked?: boolean }>) => {
+    const r = await op()
+    if (!r.success) {
+      if (r.indexLocked) setLockedOp({ label, retry: async () => { await runIndexOp(label, op) } })
+      else setError(r.error ?? `${label} failed`)
+    }
     onRefresh()
   }
-  const handleUnstage = async (files: string[]) => {
-    const r = await window.gitApi.unstage(files)
-    if (!r.success) setError(r.error)
-    onRefresh()
-  }
+
+  const handleStage   = (files: string[]) =>
+    runIndexOp('Stage', () => window.gitApi.stage(files))
+  const handleUnstage = (files: string[]) =>
+    runIndexOp('Unstage', () => window.gitApi.unstage(files))
+
+  // Confirmed "Remove Lock & Retry" — drop the lock file, then re-run the exact
+  // command that failed. A lock still held by a live process reports back as a
+  // plain error instead of being force-removed.
+  const removeLockAndRetry = useCallback(async (retry: () => Promise<void>) => {
+    setError(null)
+    const r = await window.gitApi.removeIndexLock()
+    if (!r.success) { setError(r.error); onRefresh(); return }
+    await retry()
+  }, [onRefresh])
   const handleStageAll = async () => {
     if (!status) return
     const files = [...status.unstaged.map(f => f.path), ...status.untracked]
@@ -353,6 +372,17 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
           danger
           onClose={() => setConfirmDiscard(null)}
           onConfirm={doDiscard}
+        />
+      )}
+
+      {lockedOp && (
+        <ConfirmModal
+          title="Git index is locked"
+          message="A previous Git process may have crashed. Remove the lock file to continue?"
+          detail={`Deletes .git/index.lock, then retries ${lockedOp.label.toLowerCase()}. Only do this if no other Git process is running.`}
+          confirmLabel="Remove Lock & Retry"
+          onClose={() => setLockedOp(null)}
+          onConfirm={() => { void removeLockAndRetry(lockedOp.retry) }}
         />
       )}
     </div>

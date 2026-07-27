@@ -754,6 +754,45 @@ export class GitService {
     await this.git.add(files);
   }
 
+  // Absolute path of `.git/index.lock` for the *active* worktree. Resolved via
+  // rev-parse rather than path.join(repoPath, '.git') because a linked worktree
+  // keeps its index under .git/worktrees/<name>/ and `.git` is a file there.
+  private async indexLockPath(): Promise<string> {
+    const path = await import("path");
+    try {
+      const dir = (await this.git.raw(["rev-parse", "--absolute-git-dir"])).trim();
+      if (dir) return path.join(dir, "index.lock");
+    } catch {
+      /* fall through to the conventional layout */
+    }
+    return path.join(this.repoPath, ".git", "index.lock");
+  }
+
+  // Delete a stale `.git/index.lock` left behind by a crashed git process.
+  // ENOENT means someone already cleaned it up — treat that as success, since
+  // the caller's goal (a usable index) is met. EPERM/EBUSY means a live process
+  // still holds it, which is exactly when removing it would be unsafe.
+  async removeIndexLock(): Promise<{ success: boolean; error?: string; path?: string }> {
+    const fsp = await import("fs/promises");
+    const lock = await this.indexLockPath();
+    try {
+      await fsp.unlink(lock);
+      return { success: true, path: lock };
+    } catch (e: unknown) {
+      const code = (e as NodeJS.ErrnoException)?.code;
+      if (code === "ENOENT") return { success: true, path: lock };
+      if (code === "EPERM" || code === "EACCES" || code === "EBUSY") {
+        return {
+          success: false,
+          path: lock,
+          error:
+            "The lock file is still held by a running process. Close any other git client or terminal running git, then try again.",
+        };
+      }
+      return { success: false, path: lock, error: String(e) };
+    }
+  }
+
   async unstage(files: string[]): Promise<void> {
     await this.git.reset(["HEAD", "--", ...files]);
   }
@@ -1694,6 +1733,19 @@ export class GitService {
       return { success: false, error: String(e) };
     }
   }
+}
+
+// ── Stale index.lock detector ─────────────────────────────────────────────────
+// git refuses to touch the index while `.git/index.lock` exists, and a crashed
+// process leaves one behind for good. Matching the message lets the UI offer a
+// one-click cleanup instead of dead-ending the user in a terminal.
+//   fatal: Unable to create '/repo/.git/index.lock': File exists.
+// Windows produces the same text with backslashes; a linked worktree's lock
+// lives under .git/worktrees/<name>/, hence the loose prefix.
+const INDEX_LOCK_RE = /Unable to create '.*[\\/]index\.lock': File exists/i;
+
+export function isIndexLockError(msg: unknown): boolean {
+  return INDEX_LOCK_RE.test(String(msg ?? ""));
 }
 
 // ── Pull error classifier ─────────────────────────────────────────────────────

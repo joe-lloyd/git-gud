@@ -3,7 +3,7 @@ import { autoUpdater } from 'electron-updater'
 import { basename, join } from 'path'
 import * as fs from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
-import { GitService, redactAuthArgs, scrubSecrets, type GitActivity } from './git-service'
+import { GitService, redactAuthArgs, scrubSecrets, isIndexLockError, type GitActivity } from './git-service'
 import { GitHubService } from './github-service'
 import { ProviderService, type HostedProvider } from './provider-service'
 
@@ -631,16 +631,26 @@ app.whenReady().then(() => {
     return gitService.checkoutAutostash(branch)
   })
 
-  ipcMain.handle('git:stage', async (_event, files: string[]) => {
+  // A stale `.git/index.lock` (crashed git process) fails every index write with
+  // a fatal the user can't act on from the GUI. Flag it so the renderer can
+  // offer "Remove Lock & Retry" instead of just printing the error.
+  const indexWrite = async (run: () => Promise<void>) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.stage(files); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
-  })
+    try { await run(); return { success: true } }
+    catch (e) {
+      return { success: false, error: String(e), indexLocked: isIndexLockError(e) || undefined }
+    }
+  }
 
-  ipcMain.handle('git:unstage', async (_event, files: string[]) => {
+  ipcMain.handle('git:stage', async (_event, files: string[]) =>
+    indexWrite(() => gitService!.stage(files)))
+
+  ipcMain.handle('git:unstage', async (_event, files: string[]) =>
+    indexWrite(() => gitService!.unstage(files)))
+
+  ipcMain.handle('git:remove-index-lock', async () => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.unstage(files); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
+    return gitService.removeIndexLock()
   })
 
   ipcMain.handle('git:discard-changes', async (_event, files: string[], opts: { staged: boolean }) => {

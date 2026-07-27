@@ -68,6 +68,13 @@ export type RemoteInfo = {
 
 export type Result = { success: true } | { success: false; error: string }
 
+// Result of a command that writes the git index. `indexLocked` marks the one
+// failure the GUI can fix on the user's behalf: a stale `.git/index.lock` from
+// a crashed git process, cleared via `removeIndexLock()` and then retried.
+export type IndexResult =
+  | { success: true }
+  | { success: false; error: string; indexLocked?: boolean }
+
 // Save-to-disk outcome. `canceled` distinguishes a dismissed dialog from an
 // actual write failure so the renderer can stay quiet instead of erroring.
 export type SavePatchResult =
@@ -192,8 +199,12 @@ const gitApi = {
   checkoutAutostash: (branch: string): Promise<Result & { stashMessage?: string }> =>
     ipcRenderer.invoke('git:checkout-autostash', branch),
 
-  stage: (files: string[]): Promise<Result> => ipcRenderer.invoke('git:stage', files),
-  unstage: (files: string[]): Promise<Result> => ipcRenderer.invoke('git:unstage', files),
+  // `indexLocked` is set when the failure was a stale `.git/index.lock`, which
+  // the UI can clear with removeIndexLock() and then retry.
+  stage: (files: string[]): Promise<IndexResult> => ipcRenderer.invoke('git:stage', files),
+  unstage: (files: string[]): Promise<IndexResult> => ipcRenderer.invoke('git:unstage', files),
+  removeIndexLock: (): Promise<Result & { path?: string }> =>
+    ipcRenderer.invoke('git:remove-index-lock'),
   discardChanges: (files: string[], opts: { staged: boolean }): Promise<Result> =>
     ipcRenderer.invoke('git:discard-changes', files, opts),
   discardUntracked: (files: string[]): Promise<Result> =>
