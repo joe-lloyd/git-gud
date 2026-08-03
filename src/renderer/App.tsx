@@ -287,12 +287,15 @@ export default function App() {
   //
   // `silent` skips toasting "Already up to date" — used for chained retries.
   const [pullPrompt, setPullPrompt] = useState<{ kind: 'dirty' | 'diverged'; error: string } | null>(null)
-  const doPull = useCallback(async (opts: { rebase?: boolean; autoStash?: boolean } = {}) => {
+  const doPull = useCallback(async (opts: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean } = {}) => {
     const r = await window.gitApi.pull(opts)
     if (r.success) {
       repo.methods.refresh()
       return
     }
+    // ff-only refusals get a targeted explanation, never the merge/rebase
+    // recovery prompt — the user explicitly asked for fast-forward only.
+    if (r.kind === 'not-ff')     { repo.toast.warning('Fast-forward not possible', 'Local and remote have diverged — pull with merge or rebase instead.'); return }
     if (r.kind === 'dirty')      { setPullPrompt({ kind: 'dirty', error: r.error }); return }
     if (r.kind === 'diverged')   { setPullPrompt({ kind: 'diverged', error: r.error }); return }
     if (r.kind === 'untracked')  { repo.toast.error('Pull blocked', 'Untracked files would be overwritten. Move or delete them first.'); return }
@@ -992,8 +995,8 @@ export default function App() {
       <div className="titlebar" />
 
       <TabBar
-        tabs={repo.openTabs}
-        activePath={repo.repoPath}
+        tabs={repo.openTabs.map((t) => t.main)}
+        activePath={repo.mainPath}
         onActivate={repo.methods.switchTab}
         onClose={repo.methods.closeTab}
         onOpenMenu={openRepoSourceMenu}
@@ -1002,12 +1005,24 @@ export default function App() {
 
       <Toolbar
         repoPath={repo.repoPath}
+        worktreeName={repo.repoPath && repo.mainPath && repo.repoPath !== repo.mainPath
+          ? (repo.repoPath.split('/').pop() ?? repo.repoPath)
+          : null}
+        onWorktreeChip={() => setModal('worktrees')}
         currentBranch={repo.status?.branch ?? ''}
         ahead={repo.status?.ahead ?? 0}
         behind={repo.status?.behind ?? 0}
         stashCount={repo.stashes.length}
         onFetch={repo.methods.handleFetch}
         onPull={handlePull}
+        onPullMenu={(e) => {
+          e.preventDefault()
+          openCtx(e, [
+            { label: 'Pull', icon: 'arrow-down', onClick: () => doPull({}) },
+            { label: 'Pull (fast-forward only)', icon: 'arrow-down', onClick: () => doPull({ ffOnly: true }) },
+            { label: 'Pull (rebase)', icon: 'rebase', onClick: () => doPull({ rebase: true }) },
+          ])
+        }}
         onPush={repo.methods.handlePush}
         gerritMode={gerrit.enabled}
         onPushForReview={() => setModal('push-for-review')}
@@ -1090,7 +1105,7 @@ export default function App() {
           onBranchContextMenu={handleBranchContextMenu}
           onStashContextMenu={handleStashContextMenu}
           onTagContextMenu={handleTagContextMenu}
-          onWorktreeClick={repo.methods.loadRepo}
+          onWorktreeClick={repo.methods.switchWorktree}
           onWorktreeContextMenu={handleWorktreeContextMenu}
           onWorktreeManage={() => setModal('worktrees')}
           onRefDrop={handleRefDrop}
@@ -1265,7 +1280,7 @@ export default function App() {
         />
       )}
       {modal === 'worktrees' && (
-        <Worktrees currentPath={repo.repoPath} onClose={closeModal} onSwitch={repo.methods.loadRepo} />
+        <Worktrees currentPath={repo.repoPath} onClose={closeModal} onSwitch={(p) => { closeModal(); repo.methods.switchWorktree(p) }} />
       )}
       {modal === 'settings' && (
         <SettingsModal

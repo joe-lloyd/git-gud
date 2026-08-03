@@ -68,6 +68,10 @@ export type RemoteInfo = {
   url: string
 }
 
+// One persisted repo tab: `main` is the repository's main worktree path (tab
+// identity), `worktree` the worktree that was active inside it.
+export type SavedTab = { main: string; worktree: string }
+
 export type Result = { success: true } | { success: false; error: string }
 
 // Result of a command that writes the git index. `indexLocked` marks the one
@@ -133,7 +137,7 @@ export type ConsoleOutputEvent =
   | { runId: string; done: true; exitCode: number | null }
 // Pull carries an extra classifier so the renderer can offer targeted recovery
 // (stash + retry for dirty trees, merge/rebase choice for diverged history).
-export type PullErrorKind = 'dirty' | 'diverged' | 'untracked' | 'conflict' | 'auth' | 'unknown'
+export type PullErrorKind = 'dirty' | 'diverged' | 'untracked' | 'conflict' | 'auth' | 'not-ff' | 'unknown'
 export type PullResult =
   | { success: true }
   | { success: false; error: string; kind?: PullErrorKind }
@@ -175,11 +179,17 @@ const gitApi = {
   },
   addTab: (path: string): Promise<boolean> => ipcRenderer.invoke('git:add-tab', path),
   activatePath: (path: string): Promise<boolean> => ipcRenderer.invoke('git:activate-path', path),
-  closeTab: (path: string): Promise<boolean> => ipcRenderer.invoke('git:close-tab', path),
+  // extraPaths: other worktree paths this tab activated (their cached
+  // services in main are dropped together with the tab).
+  closeTab: (path: string, extraPaths?: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('git:close-tab', path, extraPaths ?? []),
   getActivePath: (): Promise<string | null> => ipcRenderer.invoke('git:active-path'),
   getOpenTabs: (): Promise<string[]> => ipcRenderer.invoke('git:open-tabs'),
-  getSavedTabs: (): Promise<{ tabs: string[]; active: string | null }> =>
+  // One tab per repository: main worktree path (identity) + active worktree.
+  getSavedTabs: (): Promise<{ tabs: SavedTab[]; active: string | null }> =>
     ipcRenderer.invoke('app:get-saved-tabs'),
+  saveTabs: (payload: { tabs: SavedTab[]; active: string | null }): Promise<boolean> =>
+    ipcRenderer.invoke('app:save-tabs', payload),
 
   getLog: (limit?: number): Promise<CommitNode[]> => ipcRenderer.invoke('git:log', limit),
   getBranches: (): Promise<BranchData> => ipcRenderer.invoke('git:branches'),
@@ -249,7 +259,7 @@ const gitApi = {
     ipcRenderer.invoke('git:stash-branch', name, index),
 
   fetch: (): Promise<Result> => ipcRenderer.invoke('git:fetch'),
-  pull: (opts?: { rebase?: boolean; autoStash?: boolean }): Promise<PullResult> =>
+  pull: (opts?: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean }): Promise<PullResult> =>
     ipcRenderer.invoke('git:pull', opts),
   push: (force?: boolean): Promise<Result> => ipcRenderer.invoke('git:push', force),
 

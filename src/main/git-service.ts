@@ -1080,9 +1080,10 @@ export class GitService {
   //   'conflict'   → merge produced conflicts → user resolves manually
   //   'auth'       → credentials missing / rejected
   //   'unknown'    → anything else
-  async pull(opts: { rebase?: boolean; autoStash?: boolean } = {}): Promise<{ success: boolean; error?: string; kind?: string }> {
+  async pull(opts: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean } = {}): Promise<{ success: boolean; error?: string; kind?: string }> {
     const args = [...this.getAuthConfigs(), "pull"];
-    if (opts.rebase === true) args.push("--rebase");
+    if (opts.ffOnly) args.push("--ff-only");
+    else if (opts.rebase === true) args.push("--rebase");
     else if (opts.rebase === false) args.push("--no-rebase");
     if (opts.autoStash) args.push("--autostash");
     try {
@@ -1850,7 +1851,8 @@ export function isIndexLockError(msg: unknown): boolean {
 // Maps git's stderr output to a coarse "kind" so the renderer can offer
 // targeted recovery. Patterns are conservative — anything we can't classify
 // falls back to 'unknown' and the user sees the raw error.
-function classifyPullError(msg: string): string {
+export function classifyPullError(msg: string): string {
+  if (/not possible to fast-forward/i.test(msg)) return "not-ff";
   if (/your local changes to the following files would be overwritten/i.test(msg)) return "dirty";
   if (/please commit your changes or stash them before you (merge|rebase|pull)/i.test(msg)) return "dirty";
   if (/cannot pull with rebase: you have unstaged changes/i.test(msg)) return "dirty";

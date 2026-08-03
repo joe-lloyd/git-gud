@@ -65,3 +65,16 @@ describe('classifyGitArgs', () => {
     expect(classifyGitArgs([])).toBe('write')
   })
 })
+
+// Pull error classification — ff-only refusals get their own kind so the UI
+// can explain instead of offering merge/rebase recovery.
+import { classifyPullError } from '../../src/main/git-service'
+
+describe('classifyPullError', () => {
+  it('classifies a refused fast-forward', () => {
+    expect(classifyPullError('fatal: Not possible to fast-forward, aborting.')).toBe('not-ff')
+  })
+  it('keeps diverged distinct from not-ff', () => {
+    expect(classifyPullError('You have divergent branches and need to specify how to reconcile them.')).toBe('diverged')
+  })
+})

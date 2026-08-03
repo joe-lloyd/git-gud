@@ -4,6 +4,10 @@ import './Toolbar.css'
 
 interface ToolbarProps {
   repoPath: string | null
+  /** Set when a non-main worktree is active — shows the worktree chip. */
+  worktreeName?: string | null
+  /** Click on the worktree chip (opens the worktree manager). */
+  onWorktreeChip?: () => void
   currentBranch: string
   ahead: number
   behind: number
@@ -17,6 +21,8 @@ interface ToolbarProps {
   onNewBranch: () => void
   /** Opens the push options menu (force push etc.) — caret click or right-click on Push */
   onPushMenu?: (e: React.MouseEvent) => void
+  /** Opens the pull options menu (ff-only / rebase) — caret click or right-click on Pull */
+  onPullMenu?: (e: React.MouseEvent) => void
   /** Gerrit mode: the primary push action becomes "Push for review"; plain
       push stays reachable through the caret menu. */
   gerritMode?: boolean
@@ -30,6 +36,8 @@ interface ToolbarProps {
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   repoPath,
+  worktreeName = null,
+  onWorktreeChip,
   currentBranch,
   ahead,
   behind,
@@ -42,6 +50,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onRefresh,
   onNewBranch,
   onPushMenu,
+  onPullMenu,
   gerritMode = false,
   onPushForReview,
   onSearchToggle,
@@ -77,14 +86,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <button
           className="tb-btn"
-          title="Pull from remote"
+          title="Pull from remote (right-click for options)"
           disabled={pulling}
           onClick={withLoading(setPulling, onPull)}
+          onContextMenu={onPullMenu}
         >
           <TbIcon spin={pulling}><Icon name="arrow-down" size={14} /></TbIcon>
           <span>Pull</span>
           {behind > 0 && <span className="tb-badge behind">{behind}</span>}
         </button>
+        {onPullMenu && (
+          <button
+            className="tb-btn tb-caret"
+            title="Pull options…"
+            disabled={pulling}
+            onClick={onPullMenu}
+          >
+            <Icon name="chevron-down" size={12} />
+          </button>
+        )}
 
         {gerritMode && onPushForReview ? (
           <button
@@ -151,6 +171,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <span className="tb-branch-icon"><Icon name="branch" size={13} /></span>
           <span className="tb-branch-name">{currentBranch}</span>
         </div>
+        {worktreeName && (
+          <button
+            className="tb-worktree-chip"
+            title={`Linked worktree "${worktreeName}" is active — click to manage worktrees`}
+            onClick={onWorktreeChip}
+          >
+            <Icon name="worktree" size={12} />
+            <span>{worktreeName}</span>
+          </button>
+        )}
       </div>
 
       <div className="tb-right">

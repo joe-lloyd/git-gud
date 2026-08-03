@@ -1,12 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo, TagInfo } from '../../preload/index'
+import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo, TagInfo, SavedTab } from '../../preload/index'
 import { useToasts } from '../components/Toast/Toast'
 
 const EMPTY_BRANCHES: BranchData = { local: [], remote: [] }
 
 export function useGitRepo() {
+  // One tab per repository. `repoPath` is the ACTIVE WORKTREE path (what all
+  // git reads/writes target); `mainPath` is the repo's main worktree — the
+  // tab's identity. Switching worktrees changes repoPath, never the tab.
   const [repoPath, setRepoPath]       = useState<string | null>(null)
-  const [openTabs, setOpenTabs]       = useState<string[]>([])
+  const [mainPath, setMainPath]       = useState<string | null>(null)
+  const [openTabs, setOpenTabs]       = useState<SavedTab[]>([])
   const [commits, setCommits]         = useState<CommitNode[]>([])
   const [branches, setBranches]       = useState<BranchData>(EMPTY_BRANCHES)
   const [stashes, setStashes]         = useState<StashInfo[]>([])
@@ -41,8 +45,23 @@ export function useGitRepo() {
     // worst case the watcher keeps polling a repo while the user is on home,
     // which is cheap.
     setRepoPath(null)
+    setMainPath(null)
     setSelectedSha(null)
     setError(null)
+  }, [])
+
+  // Persist the tab list + active tab (fire-and-forget).
+  const persistTabs = useCallback((tabs: SavedTab[], active: string | null) => {
+    window.gitApi.saveTabs({ tabs, active }).catch(() => {})
+  }, [])
+
+  // The repo's main worktree path — the tab's identity. Falls back to the
+  // opened path when the worktree listing fails (bare/odd setups).
+  const resolveMainPath = useCallback(async (openedPath: string): Promise<string> => {
+    try {
+      const worktrees = await window.gitApi.getWorktrees()
+      return worktrees.find((w) => w.isMain)?.path ?? openedPath
+    } catch { return openedPath }
   }, [])
 
   // Fetch every piece of repo state. Used by both initial load and refresh.
@@ -81,55 +100,105 @@ export function useGitRepo() {
     setRemotes(rmts)
   }, [])
 
-  // Open a repo as a new tab (or focus existing). Main is idempotent: openPath
-  // re-activates if already loaded, otherwise creates the GitService.
+  // Open a repo (or one of its worktrees). Opening any worktree of an
+  // already-open repository merges into that repo's single tab. Main is
+  // idempotent: openPath re-activates if already loaded, otherwise creates
+  // the GitService.
   const loadRepo = useCallback(async (path: string) => {
     setLoading(true); setError(null); setSelectedSha(null)
     try {
       const ok = await window.gitApi.openPath(path)
       if (!ok) throw new Error('Not a valid Git repository or path does not exist.')
+      const main = await resolveMainPath(path)
       await fetchAll()
-      window.gitApi.addRecentProject(path)
+      window.gitApi.addRecentProject(main)
       setRepoPath(path)
-      setOpenTabs((prev) => prev.includes(path) ? prev : [...prev, path])
+      setMainPath(main)
+      setOpenTabs((prev) => {
+        const exists = prev.some((t) => t.main === main)
+        const next = exists
+          ? prev.map((t) => (t.main === main ? { ...t, worktree: path } : t))
+          : [...prev, { main, worktree: path }]
+        persistTabs(next, main)
+        return next
+      })
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
-  }, [fetchAll])
+  }, [fetchAll, resolveMainPath, persistTabs])
 
-  // Switch to an already-open tab (no openPath needed).
-  const switchTab = useCallback(async (path: string) => {
-    if (path === repoPath) return
+  // Switch to an already-open tab — lands on whichever worktree was active
+  // in it. A worktree deleted since then falls back to the main worktree.
+  const switchTab = useCallback(async (main: string) => {
+    if (main === mainPath) return
+    const tab = openTabs.find((t) => t.main === main)
+    if (!tab) return
     setLoading(true); setError(null); setSelectedSha(null)
     try {
-      const ok = await window.gitApi.activatePath(path)
-      if (!ok) throw new Error(`Tab "${path}" is not loaded.`)
+      let target = tab.worktree
+      let ok = await window.gitApi.openPath(target)
+      if (!ok && target !== tab.main) {
+        target = tab.main
+        ok = await window.gitApi.openPath(target)
+      }
+      if (!ok) throw new Error(`Tab "${main}" is not loadable.`)
       await fetchAll()
-      setRepoPath(path)
+      setRepoPath(target)
+      setMainPath(main)
+      setOpenTabs((prev) => {
+        const next = prev.map((t) => (t.main === main ? { ...t, worktree: target } : t))
+        persistTabs(next, main)
+        return next
+      })
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
-  }, [repoPath, fetchAll])
+  }, [mainPath, openTabs, fetchAll, persistTabs])
+
+  // Switch the active worktree WITHIN the current tab — worktrees are a
+  // feature of the repo, not separate projects.
+  const switchWorktree = useCallback(async (path: string) => {
+    if (!mainPath || path === repoPath) return
+    const ok = await window.gitApi.openPath(path)
+    if (!ok) { toast.error('Worktree unavailable', path); return }
+    setSelectedSha(null)
+    setRepoPath(path)
+    setOpenTabs((prev) => {
+      const next = prev.map((t) => (t.main === mainPath ? { ...t, worktree: path } : t))
+      persistTabs(next, mainPath)
+      return next
+    })
+    await fetchAll().catch(() => {})
+  }, [mainPath, repoPath, fetchAll, persistTabs, toast])
 
   // Close a tab. If it was active, fall back to another open tab (or Welcome).
-  const closeTab = useCallback(async (path: string) => {
-    await window.gitApi.closeTab(path)
+  const closeTab = useCallback(async (main: string) => {
+    const tab = openTabs.find((t) => t.main === main)
+    await window.gitApi.closeTab(main, tab && tab.worktree !== main ? [tab.worktree] : [])
     setOpenTabs((prev) => {
-      const next = prev.filter(p => p !== path)
-      if (path === repoPath) {
+      const next = prev.filter((t) => t.main !== main)
+      if (main === mainPath) {
         const fallback = next[next.length - 1] ?? null
         if (fallback) {
           // Fire-and-forget — async swap, UI will catch up on next render
-          window.gitApi.activatePath(fallback).then(() => {
-            setRepoPath(fallback)
+          window.gitApi.openPath(fallback.worktree).then((ok) => {
+            const target = ok ? fallback.worktree : fallback.main
+            if (!ok) window.gitApi.openPath(fallback.main).catch(() => {})
+            setRepoPath(target)
+            setMainPath(fallback.main)
             fetchAll().catch(() => {})
           })
+          persistTabs(next, fallback.main)
         } else {
           setRepoPath(null)
+          setMainPath(null)
           clearRepoState()
+          persistTabs(next, null)
         }
+      } else {
+        persistTabs(next, mainPath)
       }
       return next
     })
-  }, [repoPath, fetchAll, clearRepoState])
+  }, [openTabs, mainPath, fetchAll, clearRepoState, persistTabs])
 
   // Silent refresh — no spinner, no openPath. Just re-reads state using the
   // existing gitService in main. Used by focus, FS-watcher, and post-mutation
@@ -169,17 +238,23 @@ export function useGitRepo() {
       if (!saved || saved.tabs.length === 0) return
       setLoading(true)
       try {
-        const loaded: string[] = []
-        for (const path of saved.tabs) {
-          const ok = await window.gitApi.addTab(path).catch(() => false)
-          if (ok) loaded.push(path)
+        // Load each tab headlessly, preferring its saved worktree and falling
+        // back to the main worktree when the worktree folder is gone.
+        const loaded: SavedTab[] = []
+        for (const tab of saved.tabs) {
+          if (await window.gitApi.addTab(tab.worktree).catch(() => false)) {
+            loaded.push(tab)
+          } else if (tab.worktree !== tab.main && await window.gitApi.addTab(tab.main).catch(() => false)) {
+            loaded.push({ main: tab.main, worktree: tab.main })
+          }
         }
         if (loaded.length === 0) return
         setOpenTabs(loaded)
-        const target = saved.active && loaded.includes(saved.active) ? saved.active : loaded[loaded.length - 1]
-        const ok = await window.gitApi.activatePath(target).catch(() => false)
+        const target = loaded.find((t) => t.main === saved.active) ?? loaded[loaded.length - 1]
+        const ok = await window.gitApi.activatePath(target.worktree).catch(() => false)
         if (!ok) return
-        setRepoPath(target)
+        setRepoPath(target.worktree)
+        setMainPath(target.main)
         await fetchAll().catch(() => {})
       } finally {
         setLoading(false)
@@ -219,6 +294,7 @@ export function useGitRepo() {
 
   return {
     repoPath, setRepoPath,
+    mainPath,
     openTabs,
     commits, setCommits,
     branches, setBranches,
@@ -235,6 +311,7 @@ export function useGitRepo() {
       handleGoHome,
       loadRepo,
       switchTab,
+      switchWorktree,
       closeTab,
       refresh,
       handleOpenRepo,

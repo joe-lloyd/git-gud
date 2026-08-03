@@ -300,7 +300,6 @@ app.whenReady().then(() => {
     }
     services.set(repoPath, candidate)
     activateRepo(repoPath)
-    saveTabState()
     return repoPath
   })
 
@@ -309,7 +308,6 @@ app.whenReady().then(() => {
       // Already loaded? Just re-activate.
       if (services.has(repoPath)) {
         activateRepo(repoPath)
-        saveTabState()
         return true
       }
       const candidate = makeService(repoPath)
@@ -317,7 +315,6 @@ app.whenReady().then(() => {
       if (!isRepo) return false
       services.set(repoPath, candidate)
       activateRepo(repoPath)
-      saveTabState()
       return true
     } catch { return false }
   })
@@ -394,19 +391,19 @@ app.whenReady().then(() => {
   ipcMain.handle('git:activate-path', async (_event, repoPath: string) => {
     if (!services.has(repoPath)) return false
     activateRepo(repoPath)
-    saveTabState()
     return true
   })
 
-  // Close a tab — drop the service, stop the watcher if it was active.
-  ipcMain.handle('git:close-tab', async (_event, repoPath: string) => {
-    services.delete(repoPath)
-    if (activeRepoPath === repoPath) {
+  // Close a tab — drop the service(s), stop the watcher if it was active.
+  // The renderer passes every path that belonged to the tab (main worktree +
+  // any linked worktrees it activated) so their cached services go too.
+  ipcMain.handle('git:close-tab', async (_event, repoPath: string, extraPaths: string[] = []) => {
+    for (const p of [repoPath, ...extraPaths]) services.delete(p)
+    if (activeRepoPath === repoPath || extraPaths.includes(activeRepoPath ?? '')) {
       stopRepoWatchers()
       gitService = null
       activeRepoPath = null
     }
-    saveTabState()
     return true
   })
 
@@ -414,18 +411,28 @@ app.whenReady().then(() => {
   ipcMain.handle('git:open-tabs', async () => Array.from(services.keys()))
 
   // ── Session: persisted tabs ─────────────────────────────────────────────────
-  // We persist the list of open tabs (and the active one) so a relaunch restores
-  // the workspace the user had open. Writes happen after every mutation that
-  // affects either list — open, activate, close. Reads happen once on renderer
-  // mount via `app:get-saved-tabs`.
+  // One tab per repository: each entry stores the repo's main worktree path
+  // (tab identity) plus the worktree that was active in it. The renderer owns
+  // the tab list and persists it via app:save-tabs; older files that held a
+  // plain string list still restore (each path becomes its own tab).
 
+  type SavedTab = { main: string; worktree: string }
   const tabsFile = join(app.getPath('userData'), 'open-tabs.json')
 
-  function getSavedTabs(): { tabs: string[]; active: string | null } {
+  function getSavedTabs(): { tabs: SavedTab[]; active: string | null } {
     try {
       if (fs.existsSync(tabsFile)) {
         const parsed = JSON.parse(fs.readFileSync(tabsFile, 'utf8'))
-        const tabs = Array.isArray(parsed?.tabs) ? parsed.tabs.filter((p: unknown): p is string => typeof p === 'string') : []
+        const raw = Array.isArray(parsed?.tabs) ? parsed.tabs : []
+        const tabs: SavedTab[] = raw
+          .map((t: unknown): SavedTab | null => {
+            if (typeof t === 'string') return { main: t, worktree: t } // legacy shape
+            if (t && typeof (t as any).main === 'string') {
+              return { main: (t as any).main, worktree: typeof (t as any).worktree === 'string' ? (t as any).worktree : (t as any).main }
+            }
+            return null
+          })
+          .filter((t: SavedTab | null): t is SavedTab => t !== null)
         const active = typeof parsed?.active === 'string' ? parsed.active : null
         return { tabs, active }
       }
@@ -435,15 +442,15 @@ app.whenReady().then(() => {
     return { tabs: [], active: null }
   }
 
-  function saveTabState() {
+  ipcMain.handle('app:save-tabs', async (_event, payload: { tabs: SavedTab[]; active: string | null }) => {
     try {
-      const tabs = Array.from(services.keys())
-      const active = activeRepoPath
-      fs.writeFileSync(tabsFile, JSON.stringify({ tabs, active }, null, 2))
+      fs.writeFileSync(tabsFile, JSON.stringify(payload, null, 2))
+      return true
     } catch (e) {
       console.error('Failed to save tabs', e)
+      return false
     }
-  }
+  })
 
   // Open a tab WITHOUT making it active — used at startup to restore a session
   // of N tabs and only activate one at the end. Returns false if the path is
@@ -455,7 +462,6 @@ app.whenReady().then(() => {
       const isRepo = await candidate.isRepo()
       if (!isRepo) return false
       services.set(repoPath, candidate)
-      saveTabState()
       return true
     } catch { return false }
   })
