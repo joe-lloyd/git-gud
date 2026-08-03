@@ -117,7 +117,7 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
             <span style={hintText}>Brighter text and stronger borders.</span>
           </div>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <input type="checkbox" checked={highContrast} onChange={(e) => setHighContrast(e.target.checked)} style={{ width: 'auto' }} />
+            <input type="checkbox" checked={highContrast} onChange={(e) => setHighContrast(e.target.checked)} />
           </label>
         </div>
 
@@ -133,7 +133,6 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
               checked={rerere === true}
               disabled={rerere === null}
               onChange={(e) => toggleRerere(e.target.checked)}
-              style={{ width: 'auto' }}
             />
           </label>
         </div>

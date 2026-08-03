@@ -40,7 +40,6 @@
   color: var(--text-secondary);
 }
 .clean-scopes label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.clean-scopes input { width: auto; }
 
 .clean-list {
   flex: 1;
@@ -58,7 +57,6 @@
   cursor: pointer;
 }
 .clean-row:hover { background: var(--bg-hover); }
-.clean-row input { width: auto; }
 .clean-path { font-size: 12px; color: var(--text-secondary); word-break: break-all; }
 
 .clean-footer { border-top: 1px solid var(--border); padding: 12px 18px; }

@@ -101,6 +101,64 @@ button {
   font-size: inherit;
 }
 
+/* ── Checkboxes ───────────────────────────────────────────────────────────
+   Native checkboxes replaced app-wide: accent fill when checked, dark check
+   glyph, focus ring in the brand color. Components never restyle these. */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  vertical-align: -0.15em;
+}
+input[type="checkbox"]:hover { border-color: var(--accent-border); }
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+/* Check glyph — drawn with borders so it inherits --on-accent */
+input[type="checkbox"]::after {
+  content: '';
+  width: 8px;
+  height: 4.5px;
+  margin-top: -2px;
+  border-left: 2px solid var(--on-accent);
+  border-bottom: 2px solid var(--on-accent);
+  opacity: 0;
+  transform: rotate(-45deg) scale(0.5);
+  transition: transform 0.1s ease-out, opacity 0.1s;
+}
+input[type="checkbox"]:checked::after {
+  opacity: 1;
+  transform: rotate(-45deg) scale(1);
+}
+/* Indeterminate — horizontal bar instead of a check */
+input[type="checkbox"]:indeterminate::after {
+  opacity: 1;
+  width: 8px;
+  height: 0;
+  margin-top: 0;
+  border-left: none;
+  transform: none;
+}
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
+}
+input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ── Modal overlay (shared) ─────────────────────────────────────────────
    Every popup MUST float above the app, never in document flow (an unstyled
    overlay renders inline and pushes the whole layout around). Components may
@@ -169,12 +227,16 @@ button {
   text-overflow: ellipsis;
   flex-shrink: 0;
 }
-.ref-local  { background: rgba(255,79,195,0.18); color: #ff4fc3; border: 1px solid rgba(255,79,195,0.3); }
-.ref-remote { background: rgba(104,211,145,0.15); color: #68d391; border: 1px solid rgba(104,211,145,0.25); }
-/* local + remote combined */
-.ref-both   { background: rgba(255,79,195,0.15); color: #ff4fc3; border: 1px solid rgba(255,79,195,0.3); }
-.ref-tag    { background: rgba(246,173,85,0.15);  color: #f6ad55; border: 1px solid rgba(246,173,85,0.25); }
-.ref-head   { background: rgba(251,182,206,0.2);  color: #fbb6ce; border: 1px solid rgba(251,182,206,0.35); }
+/* Kind palette — tokens, not hardcoded hex. Kind is carried by the icon
+   (branch / cloud / tag / dot-circle); color is a supporting cue. Inside the
+   graph these are overridden inline with the commit's lane color. */
+.ref-local  { background: color-mix(in srgb, var(--lane-0) 14%, transparent); color: var(--lane-0); border: 1px solid color-mix(in srgb, var(--lane-0) 40%, transparent); }
+.ref-remote { background: color-mix(in srgb, var(--lane-1) 14%, transparent); color: var(--lane-1); border: 1px solid color-mix(in srgb, var(--lane-1) 40%, transparent); }
+/* local + remote combined — same treatment as local, both icons shown */
+.ref-both   { background: color-mix(in srgb, var(--lane-0) 14%, transparent); color: var(--lane-0); border: 1px solid color-mix(in srgb, var(--lane-0) 40%, transparent); }
+.ref-tag    { background: color-mix(in srgb, var(--lane-2) 14%, transparent); color: var(--lane-2); border: 1px solid color-mix(in srgb, var(--lane-2) 40%, transparent); }
+/* Checked-out ref — the one solid-filled pill, same as the graph's HEAD */
+.ref-head   { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
 
 /* "+N" overflow chip — opens the cluster popover on hover */
 .ref-more {

@@ -669,10 +669,11 @@ export default function App() {
     [openCtx, runDragAction],
   )
 
-  // Auto-update: subscribe once. Informational toasts only — the binary swap
-  // happens automatically on next quit (`autoInstallOnAppQuit = true`), so a
-  // "restart to install" hint is all the user needs. The silent boot check
-  // stays quiet on "no update"; a manual toolbar check reports every outcome.
+  // Auto-update: subscribe once. The binary swap happens automatically on next
+  // quit (`autoInstallOnAppQuit = true`); the "downloaded" toast also offers a
+  // "Restart now" button that quits + installs immediately. The silent boot
+  // check stays quiet on "no update"; a manual toolbar check reports every
+  // outcome.
   const manualUpdateCheck = useRef(false)
   useEffect(() => {
     const unsub = window.gitApi.onUpdaterStatus((s) => {
@@ -680,7 +681,10 @@ export default function App() {
         manualUpdateCheck.current = false
         repo.toast.info('Update available', `v${s.version} is downloading…`)
       } else if (s.state === 'downloaded') {
-        repo.toast.success('Update ready', `v${s.version} — restart Git Gud to install.`)
+        repo.toast.success('Update ready', `v${s.version} — restart Git Gud to install.`, {
+          label: 'Restart now',
+          onClick: () => { window.gitApi.updaterInstall() },
+        })
       } else if (s.state === 'none') {
         if (manualUpdateCheck.current) {
           manualUpdateCheck.current = false

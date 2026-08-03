@@ -239,7 +239,6 @@
   gap: 5px;
   cursor: pointer;
 }
-.wt-flag input { width: auto; }
 .wt-flag:hover { color: var(--text-secondary); }
 
 .wt-commit-btn {
@@ -259,7 +258,6 @@
   cursor: pointer;
   user-select: none;
 }
-.wt-amend-toggle input { width: auto; }
 .wt-amend-toggle:hover { color: var(--text-secondary); }
 
 .wt-amend-warn {

@@ -101,9 +101,17 @@ export const Worktrees: React.FC<WorktreesProps> = ({ currentPath, onClose, onSw
             <div key={t.path} className="wtp-row">
               <div className="wtp-info">
                 <div className="wtp-branch">
-                  <span className="ref-pill ref-local">{t.branch}</span>
-                  {t.isMain && <span className="ref-pill ref-head">main</span>}
-                  {t.path === currentPath && <span className="ref-pill ref-head">● active</span>}
+                  <span className="ref-pill ref-local">
+                    <span className="rp-icon"><Icon name="branch" size={10} /></span>
+                    <span className="rp-name">{t.branch}</span>
+                  </span>
+                  {t.isMain && <span className="ref-pill ref-tag">main</span>}
+                  {t.path === currentPath && (
+                    <span className="ref-pill ref-head">
+                      <span className="rp-icon"><Icon name="dot-circle" size={10} /></span>
+                      <span className="rp-name">active</span>
+                    </span>
+                  )}
                 </div>
                 <div className="wtp-path mono truncate" title={t.path}>{t.path}</div>
                 <div className="wtp-sha mono">{t.sha.slice(0, 7)}</div>

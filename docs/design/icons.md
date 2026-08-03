@@ -49,7 +49,7 @@ marks in the console log (`↳`, `$`), and the graph's `◆` stash badge.
 | `fetch` | down + up arrows | Fetch all remotes |
 | `bisect` | circle with slash | Bisect panel / advanced-bar button |
 | `history` | clock | Reflog / history recovery |
-| `worktree` | 2×2 grid | Worktrees: rows, manage, ref-pill marker |
+| `worktree` | pine tree | Worktrees: rows, manage, ref-pill marker |
 | `file-diff` | file with +/− | Patch (export/apply), "Export patch…" |
 | `clean` | sparkle | Clean untracked/ignored files |
 | `cloud` | cloud | Remotes: sidebar remote group, remote-branch pill marker |

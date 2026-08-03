@@ -74,6 +74,20 @@
   overflow-y: auto;
 }
 
+/* Call-to-action button — e.g. "Restart now" on the update-ready toast */
+.toast-action {
+  margin-top: 8px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 1px solid var(--accent-border);
+  transition: background 0.15s;
+}
+.toast-action:hover { background: var(--accent-hover); }
+
 .toast-close {
   flex-shrink: 0;
   font-size: 11px;

@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import type { CommitNode, FileChange } from '../../../preload/index'
 import { Icon, IconName } from '../Icons/Icon'
+import { groupRefs } from '../../lib/refs'
 import './CommitDetail.css'
 
 interface CommitDetailProps {
@@ -82,17 +83,25 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
         )
       })()}
 
-      {/* Refs */}
+      {/* Refs — same grouping + icon language as the graph's pills: one pill
+          per branch name, with local (branch) and remote (cloud) icons both
+          shown when the branch exists on both sides. */}
       {commit.refs.length > 0 && (
         <div className="cd-refs">
-          {commit.refs.map((ref) => {
-            const cls = ref === 'HEAD' ? 'ref-head' :
-              ref.startsWith('tag:') ? 'ref-tag' :
-              ref.includes('/') ? 'ref-remote' : 'ref-local'
-            const label = ref === 'HEAD' ? 'HEAD' :
-              ref.startsWith('tag: ') ? ref.slice(5) :
-              ref.split('/').slice(-1)[0]
-            return <span key={ref} className={`ref-pill ${cls}`}>{label}</span>
+          {groupRefs(commit.refs, new Set()).map((g) => {
+            const cls = g.isTag ? 'ref-tag' :
+              g.isHead ? 'ref-head' :
+              g.hasLocal && g.hasRemote ? 'ref-both' :
+              g.hasRemote ? 'ref-remote' : 'ref-local'
+            return (
+              <span key={g.key} className={`ref-pill ${cls}`} title={g.tooltip}>
+                {g.isTag && <span className="rp-icon"><Icon name="tag" size={10} /></span>}
+                {g.isHead && <span className="rp-icon"><Icon name="dot-circle" size={10} /></span>}
+                {g.hasLocal && !g.isTag && <span className="rp-icon"><Icon name="branch" size={10} /></span>}
+                {g.hasRemote && <span className="rp-icon"><Icon name="cloud" size={10} /></span>}
+                <span className="rp-name">{g.name}</span>
+              </span>
+            )
           })}
         </div>
       )}

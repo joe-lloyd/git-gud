@@ -4,11 +4,18 @@ import './Toast.css'
 
 export type ToastType = 'error' | 'warning' | 'success' | 'info'
 
+/** Optional call-to-action button rendered inside the toast. */
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 export interface Toast {
   id: string
   type: ToastType
   title: string
   message?: string
+  action?: ToastAction
 }
 
 let toastCounter = 0
@@ -18,13 +25,16 @@ let toastCounter = 0
 export function useToasts() {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const add = useCallback((type: ToastType, title: string, message?: string) => {
+  const add = useCallback((type: ToastType, title: string, message?: string, action?: ToastAction) => {
     const id = `toast-${++toastCounter}`
-    setToasts((prev) => [...prev, { id, type, title, message }])
-    // Auto-dismiss after 6s (errors stay 9s)
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id))
-    }, type === 'error' ? 9000 : 6000)
+    setToasts((prev) => [...prev, { id, type, title, message, action }])
+    // Auto-dismiss after 6s (errors stay 9s). Toasts with an action stick
+    // around until dismissed — the button is the point.
+    if (!action) {
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id))
+      }, type === 'error' ? 9000 : 6000)
+    }
     return id
   }, [])
 
@@ -32,10 +42,10 @@ export function useToasts() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
-  const error   = useCallback((title: string, msg?: string) => add('error',   title, msg), [add])
-  const warning = useCallback((title: string, msg?: string) => add('warning', title, msg), [add])
-  const success = useCallback((title: string, msg?: string) => add('success', title, msg), [add])
-  const info    = useCallback((title: string, msg?: string) => add('info',    title, msg), [add])
+  const error   = useCallback((title: string, msg?: string, action?: ToastAction) => add('error',   title, msg, action), [add])
+  const warning = useCallback((title: string, msg?: string, action?: ToastAction) => add('warning', title, msg, action), [add])
+  const success = useCallback((title: string, msg?: string, action?: ToastAction) => add('success', title, msg, action), [add])
+  const info    = useCallback((title: string, msg?: string, action?: ToastAction) => add('info',    title, msg, action), [add])
 
   return { toasts, add, remove, error, warning, success, info }
 }
@@ -95,6 +105,14 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
         <div className="toast-title">{toast.title}</div>
         {friendlyMessage && (
           <pre className="toast-message">{friendlyMessage}</pre>
+        )}
+        {toast.action && (
+          <button
+            className="toast-action"
+            onClick={() => { toast.action!.onClick(); onRemove(toast.id) }}
+          >
+            {toast.action.label}
+          </button>
         )}
       </div>
       <button className="toast-close" onClick={() => onRemove(toast.id)}><Icon name="x" size={12} /></button>
