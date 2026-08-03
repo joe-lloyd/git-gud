@@ -17,6 +17,10 @@ interface ToolbarProps {
   onNewBranch: () => void
   /** Opens the push options menu (force push etc.) — caret click or right-click on Push */
   onPushMenu?: (e: React.MouseEvent) => void
+  /** Gerrit mode: the primary push action becomes "Push for review"; plain
+      push stays reachable through the caret menu. */
+  gerritMode?: boolean
+  onPushForReview?: () => void
   onSearchToggle: () => void
   onGitHubShow?: () => void
   onSettings?: () => void
@@ -38,6 +42,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onRefresh,
   onNewBranch,
   onPushMenu,
+  gerritMode = false,
+  onPushForReview,
   onSearchToggle,
   onGitHubShow,
   onSettings,
@@ -80,17 +86,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {behind > 0 && <span className="tb-badge behind">{behind}</span>}
         </button>
 
-        <button
-          className="tb-btn"
-          title="Push to remote (right-click for options)"
-          disabled={pushing}
-          onClick={withLoading(setPushing, onPush)}
-          onContextMenu={onPushMenu}
-        >
-          <TbIcon spin={pushing}><Icon name="arrow-up" size={14} /></TbIcon>
-          <span>Push</span>
-          {ahead > 0 && <span className="tb-badge ahead">{ahead}</span>}
-        </button>
+        {gerritMode && onPushForReview ? (
+          <button
+            className="tb-btn"
+            title="Push HEAD for review — refs/for/… (right-click for plain push)"
+            disabled={pushing}
+            onClick={onPushForReview}
+            onContextMenu={onPushMenu}
+          >
+            <TbIcon spin={pushing}><Icon name="arrow-up" size={14} /></TbIcon>
+            <span>Push for review</span>
+            {ahead > 0 && <span className="tb-badge ahead">{ahead}</span>}
+          </button>
+        ) : (
+          <button
+            className="tb-btn"
+            title="Push to remote (right-click for options)"
+            disabled={pushing}
+            onClick={withLoading(setPushing, onPush)}
+            onContextMenu={onPushMenu}
+          >
+            <TbIcon spin={pushing}><Icon name="arrow-up" size={14} /></TbIcon>
+            <span>Push</span>
+            {ahead > 0 && <span className="tb-badge ahead">{ahead}</span>}
+          </button>
+        )}
         <button
           className="tb-btn tb-caret"
           title="Push options…"

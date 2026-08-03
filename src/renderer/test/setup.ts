@@ -64,6 +64,8 @@ Object.defineProperty(window, 'gitApi', {
     defaultCloneDir: vi.fn().mockResolvedValue('/home/user'),
     clone: vi.fn().mockResolvedValue({ success: true, path: '/home/user/repo' }),
     onCloneProgress: vi.fn(() => () => {}),
+    getConfig: vi.fn().mockResolvedValue(''),
+    setConfig: vi.fn().mockResolvedValue({ success: true }),
   },
 })
 
@@ -84,6 +86,19 @@ Object.defineProperty(window, 'uiApi', {
     getZoomFactor: vi.fn(() => 1),
     openExternal: vi.fn().mockResolvedValue(true),
     showInFolder: vi.fn().mockResolvedValue(true),
+  }
+})
+
+Object.defineProperty(window, 'gerritApi', {
+  value: {
+    detect: vi.fn().mockResolvedValue({ likely: false, signals: [] }),
+    pushForReview: vi.fn().mockResolvedValue({ success: true }),
+    listChanges: vi.fn().mockResolvedValue({ success: true, changes: [], auth: 'anonymous' }),
+    syncChangeRefs: vi.fn().mockResolvedValue({ success: true, fetched: 0, pruned: 0 }),
+    clearChangeRefs: vi.fn().mockResolvedValue(0),
+    setAuth: vi.fn().mockResolvedValue({ success: true }),
+    clearAuth: vi.fn().mockResolvedValue(true),
+    authStatus: vi.fn().mockResolvedValue(false),
   }
 })
 

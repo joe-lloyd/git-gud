@@ -15,9 +15,12 @@ interface WorkingTreeProps {
   onSelectDiff: (path: string, staged: boolean) => void
   // Open the bottom console (git-activity log) for a hook-running commit.
   onCommitRun: (runId: string, command: string) => void
+  // Gerrit mode: amend+re-push-for-review is the normal iteration there, so
+  // the force-push warning gives way to a neutral patchset hint.
+  gerritMode?: boolean
 }
 
-export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRefresh, onCommitted, onSelectDiff, onCommitRun }) => {
+export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRefresh, onCommitted, onSelectDiff, onCommitRun, gerritMode = false }) => {
   // Split commit message — subject + (optional) body, the convention git
   // expects. Subject becomes the first `-m`, body the second.
   const [subject, setSubject]         = useState('')
@@ -305,9 +308,15 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
           <span>Amend last commit</span>
         </label>
         {amend && (status?.ahead ?? 0) === 0 && (
-          <div className="wt-amend-warn">
-            <Icon name="warning" size={12} /> This commit has been pushed — amending will require force-push.
-          </div>
+          gerritMode ? (
+            <div className="wt-amend-hint">
+              <Icon name="info" size={12} /> Amending creates a new patchset when pushed for review.
+            </div>
+          ) : (
+            <div className="wt-amend-warn">
+              <Icon name="warning" size={12} /> This commit has been pushed — amending will require force-push.
+            </div>
+          )
         )}
 
         {/* Subject — single line. Soft warn at 50, hard warn at 72 (the

@@ -10,6 +10,8 @@ export type CommitNode = {
   timestamp: number
   parents: string[]
   refs: string[]
+  // Gerrit Change-Id trailer, when the commit message carries one.
+  changeId?: string
 }
 
 export type BranchInfo = {
@@ -405,6 +407,91 @@ const providerApi = {
     ipcRenderer.invoke('provider:list-repos', provider),
 }
 
+// ── Gerrit ─────────────────────────────────────────────────────────────────
+// Additive Gerrit mode: detection is read-only, the mode flag itself lives in
+// repo-local git config (gitgud.gerrit.*) via gitApi.getConfig/setConfig.
+
+// Outcome of the detection heuristics for the active repo. `likely` means at
+// least one signal matched; host/project/defaultBranch are best-effort values
+// harvested from .gitreview or the remote URL to pre-fill the enable flow.
+export type GerritDetection = {
+  likely: boolean
+  signals: string[]
+  remote?: string
+  host?: string
+  project?: string
+  defaultBranch?: string
+}
+
+export type PushForReviewOptions = {
+  remote: string
+  targetBranch: string
+  topic?: string
+  wip?: boolean
+  ready?: boolean
+  private?: boolean
+}
+
+// `kind` classifies Gerrit's well-known push rejections so the UI can react
+// with a targeted message instead of the generic failure toast.
+export type PushForReviewResult =
+  | { success: true }
+  | { success: false; error: string; kind: 'missing-change-id' | 'no-new-changes' | 'unknown' }
+
+// One patchset (amendment) of a change, newest first in GerritChange.
+export type GerritPatchset = {
+  sha: string
+  number: number
+  created: string
+  kind: string
+}
+
+export type GerritChange = {
+  id: string // Change-Id
+  number: number
+  subject: string
+  owner: string
+  branch: string
+  patchset: number
+  wip: boolean
+  updated: string
+  url: string
+  // Current patchset commit + its server ref — used to fetch the change
+  // into refs/gitgud/changes/<number> so the graph renders it as a node.
+  currentSha?: string
+  currentRef?: string
+  // Full amendment history (all patchsets), newest first.
+  patchsets: GerritPatchset[]
+}
+
+// `auth` reports which credential source the fetch used: explicitly stored
+// credentials, git's own cookie file (http.cookiefile — same auth as
+// push/pull on googlesource-style hosts), or none.
+export type GerritAuthMode = 'stored' | 'gitcookies' | 'anonymous'
+export type GerritChangesResult =
+  | { success: true; changes: GerritChange[]; auth: GerritAuthMode }
+  | { success: false; error: string }
+
+export type CommitTrailer = { key: string; value: string }
+
+const gerritApi = {
+  detect: (): Promise<GerritDetection> => ipcRenderer.invoke('gerrit:detect'),
+  pushForReview: (opts: PushForReviewOptions): Promise<PushForReviewResult> =>
+    ipcRenderer.invoke('gerrit:push-for-review', opts),
+  listChanges: (host: string, project: string): Promise<GerritChangesResult> =>
+    ipcRenderer.invoke('gerrit:list-changes', host, project),
+  // Fetch open changes' patchsets into refs/gitgud/changes/* (graph nodes)
+  // and prune the ones no longer open.
+  syncChangeRefs: (remote: string, changes: Array<{ number: number; currentRef?: string }>): Promise<{ success: boolean; error?: string; fetched: number; pruned: number }> =>
+    ipcRenderer.invoke('gerrit:sync-change-refs', remote, changes),
+  clearChangeRefs: (): Promise<number> => ipcRenderer.invoke('gerrit:clear-change-refs'),
+  // Credentials never come back to the renderer — only a boolean status.
+  setAuth: (host: string, username: string, password: string): Promise<Result> =>
+    ipcRenderer.invoke('gerrit:set-auth', host, username, password),
+  clearAuth: (host: string): Promise<boolean> => ipcRenderer.invoke('gerrit:clear-auth', host),
+  authStatus: (host: string): Promise<boolean> => ipcRenderer.invoke('gerrit:auth-status', host),
+}
+
 // UI/chrome controls that live in the renderer process (not git). Text scaling
 // uses webFrame's native page zoom so every px-based size scales uniformly and
 // layout math (drag handles etc.) stays consistent.
@@ -420,10 +507,12 @@ const uiApi = {
 contextBridge.exposeInMainWorld('gitApi', gitApi)
 contextBridge.exposeInMainWorld('githubApi', githubApi)
 contextBridge.exposeInMainWorld('providerApi', providerApi)
+contextBridge.exposeInMainWorld('gerritApi', gerritApi)
 contextBridge.exposeInMainWorld('uiApi', uiApi)
 
 // Type helper for renderer
 export type GitApi = typeof gitApi
 export type GitHubApi = typeof githubApi
 export type ProviderApi = typeof providerApi
+export type GerritApi = typeof gerritApi
 export type UiApi = typeof uiApi

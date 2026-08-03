@@ -235,6 +235,10 @@ input[type="checkbox"]:disabled {
 /* local + remote combined — same treatment as local, both icons shown */
 .ref-both   { background: color-mix(in srgb, var(--lane-0) 14%, transparent); color: var(--lane-0); border: 1px solid color-mix(in srgb, var(--lane-0) 40%, transparent); }
 .ref-tag    { background: color-mix(in srgb, var(--lane-2) 14%, transparent); color: var(--lane-2); border: 1px solid color-mix(in srgb, var(--lane-2) 40%, transparent); }
+/* Open Gerrit change (mirrored patchset) — dashed border marks it read-only */
+.ref-gerrit { background: color-mix(in srgb, var(--lane-3) 14%, transparent); color: var(--lane-3); border: 1px dashed color-mix(in srgb, var(--lane-3) 55%, transparent); }
+/* Outdated patchset of an open change — dimmed so it reads as history */
+.ref-gerrit-outdated { opacity: 0.55; }
 /* Checked-out ref — the one solid-filled pill, same as the graph's HEAD */
 .ref-head   { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
 

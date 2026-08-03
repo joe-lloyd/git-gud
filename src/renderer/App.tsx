@@ -36,6 +36,9 @@ import {
 } from './components/AppAux/AuxComponents'
 import { useGitRepo } from './hooks/useGitRepo'
 import { useCommitActions, CommitActionModal } from './hooks/useCommitActions'
+import { useGerrit } from './hooks/useGerrit'
+import { GerritBanner, GerritEnableModal, PushForReviewModal } from './components/Gerrit/GerritPanel'
+import { GERRIT_OUTDATED_REF_PREFIX } from './lib/refs'
 import './styles/App.css'
 
 // All modal types that App.tsx manages.
@@ -57,6 +60,8 @@ type AppModal =
   | 'toolbar-stash'
   | 'settings'
   | 'clean'
+  | 'gerrit-enable'
+  | 'push-for-review'
   | 'confirm-remove-worktree'
   | 'confirm-drop-commits'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
@@ -89,6 +94,16 @@ export default function App() {
   const [selectedShas, setSelectedShas] = useState<string[]>([])
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null)
   const [showReflog, setShowReflog] = useState(false)
+  // Gerrit mode — everything renders behind gerrit.enabled; non-Gerrit repos
+  // see zero UI difference (see openspec/changes/add-gerrit-mode).
+  const gerrit = useGerrit(repo.repoPath, repo.commits, repo.methods.refresh)
+  // Focus + scroll the graph to a commit (Gerrit jump-to-current etc.).
+  const focusCommit = useCallback((sha: string) => {
+    setSelectedShas([sha])
+    setSelectionAnchor(sha)
+    repo.setSelectedSha(sha)
+    setScrollRequest((n) => n + 1)
+  }, [repo])
   // Bumped only when a sidebar branch/tag/stash pick should scroll the graph to
   // that commit. Graph clicks never bump it, so they don't auto-scroll.
   const [scrollRequest, setScrollRequest] = useState(0)
@@ -342,18 +357,60 @@ export default function App() {
   // HEAD downward. Parent edge stays dashed (same treatment as stashes) so it
   // reads as off-history. Skip when status hasn't loaded or HEAD isn't in the
   // current log window (detached / shallow / pre-first-commit).
+  // Old patchsets of open Gerrit changes present in the log (usually because
+  // another open change still builds on them): sha → change number. Current
+  // patchsets are excluded — they carry a real refs/gitgud/changes/<n> ref.
+  const gerritOutdatedBySha = useMemo(() => {
+    const m = new Map<string, number>()
+    if (!gerrit.enabled) return m
+    const currentShas = new Set(gerrit.changes.map((c) => c.currentSha).filter(Boolean))
+    for (const ch of gerrit.changes) {
+      for (const ps of ch.patchsets) {
+        if (ps.sha !== ch.currentSha && !currentShas.has(ps.sha)) m.set(ps.sha, ch.number)
+      }
+    }
+    return m
+  }, [gerrit.enabled, gerrit.changes])
+
   const displayCommits = useMemo(() => {
-    if (!repo.status) return repo.commits
+    // Tag outdated-patchset commits with a synthetic marker ref so they get a
+    // dimmed "#<n>" pill instead of reading as anonymous orphan nodes.
+    let commits = repo.commits
+    if (gerritOutdatedBySha.size > 0) {
+      let touched = false
+      const annotated = commits.map((c) => {
+        const n = gerritOutdatedBySha.get(c.sha)
+        if (n === undefined) return c
+        touched = true
+        return { ...c, refs: [...c.refs, `${GERRIT_OUTDATED_REF_PREFIX}${n}`] }
+      })
+      if (touched) commits = annotated
+    }
+    if (!repo.status) return commits
     const dirty =
       repo.status.staged.length +
       repo.status.unstaged.length +
       repo.status.untracked.length
-    if (dirty === 0) return repo.commits
-    const headIdx = repo.commits.findIndex(c => c.refs.includes('HEAD'))
-    if (headIdx < 0) return repo.commits
-    const pseudo = makeWorktreePseudoCommit(repo.commits[headIdx].sha, dirty)
-    return [pseudo, ...repo.commits]
-  }, [repo.commits, repo.status])
+    if (dirty === 0) return commits
+    const headIdx = commits.findIndex(c => c.refs.includes('HEAD'))
+    if (headIdx < 0) return commits
+    const pseudo = makeWorktreePseudoCommit(commits[headIdx].sha, dirty)
+    return [pseudo, ...commits]
+  }, [repo.commits, repo.status, gerritOutdatedBySha])
+
+  // The selected commit's relationship to an open Gerrit change (current or
+  // outdated patchset) — drives the amendment block in CommitDetail.
+  const gerritSelectedInfo = useMemo(() => {
+    if (!gerrit.enabled || !repo.selectedSha) return null
+    for (const change of gerrit.changes) {
+      const ps = change.patchsets.find((p) => p.sha === repo.selectedSha)
+      if (ps) return { change, patchsetNumber: ps.number, isCurrent: ps.sha === change.currentSha }
+      if (change.currentSha === repo.selectedSha) {
+        return { change, patchsetNumber: change.patchset, isCurrent: true }
+      }
+    }
+    return null
+  }, [gerrit.enabled, gerrit.changes, repo.selectedSha])
 
   // Default selection: when the pseudo node is present and nothing is selected,
   // land on it so the right panel opens on the working tree.
@@ -952,9 +1009,16 @@ export default function App() {
         onFetch={repo.methods.handleFetch}
         onPull={handlePull}
         onPush={repo.methods.handlePush}
+        gerritMode={gerrit.enabled}
+        onPushForReview={() => setModal('push-for-review')}
         onPushMenu={(e) => {
           e.preventDefault()
           openCtx(e, [
+            // "Push for review…" only exists in Gerrit mode; the plain and
+            // force entries are the pre-Gerrit menu, unchanged.
+            ...(gerrit.enabled
+              ? [{ label: 'Push for review…', icon: 'arrow-up' as const, onClick: () => setModal('push-for-review') }]
+              : []),
             { label: 'Push', icon: 'arrow-up', onClick: () => repo.methods.handlePush() },
             {
               label: 'Force push (--force-with-lease)', icon: 'warning', danger: true,
@@ -972,6 +1036,14 @@ export default function App() {
         onToggleConsole={() => setConsoleVisible((v) => !v)}
         onCheckUpdates={handleCheckUpdates}
       />
+
+      {/* Gerrit suggestion — one-time, persists both answers to repo config */}
+      {repo.repoPath && gerrit.suggested && (
+        <GerritBanner
+          onEnable={() => setModal('gerrit-enable')}
+          onDismiss={gerrit.actions.dismiss}
+        />
+      )}
 
       {repo.repoPath && repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) && (
         <div className="conflict-bar">
@@ -1144,6 +1216,7 @@ export default function App() {
                       // (git-activity log) instead of taking over the center —
                       // open the dock so the user sees it.
                       onCommitRun={() => setConsoleVisible(true)}
+                      gerritMode={gerrit.enabled}
                     />
                   ) : opSelectedShas.length > 1 ? (
                     <MultiSelectDetail
@@ -1161,7 +1234,10 @@ export default function App() {
                   ) : (
                     <CommitDetail
                       sha={repo.selectedSha}
-                      commits={repo.commits}
+                      commits={displayCommits}
+                      gerritHost={gerrit.enabled ? gerrit.mode?.host || null : null}
+                      gerritInfo={gerritSelectedInfo}
+                      onJumpToSha={focusCommit}
                       selectedFile={activeDiff?.sha === repo.selectedSha ? activeDiff.path : null}
                       onSelectFile={(path, sha) => {
                         setActiveDiff((prev) =>
@@ -1192,7 +1268,36 @@ export default function App() {
         <Worktrees currentPath={repo.repoPath} onClose={closeModal} onSwitch={repo.methods.loadRepo} />
       )}
       {modal === 'settings' && (
-        <SettingsModal {...settings} onClose={closeModal} />
+        <SettingsModal
+          {...settings}
+          onClose={closeModal}
+          gerrit={repo.repoPath && gerrit.mode ? {
+            mode: gerrit.mode,
+            authenticated: gerrit.authenticated,
+            onToggle: (enabled) => { if (enabled) gerrit.actions.enable(); else gerrit.actions.disable() },
+            onUpdate: gerrit.actions.updateSettings,
+            onSetAuth: gerrit.actions.setAuth,
+            onClearAuth: gerrit.actions.clearAuth,
+          } : null}
+        />
+      )}
+      {modal === 'gerrit-enable' && gerrit.mode && (
+        <GerritEnableModal
+          initial={{ host: gerrit.mode.host, project: gerrit.mode.project, branch: gerrit.mode.branch }}
+          onClose={closeModal}
+          onEnable={(values) => { gerrit.actions.enable(values); closeModal() }}
+        />
+      )}
+      {modal === 'push-for-review' && gerrit.mode && (
+        <PushForReviewModal
+          remote={gerrit.detection?.remote ?? 'origin'}
+          initialBranch={gerrit.mode.branch}
+          onClose={closeModal}
+          onPush={(opts) => gerrit.actions.pushForReview({
+            remote: gerrit.detection?.remote ?? 'origin',
+            ...opts,
+          })}
+        />
       )}
       {modal === 'clean' && (
         <CleanModal

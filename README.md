@@ -23,6 +23,10 @@
   import/export, clean with type-to-confirm.
 - **Host integrations** — sign in to GitHub / GitLab / Bitbucket for
   authenticated push/pull and in-app remote repo creation.
+- **Gerrit mode** — auto-detects Gerrit remotes (incl. googlesource.com);
+  push for review (`refs/for/…` with topic/WIP), open changes rendered as
+  nodes in the graph with amendment history on select, and Change-Id aware
+  commit details.
 - **Transparent** — the Git Activity log shows every git command the app runs;
   a built-in console prompt covers the rest.
 
@@ -61,6 +65,35 @@ create remote repositories from inside the app.
 Tokens are stored encrypted on-device via Electron `safeStorage`. The
 `GH_TOKEN` in `.env` is unrelated: it's only for `pnpm release` (uploading
 installers to GitHub Releases).
+
+## Gerrit mode
+
+Gerrit workflows don't use pushed branches — you push `HEAD:refs/for/<branch>`
+and iterate by amending. Git Gud detects Gerrit remotes (`.gitreview`, the
+commit-msg Change-Id hook, `*.googlesource.com` / `review.*` hosts, port
+29418) and offers a per-repo Gerrit mode (stored in the repo's git config
+under `gitgud.gerrit.*`). Nothing changes for non-Gerrit repos.
+
+With the mode on:
+
+- **Push for review** becomes the primary toolbar action — target branch,
+  topic, WIP, and private options; plain/force push stay in the caret menu.
+  Gerrit rejections (missing Change-Id, no new changes) get targeted messages.
+- **Open changes appear in the graph**: each open change's current patchset is
+  mirrored to a local `refs/gitgud/changes/<n>` ref and rendered as a node
+  with a dashed `#<number>` pill — one node per change, pruned when it merges.
+- **Selecting a change node** shows its amendment history (all patchsets with
+  kind and date) in the commit detail, with a link to the change on the host.
+- **Stale bases are labeled**: when a chained change still builds on an older
+  patchset, that commit gets a dimmed "outdated" pill and a jump-to-current
+  action instead of appearing as an anonymous orphan node.
+- **Amend-friendly**: the force-push warning becomes a "creates a new
+  patchset" hint, and Change-Id trailers render as pills linking to the host.
+
+Authentication reuses what git already has: requests try stored HTTP
+credentials (Settings → Gerrit), then git's `http.cookiefile` (how
+googlesource authenticates), then anonymous. googlesource clone hosts are
+mapped to their `…-review.googlesource.com` API host automatically.
 
 ## Development
 

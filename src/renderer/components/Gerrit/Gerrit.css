@@ -1,0 +1,87 @@
+/* Gerrit-mode styles: suggestion banner, commit-detail change block, and
+   trailer pills. Open changes render as graph nodes (ref pills styled in
+   global.css as .ref-gerrit) — there is no separate changes panel. */
+
+/* WIP badge — shared by the commit-detail change block */
+.gerrit-wip {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+  color: #f6ad55; border: 1px solid rgba(246, 173, 85, 0.4); border-radius: 4px; padding: 0 4px;
+}
+
+/* Suggestion banner — same slot as the conflict bar, informational tone. */
+.gerrit-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.gerrit-banner-icon { color: var(--accent); display: inline-flex; }
+.gerrit-banner-text { font-size: 12px; color: var(--text-secondary); }
+.gerrit-banner-btn { font-size: 11px; padding: 3px 10px; }
+
+/* ── Commit-detail change block (amendment history) ─────────────────────── */
+.cd-gerrit {
+  margin: 8px 0 0;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.cd-gerrit-head { display: flex; align-items: center; gap: 6px; }
+.cd-gerrit-title {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-weight: 700; color: var(--text-primary); font-size: 12px;
+}
+.cd-gerrit-meta { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-gerrit-link {
+  font-size: 10.5px; color: var(--accent); background: none; border: none;
+  cursor: pointer; padding: 1px 4px; border-radius: 4px;
+}
+.cd-gerrit-link:hover { background: var(--bg-hover); }
+
+.cd-gerrit-outdated {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 6px; padding: 4px 6px;
+  font-size: 10.5px;
+  color: var(--warning);
+  background: rgba(246,173,85,0.08);
+  border: 1px solid rgba(246,173,85,0.2);
+  border-radius: 5px;
+}
+
+.cd-gerrit-patchsets { margin-top: 8px; }
+.cd-gerrit-ps {
+  display: flex; align-items: center; gap: 8px;
+  padding: 2px 4px; border-radius: 4px;
+  font-size: 10.5px; color: var(--text-muted);
+}
+.cd-gerrit-ps.selected { background: var(--bg-active); color: var(--text-secondary); }
+.cd-gerrit-ps-num { font-weight: 600; color: var(--text-secondary); min-width: 30px; }
+.cd-gerrit-ps-current {
+  font-size: 9px; font-weight: 700; color: var(--accent);
+  border: 1px solid var(--accent-border); border-radius: 4px; padding: 0 4px;
+}
+.cd-gerrit-ps-kind { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-gerrit-ps-date { font-variant-numeric: tabular-nums; }
+
+/* Change-Id pill in commit detail. */
+.cd-trailers { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.cd-trailer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  color: var(--text-muted);
+  max-width: 100%;
+}
+.cd-trailer .cd-trailer-key { font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+.cd-trailer .cd-trailer-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-trailer.cd-trailer-link { cursor: pointer; color: var(--accent); border-color: var(--accent-border); }
+.cd-trailer.cd-trailer-link:hover { background: var(--bg-hover); }

@@ -269,6 +269,16 @@
   padding: 4px 8px;
 }
 
+/* Gerrit mode: neutral hint in place of the force-push warning. */
+.wt-amend-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
 .wt-error {
   font-size: 11px;
   color: var(--danger);

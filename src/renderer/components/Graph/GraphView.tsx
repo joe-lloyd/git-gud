@@ -598,8 +598,13 @@ function RefPill({
   // Build tooltip lines
   const lines: string[] = [];
   if (group.isTag)  lines.push("tag");
+  if (group.isGerritChange) {
+    lines.push(group.isOutdatedPatchset
+      ? "outdated patchset — a newer patchset exists"
+      : "open Gerrit change (current patchset)");
+  }
   if (group.isHead) lines.push("current HEAD");
-  if (group.hasLocal  && !group.isTag) lines.push("local branch");
+  if (group.hasLocal  && !group.isTag && !group.isGerritChange) lines.push("local branch");
   if (group.hasRemote && !group.isTag) lines.push("remote branch");
   if (group.hasWorktree) lines.push("checked out in worktree");
   lines.push(group.tooltip);
@@ -607,6 +612,8 @@ function RefPill({
   const isTag = group.isTag;
   const cls = isTag
     ? "ref-pill ref-tag"
+    : group.isGerritChange
+    ? `ref-pill ref-gerrit${group.isOutdatedPatchset ? " ref-gerrit-outdated" : ""}`
     : group.isHead
     ? "ref-pill ref-head"
     : group.hasLocal && group.hasRemote
@@ -630,10 +637,11 @@ function RefPill({
         }
     : undefined;
 
-  // Tags can't be merge/rebase/checkout sources.
+  // Tags can't be merge/rebase/checkout sources. Gerrit change pills are
+  // read-only markers — not draggable, no branch context menu.
   // Local branches are draggable; remote branches are draggable (we'll auto-create
   // a local tracking branch on the action side if needed).
-  const isDraggable = !isTag;
+  const isDraggable = !isTag && !group.isGerritChange;
   const kind: 'local' | 'remote' | 'tag' = isTag ? 'tag' : (group.hasRemote && !group.hasLocal ? 'remote' : 'local');
   // The full ref name git understands: local branch keeps its name; remote pill
   // uses the raw "remote/name" form from the tooltip.
@@ -682,13 +690,14 @@ function RefPill({
         onDrop={handleDrop}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        onContextMenu={onContextMenu ? (e) => onContextMenu(e, refName, kind) : undefined}
+        onContextMenu={onContextMenu && !group.isGerritChange ? (e) => onContextMenu(e, refName, kind) : undefined}
         data-ref-name={refName}
       >
         {isTag          && <span className="rp-icon"><Icon name="tag" size={10} /></span>}
+        {group.isGerritChange && <span className="rp-icon rp-gerrit"><Icon name={group.isOutdatedPatchset ? "history" : "cloud"} size={10} /></span>}
         {group.isHead   && <span className="rp-icon rp-head"><Icon name="dot-circle" size={10} /></span>}
         {group.hasLocal && !isTag && <span className="rp-icon rp-local"><Icon name="branch" size={10} /></span>}
-        {group.hasRemote && <span className="rp-icon rp-remote"><Icon name="cloud" size={10} /></span>}
+        {group.hasRemote && !group.isGerritChange && <span className="rp-icon rp-remote"><Icon name="cloud" size={10} /></span>}
         {group.hasWorktree && <span className="rp-icon rp-worktree"><Icon name="worktree" size={10} /></span>}
         <span className="rp-name">{group.name}</span>
       </span>

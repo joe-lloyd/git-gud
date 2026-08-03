@@ -23,7 +23,7 @@ describe('buildGraphLayout', () => {
     expect(laneOf(nodes, 'B')).toBe(laneOf(nodes, 'C'))
   })
 
-  // Regression for the Boba2 bug: a commit can fork its parent to another lane,
+  // Regression for a real-repo lane bug: a commit can fork its parent to another lane,
   // freeing its own column; an immediately-following stash must NOT reuse that
   // freed lane (which made the stash look like a child of the unrelated commit).
   it('gives a stash its own column instead of reusing an unrelated freed lane', () => {

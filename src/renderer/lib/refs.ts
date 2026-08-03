@@ -8,8 +8,37 @@ export interface RefGroup {
   hasLocal: boolean; // local branch with this name exists
   hasRemote: boolean; // remote/*/name exists
   isTag: boolean; // tag
+  isGerritChange: boolean; // open Gerrit change (current or outdated patchset)
+  isOutdatedPatchset: boolean; // an older patchset of an open change (not the current one)
   hasWorktree: boolean; // checked out in a worktree
   tooltip: string; // full list of raw refs
+}
+
+// Namespace GitService mirrors open Gerrit changes into (see gerrit-utils'
+// CHANGE_REF_PREFIX — duplicated here because main-process modules can't be
+// imported by the renderer).
+export const GERRIT_CHANGE_REF_PREFIX = "refs/gitgud/changes/";
+
+// Synthetic, renderer-only marker (never a real git ref): appended to a
+// commit's refs by App when the commit is an OLD patchset of an open change
+// that another commit still builds on — labeled instead of looking like an
+// anonymous orphan node.
+export const GERRIT_OUTDATED_REF_PREFIX = "refs/gitgud/outdated/";
+
+const changeNumberFrom = (ref: string, prefix: string): number | null => {
+  if (!ref.startsWith(prefix)) return null;
+  const n = Number(ref.slice(prefix.length));
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+/** The change number when `ref` is a mirrored Gerrit change ref, else null. */
+export function gerritChangeNumber(ref: string): number | null {
+  return changeNumberFrom(ref, GERRIT_CHANGE_REF_PREFIX);
+}
+
+/** The change number when `ref` is a synthetic outdated-patchset marker. */
+export function gerritOutdatedNumber(ref: string): number | null {
+  return changeNumberFrom(ref, GERRIT_OUTDATED_REF_PREFIX);
 }
 
 /** Extract the short branch name from any ref form. */
@@ -42,6 +71,7 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
       continue;
     }
     if (ref.startsWith("tag: ")) continue;
+    if (gerritChangeNumber(ref) !== null || gerritOutdatedNumber(ref) !== null) continue; // never HEAD's branch
     // The first non-HEAD, non-tag ref after HEAD is what HEAD points to
     if (headTarget === "HEAD_standalone") {
       headTarget = branchBaseName(ref);
@@ -66,8 +96,47 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
         hasLocal: false,
         hasRemote: false,
         isTag: true,
+        isGerritChange: false,
+        isOutdatedPatchset: false,
         hasWorktree: false,
         tooltip: ref,
+      });
+      continue;
+    }
+
+    // Mirrored open Gerrit change — its own pill kind, shown as "#<number>".
+    const changeNumber = gerritChangeNumber(ref);
+    if (changeNumber !== null) {
+      groups.set(ref, {
+        key: ref,
+        name: `#${changeNumber}`,
+        isHead: false,
+        hasLocal: false,
+        hasRemote: false,
+        isTag: false,
+        isGerritChange: true,
+        isOutdatedPatchset: false,
+        hasWorktree: false,
+        tooltip: `open Gerrit change #${changeNumber} — current patchset`,
+      });
+      continue;
+    }
+
+    // Older patchset of an open change (synthetic marker from App) — labeled
+    // so the node doesn't read as an anonymous orphan.
+    const outdatedNumber = gerritOutdatedNumber(ref);
+    if (outdatedNumber !== null) {
+      groups.set(ref, {
+        key: ref,
+        name: `#${outdatedNumber}`,
+        isHead: false,
+        hasLocal: false,
+        hasRemote: false,
+        isTag: false,
+        isGerritChange: true,
+        isOutdatedPatchset: true,
+        hasWorktree: false,
+        tooltip: `outdated patchset of open Gerrit change #${outdatedNumber} — a newer patchset exists`,
       });
       continue;
     }
@@ -83,6 +152,8 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
         hasLocal: !isRemote,
         hasRemote: isRemote,
         isTag: false,
+        isGerritChange: false,
+        isOutdatedPatchset: false,
         hasWorktree: worktreeBranches.has(base),
         tooltip: ref,
       });
@@ -103,6 +174,8 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
       hasLocal: false,
       hasRemote: false,
       isTag: false,
+      isGerritChange: false,
+      isOutdatedPatchset: false,
       hasWorktree: false,
       tooltip: "HEAD (detached)",
     });

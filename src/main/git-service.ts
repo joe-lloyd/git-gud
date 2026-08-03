@@ -4,6 +4,14 @@ import simpleGit, {
   StatusResult,
 } from "simple-git";
 import { spawn } from "child_process";
+import {
+  buildReviewRefspec,
+  classifyReviewPushError,
+  buildChangeRefFetchSpecs,
+  CHANGE_REF_PREFIX,
+  type PushForReviewOptions,
+  type ReviewPushErrorKind,
+} from "./gerrit-utils";
 
 // Strip ANSI/VT escape sequences so the captured log is readable plain text
 // and safe to paste into an LLM. Full terminal emulation is a non-goal.
@@ -71,6 +79,24 @@ export function classifyGitArgs(args: string[]): "read" | "write" {
 
 let activitySeq = 0;
 
+// Extra log-format field: the commit's Gerrit Change-Id trailer value(s),
+// space-separated. Requires git ≥ 2.22 (`key=` in trailers format); older
+// gits print the specifier literally, which the parser treats as "no value".
+const TRAILER_FIELD = "%(trailers:key=Change-Id,valueonly,separator=%x20)";
+
+// %D only decorates HEAD/heads/remotes/tags/stash by default — mirrored
+// Gerrit change refs (refs/gitgud/changes/*) need an explicit opt-in, and
+// once --decorate-refs is used the default set must be restated (HEAD
+// included, or the "HEAD -> branch" arrow disappears).
+const DECORATE_ARGS = [
+  "--decorate-refs=HEAD",
+  "--decorate-refs=refs/heads",
+  "--decorate-refs=refs/remotes",
+  "--decorate-refs=refs/tags",
+  "--decorate-refs=refs/stash",
+  "--decorate-refs=refs/gitgud/changes",
+];
+
 // Auth is injected into network commands as
 //   -c http.<host>.extraheader=AUTHORIZATION: basic <base64-credential>
 // (see main/index.ts and provider-service.ts). Those argv strings flow into
@@ -109,6 +135,7 @@ export interface CommitNode {
   timestamp: number;
   parents: string[];
   refs: string[]; // branch/tag labels attached to this commit
+  changeId?: string; // Gerrit Change-Id trailer, when present
 }
 
 export interface BranchInfo {
@@ -276,7 +303,8 @@ export class GitService {
       // a feature commit merged later doesn't surface above older mainline
       // history the way --topo-order would group it.
       "--date-order",
-      `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}%s`,
+      ...DECORATE_ARGS,
+      `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}${TRAILER_FIELD}${FS}%s`,
       ...extraRefs,
     ]);
     return parseRawLog(rawOutput);
@@ -947,7 +975,8 @@ export class GitService {
         "--all",
         `-S${query}`,
         `--max-count=${limit}`,
-        `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}%s`,
+        ...DECORATE_ARGS,
+        `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}${TRAILER_FIELD}${FS}%s`,
       ]);
       return parseRawLog(raw);
     } catch {
@@ -1098,6 +1127,75 @@ export class GitService {
     } catch (e: unknown) {
       return { success: false, error: String(e) };
     }
+  }
+
+  // Gerrit review push: HEAD:refs/for/<branch>[%options]. A separate code
+  // path from push() on purpose — plain pushes must stay byte-identical for
+  // non-Gerrit repos. Refspec building + error classification live in
+  // gerrit-utils so they're testable without a repo.
+  async pushForReview(
+    opts: PushForReviewOptions,
+  ): Promise<{ success: boolean; error?: string; kind?: ReviewPushErrorKind }> {
+    try {
+      await this.git.raw([
+        ...this.getAuthConfigs(),
+        "push",
+        opts.remote,
+        buildReviewRefspec(opts),
+      ]);
+      return { success: true };
+    } catch (e: unknown) {
+      const msg = String(e);
+      return { success: false, error: msg, kind: classifyReviewPushError(msg) };
+    }
+  }
+
+  // Mirror the open changes' current patchsets into refs/gitgud/changes/<n>
+  // so `log --all` walks them and the graph renders each open change as a
+  // real node. The fetch authenticates exactly like push/pull (git config /
+  // cookiefile / injected headers). Refs for changes no longer open are
+  // pruned; the namespace is ours alone, so pruning can't touch user refs.
+  async syncGerritChangeRefs(
+    remote: string,
+    changes: Array<{ number: number; currentRef?: string }>,
+  ): Promise<{ success: boolean; error?: string; fetched: number; pruned: number }> {
+    try {
+      const specs = buildChangeRefFetchSpecs(changes);
+      const keep = new Set(changes.map((c) => `${CHANGE_REF_PREFIX}${c.number}`));
+
+      // Prune first so abandoned/merged changes disappear even if the fetch
+      // below fails (e.g. offline).
+      let pruned = 0;
+      const existingRaw = await this.git
+        .raw(["for-each-ref", "--format=%(refname)", CHANGE_REF_PREFIX.replace(/\/$/, "")])
+        .catch(() => "");
+      for (const refname of existingRaw.trim().split("\n").filter(Boolean)) {
+        if (!keep.has(refname)) {
+          await this.git.raw(["update-ref", "-d", refname]).catch(() => {});
+          pruned++;
+        }
+      }
+
+      if (specs.length > 0) {
+        await this.git.raw([...this.getAuthConfigs(), "fetch", remote, ...specs]);
+      }
+      return { success: true, fetched: specs.length, pruned };
+    } catch (e: unknown) {
+      return { success: false, error: String(e), fetched: 0, pruned: 0 };
+    }
+  }
+
+  // Remove every fetched change ref — called when Gerrit mode is disabled.
+  async clearGerritChangeRefs(): Promise<number> {
+    const existingRaw = await this.git
+      .raw(["for-each-ref", "--format=%(refname)", CHANGE_REF_PREFIX.replace(/\/$/, "")])
+      .catch(() => "");
+    let removed = 0;
+    for (const refname of existingRaw.trim().split("\n").filter(Boolean)) {
+      await this.git.raw(["update-ref", "-d", refname]).catch(() => {});
+      removed++;
+    }
+    return removed;
   }
 
   async createBranch(name: string, startPoint?: string): Promise<void> {
@@ -1642,7 +1740,7 @@ export class GitService {
     const FS = "\x1f";
     const raw = await this.git.raw([
       "reflog",
-      `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%gD${FS}%gs`,
+      `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%gD${FS}${TRAILER_FIELD}${FS}%gs`,
       `-n${limit}`,
     ]);
     return parseRawLog(raw);
@@ -1764,13 +1862,15 @@ function classifyPullError(msg: string): string {
 }
 
 // ── Raw log parser ────────────────────────────────────────────────────────────
-function parseRawLog(raw: string): CommitNode[] {
+// Exported for tests.
+export function parseRawLog(raw: string): CommitNode[] {
   const FS = "\x1f";
   const commits: CommitNode[] = [];
   const blocks = raw.split("COMMIT_SEP\n").filter((b) => b.trim());
 
   for (const block of blocks) {
-    // Fields: sha \x1f parents \x1f author \x1f email \x1f date \x1f refs \x1f message
+    // Fields: sha \x1f parents \x1f author \x1f email \x1f date \x1f refs
+    //         \x1f change-id trailer \x1f message
     const parts = block.trimEnd().split(FS);
     const sha = parts[0]?.trim() || "";
     if (!sha || sha.length < 7) continue;
@@ -1781,7 +1881,8 @@ function parseRawLog(raw: string): CommitNode[] {
     const email    = parts[3]?.trim() || "";
     const date     = parts[4]?.trim() || "";
     const refsRaw  = parts[5]?.trim() || "";
-    const message  = parts.slice(6).join(FS).trim();
+    const changeId = parseChangeIdField(parts[6] ?? "");
+    const message  = parts.slice(7).join(FS).trim();
 
     // Stash internals: parent2/parent3 of a stash commit ("index on …",
     // "untracked files on …") get walked by --topo-order and show up as
@@ -1821,8 +1922,20 @@ function parseRawLog(raw: string): CommitNode[] {
       timestamp: date ? new Date(date).getTime() : 0,
       parents,
       refs: refs.filter(Boolean),
+      ...(changeId ? { changeId } : {}),
     });
   }
 
   return commits;
+}
+
+// Reduce the raw trailer-field value to a single Change-Id. Rebases can leave
+// several Change-Id trailers on one commit — Gerrit honors the last. A git
+// too old for `%(trailers:key=…)` echoes the format specifier literally;
+// treat that (or anything not shaped like a Change-Id) as absent.
+export function parseChangeIdField(field: string): string | undefined {
+  const tokens = field.trim().split(/\s+/).filter(Boolean);
+  const last = tokens[tokens.length - 1];
+  if (!last || !/^I[0-9a-fA-F]{8,40}$/.test(last)) return undefined;
+  return last;
 }

@@ -1,8 +1,19 @@
 import React, { useState, useCallback } from 'react'
-import type { CommitNode, FileChange } from '../../../preload/index'
+import type { CommitNode, FileChange, GerritChange } from '../../../preload/index'
 import { Icon, IconName } from '../Icons/Icon'
 import { groupRefs } from '../../lib/refs'
+import { splitTrailers } from '../../lib/trailers'
+import '../Gerrit/Gerrit.css'
 import './CommitDetail.css'
+
+// The selected commit's relationship to an open Gerrit change: it is either
+// the change's current patchset or an older one (an outdated base another
+// change still builds on). Computed in App from the open-changes list.
+export interface GerritCommitInfo {
+  change: GerritChange
+  patchsetNumber: number
+  isCurrent: boolean
+}
 
 interface CommitDetailProps {
   sha: string | null
@@ -11,9 +22,15 @@ interface CommitDetailProps {
   selectedFile?: string | null
   /** Click a file row to open its diff in the main view */
   onSelectFile?: (path: string, sha: string) => void
+  /** Gerrit web base URL — makes the Change-Id trailer pill a link. */
+  gerritHost?: string | null
+  /** Set when the selected commit is a patchset of an open Gerrit change. */
+  gerritInfo?: GerritCommitInfo | null
+  /** Focus + scroll the graph to another commit (jump to current patchset). */
+  onJumpToSha?: (sha: string) => void
 }
 
-export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, selectedFile = null, onSelectFile }) => {
+export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, selectedFile = null, onSelectFile, gerritHost = null, gerritInfo = null, onJumpToSha }) => {
   const [files, setFiles] = useState<FileChange[]>([])
   const [loading, setLoading] = useState(false)
   // Full message (subject + body) — fetched on demand because the log payload
@@ -69,16 +86,43 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
       {(() => {
         // First line of the fetched %B is the subject; everything after the
         // first blank line is the body. Fall back to commit.message (subject
-        // only) while the fetch is in flight.
+        // only) while the fetch is in flight. A trailing trailer paragraph
+        // (Change-Id, Signed-off-by, …) is lifted out of the prose and
+        // rendered as pills.
         const source = fullMessage || commit.message
         const lines = source.split('\n')
         const subject = lines[0] ?? ''
         const sep = lines.findIndex((l, i) => i > 0 && l.trim() === '')
         const body = sep >= 0 ? lines.slice(sep + 1).join('\n') : lines.slice(1).join('\n')
+        const { text, trailers } = splitTrailers(body)
         return (
           <>
             <div className="cd-message">{subject}</div>
-            {body.trim() && <pre className="cd-body-msg">{body}</pre>}
+            {text.trim() && <pre className="cd-body-msg">{text}</pre>}
+            {trailers.length > 0 && (
+              <div className="cd-trailers">
+                {trailers.map((t, i) => {
+                  const isChangeId = t.key.toLowerCase() === 'change-id'
+                  const link = isChangeId && gerritHost ? `${gerritHost}/q/${t.value}` : null
+                  // Change-Ids are 41 opaque chars — show the opening prefix
+                  // (Gerrit matches by prefix, like SHAs); full id in tooltip.
+                  const display = isChangeId && /^I[0-9a-fA-F]{8,}$/.test(t.value)
+                    ? `${t.value.slice(0, 5)}…`
+                    : t.value
+                  return (
+                    <span
+                      key={`${t.key}-${i}`}
+                      className={`cd-trailer ${link ? 'cd-trailer-link' : ''}`}
+                      title={link ? `${t.key}: ${t.value} — open on Gerrit` : `${t.key}: ${t.value}`}
+                      onClick={link ? () => window.uiApi.openExternal(link) : undefined}
+                    >
+                      <span className="cd-trailer-key">{t.key}</span>
+                      <span className="cd-trailer-value">{display}</span>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </>
         )
       })()}
@@ -90,19 +134,72 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
         <div className="cd-refs">
           {groupRefs(commit.refs, new Set()).map((g) => {
             const cls = g.isTag ? 'ref-tag' :
+              g.isGerritChange ? `ref-gerrit${g.isOutdatedPatchset ? ' ref-gerrit-outdated' : ''}` :
               g.isHead ? 'ref-head' :
               g.hasLocal && g.hasRemote ? 'ref-both' :
               g.hasRemote ? 'ref-remote' : 'ref-local'
             return (
               <span key={g.key} className={`ref-pill ${cls}`} title={g.tooltip}>
                 {g.isTag && <span className="rp-icon"><Icon name="tag" size={10} /></span>}
+                {g.isGerritChange && <span className="rp-icon"><Icon name={g.isOutdatedPatchset ? 'history' : 'cloud'} size={10} /></span>}
                 {g.isHead && <span className="rp-icon"><Icon name="dot-circle" size={10} /></span>}
                 {g.hasLocal && !g.isTag && <span className="rp-icon"><Icon name="branch" size={10} /></span>}
-                {g.hasRemote && <span className="rp-icon"><Icon name="cloud" size={10} /></span>}
+                {g.hasRemote && !g.isGerritChange && <span className="rp-icon"><Icon name="cloud" size={10} /></span>}
                 <span className="rp-name">{g.name}</span>
               </span>
             )
           })}
+        </div>
+      )}
+
+      {/* Gerrit change block — the amendment (patchset) history for the
+          selected node. Replaces the old changes panel: the graph carries the
+          nodes, this carries the detail. */}
+      {gerritInfo && (
+        <div className="cd-gerrit">
+          <div className="cd-gerrit-head">
+            <span className="cd-gerrit-title">
+              <Icon name="cloud" size={12} /> Change #{gerritInfo.change.number}
+            </span>
+            {gerritInfo.change.wip && <span className="gerrit-wip">WIP</span>}
+            <span className="cd-gerrit-meta">→ {gerritInfo.change.branch} · {gerritInfo.change.owner}</span>
+            <span style={{ flex: 1 }} />
+            <button
+              className="cd-gerrit-link"
+              title="Open the change in the browser"
+              onClick={() => window.uiApi.openExternal(gerritInfo.change.url)}
+            >open ↗</button>
+          </div>
+
+          {!gerritInfo.isCurrent && (
+            <div className="cd-gerrit-outdated">
+              <Icon name="warning" size={11} /> Outdated — this is patchset {gerritInfo.patchsetNumber},
+              the change is at patchset {gerritInfo.change.patchset}.
+              {gerritInfo.change.currentSha && onJumpToSha && (
+                <button className="cd-gerrit-link" onClick={() => onJumpToSha(gerritInfo.change.currentSha!)}>
+                  jump to current
+                </button>
+              )}
+            </div>
+          )}
+
+          {gerritInfo.change.patchsets.length > 0 && (
+            <div className="cd-gerrit-patchsets">
+              <div className="cd-section-title">Amendments ({gerritInfo.change.patchsets.length} patchset{gerritInfo.change.patchsets.length === 1 ? '' : 's'})</div>
+              {gerritInfo.change.patchsets.map((ps) => (
+                <div
+                  key={ps.number}
+                  className={`cd-gerrit-ps ${ps.number === gerritInfo.patchsetNumber ? 'selected' : ''}`}
+                >
+                  <span className="cd-gerrit-ps-num">PS{ps.number}</span>
+                  {ps.number === gerritInfo.change.patchset && <span className="cd-gerrit-ps-current">current</span>}
+                  <span className="cd-gerrit-ps-kind">{ps.kind.toLowerCase().replace(/_/g, ' ')}</span>
+                  {/* Gerrit timestamps: "YYYY-MM-DD hh:mm:ss.nnnnnnnnn" (UTC) — show the date part */}
+                  <span className="cd-gerrit-ps-date">{ps.created.slice(0, 10)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -6,11 +6,27 @@ import { spawn, type ChildProcess } from 'child_process'
 import { GitService, redactAuthArgs, scrubSecrets, isIndexLockError, type GitActivity } from './git-service'
 import { GitHubService } from './github-service'
 import { ProviderService, type HostedProvider } from './provider-service'
+import { GerritService } from './gerrit-service'
+import { detectGerrit, cookieHeaderForHost, type PushForReviewOptions } from './gerrit-utils'
 
 // App icon — resources/icon.png is rasterized from icon.svg by scripts/render-icon.cjs.
 // In dev `__dirname` is out/main, in prod it's inside the bundle; both sit one
 // level under the project root, so ../../resources resolves either way.
 const ICON_PATH = join(__dirname, '..', '..', 'resources', 'icon.png')
+
+// ── Dev-instance isolation ───────────────────────────────────────────────
+// An unpackaged (pnpm dev) build must be able to run NEXT TO the installed
+// app without touching its state: distinct app name and userData directory
+// mean separate open-tabs.json, recent-projects.json, and credential stores.
+// There is no single-instance lock in this app, so both can run at once; the
+// auto-updater is already a dev no-op. Applied before anything reads
+// app.getPath('userData').
+const IS_DEV_INSTANCE = !app.isPackaged
+if (IS_DEV_INSTANCE) {
+  app.setName('git-gud-dev')
+  app.setPath('userData', join(app.getPath('appData'), 'git-gud-dev'))
+}
+const WINDOW_TITLE = IS_DEV_INSTANCE ? 'Git Gud (Dev)' : 'Git Gud'
 
 let mainWindow: BrowserWindow | null = null
 // All loaded repos — one GitService per open tab.
@@ -21,6 +37,7 @@ let gitService: GitService | null = null
 let activeRepoPath: string | null = null
 let githubService: GitHubService | null = null
 let providerService: ProviderService | null = null
+let gerritService: GerritService | null = null
 
 // Strip ANSI/VT escapes from console + activity output (no terminal emulator).
 // eslint-disable-next-line no-control-regex
@@ -169,6 +186,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 900,
     minHeight: 600,
+    title: WINDOW_TITLE,
     backgroundColor: '#0d1117',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
@@ -179,6 +197,11 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false
     }
+  })
+  // The renderer's <title> would overwrite the BrowserWindow title on load —
+  // keep the (Dev) marker so the two instances stay distinguishable.
+  mainWindow.on('page-title-updated', (e) => {
+    if (IS_DEV_INSTANCE) { e.preventDefault(); mainWindow?.setTitle(WINDOW_TITLE) }
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -234,6 +257,7 @@ app.whenReady().then(() => {
 
   githubService = new GitHubService()
   providerService = new ProviderService()
+  gerritService = new GerritService()
   createWindow()
 
   setupAutoUpdater()
@@ -566,6 +590,71 @@ app.whenReady().then(() => {
       await gitService['git'].addRemote(name, url)
       return { success: true }
     } catch (e: any) { return { success: false, error: e.message } }
+  })
+
+  // ── Gerrit ──────────────────────────────────────────────────────────────
+  // Detection is read-only; the mode flag itself is repo git config written
+  // by the renderer through git:config-set. Credentials stay in main.
+  ipcMain.handle('gerrit:detect', async () => {
+    if (!gitService || !activeRepoPath) return { likely: false, signals: [] }
+    try {
+      const remotes = await gitService.getRemotes()
+      return detectGerrit(activeRepoPath, remotes)
+    } catch { return { likely: false, signals: [] } }
+  })
+
+  ipcMain.handle('gerrit:push-for-review', async (_event, opts: PushForReviewOptions) => {
+    if (!gitService) return { success: false, error: 'No repo', kind: 'unknown' }
+    try { return await gitService.pushForReview(opts) }
+    catch (e) { return { success: false, error: String(e), kind: 'unknown' } }
+  })
+
+  // Cookie header for `host` from git's own http.cookiefile (the auth git
+  // push/pull already uses, e.g. ~/.gitcookies on googlesource hosts). Stays
+  // in main — the renderer never sees credential values.
+  const gerritCookieHeader = async (host: string): Promise<string | undefined> => {
+    try {
+      const configured = await gitService?.getConfig('http.cookiefile')
+      if (!configured) return undefined
+      const cookiePath = configured.replace(/^~(?=$|\/)/, app.getPath('home'))
+      if (!fs.existsSync(cookiePath)) return undefined
+      return cookieHeaderForHost(fs.readFileSync(cookiePath, 'utf8'), host)
+    } catch { return undefined }
+  }
+
+  ipcMain.handle('gerrit:list-changes', async (_event, host: string, project: string) => {
+    if (!gerritService) return { success: false, error: 'Not available' }
+    if (!host || !project) return { success: false, error: 'Gerrit host or project not configured' }
+    try {
+      const cookieHeader = await gerritCookieHeader(host)
+      const changes = await gerritService.listOpenChanges(host, project, cookieHeader)
+      return { success: true, changes, auth: gerritService.authModeFor(host, cookieHeader) }
+    } catch (e) { return { success: false, error: String(e instanceof Error ? e.message : e) } }
+  })
+
+  // Mirror open changes into refs/gitgud/changes/* so the graph shows them.
+  ipcMain.handle('gerrit:sync-change-refs', async (_event, remote: string, changes: Array<{ number: number; currentRef?: string }>) => {
+    if (!gitService) return { success: false, error: 'No repo', fetched: 0, pruned: 0 }
+    return gitService.syncGerritChangeRefs(remote, changes)
+  })
+
+  ipcMain.handle('gerrit:clear-change-refs', async () => {
+    if (!gitService) return 0
+    try { return await gitService.clearGerritChangeRefs() } catch { return 0 }
+  })
+
+  ipcMain.handle('gerrit:set-auth', async (_event, host: string, username: string, password: string) => {
+    if (!gerritService) return { success: false, error: 'Not available' }
+    try { gerritService.setAuth(host, username, password); return { success: true } }
+    catch (e) { return { success: false, error: String(e instanceof Error ? e.message : e) } }
+  })
+
+  ipcMain.handle('gerrit:clear-auth', async (_event, host: string) => {
+    try { gerritService?.clearAuth(host); return true } catch { return false }
+  })
+
+  ipcMain.handle('gerrit:auth-status', async (_event, host: string) => {
+    return gerritService?.hasAuth(host) ?? false
   })
 
   // ── Git Service Wrapping ──────────────────────────────────────────────────────

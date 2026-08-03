@@ -50,11 +50,24 @@ export function useSettings(): Settings {
 
 // ── Settings modal ──────────────────────────────────────────────────────────
 
-interface SettingsModalProps extends Settings {
-  onClose: () => void
+// Gerrit-mode surface: present only when a repo is open (mode loaded). The
+// flag + host/project/branch persist to repo git config via useGerrit; the
+// HTTP password goes to main's encrypted store and never comes back here.
+export interface GerritSettings {
+  mode: { enabled: boolean | null; host: string; project: string; branch: string }
+  authenticated: boolean
+  onToggle: (enabled: boolean) => void
+  onUpdate: (patch: { host?: string; project?: string; branch?: string }) => void
+  onSetAuth: (username: string, password: string) => Promise<boolean>
+  onClearAuth: () => void
 }
 
-export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, onClose }: SettingsModalProps) {
+interface SettingsModalProps extends Settings {
+  onClose: () => void
+  gerrit?: GerritSettings | null
+}
+
+export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, onClose, gerrit }: SettingsModalProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -137,6 +150,26 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
           </label>
         </div>
 
+        {/* Gerrit mode — per-repo git config, only shown with a repo open */}
+        {gerrit && (
+          <>
+            <div style={row}>
+              <div style={labelWrap}>
+                <span style={labelText}>Gerrit mode</span>
+                <span style={hintText}>Push for review + open changes for this repo.</span>
+              </div>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={gerrit.mode.enabled === true}
+                  onChange={(e) => gerrit.onToggle(e.target.checked)}
+                />
+              </label>
+            </div>
+            {gerrit.mode.enabled === true && <GerritSection gerrit={gerrit} row={row} hintText={hintText} />}
+          </>
+        )}
+
         {/* Accent (informational) */}
         <div style={{ ...row, borderBottom: 'none' }}>
           <div style={labelWrap}>
@@ -150,6 +183,90 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
           <button className="btn btn-primary" onClick={onClose}>Done</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Expanded Gerrit settings: host/project/branch inputs (committed on blur)
+// plus HTTP-password credentials for authenticated REST access.
+function GerritSection({ gerrit, row, hintText }: {
+  gerrit: GerritSettings
+  row: React.CSSProperties
+  hintText: React.CSSProperties
+}) {
+  const [host, setHost] = useState(gerrit.mode.host)
+  const [project, setProject] = useState(gerrit.mode.project)
+  const [branch, setBranch] = useState(gerrit.mode.branch)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const input: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box', padding: '6px 10px', border: '1px solid var(--border)',
+    borderRadius: 6, background: 'var(--bg-deepest)', color: 'var(--text-primary)', fontSize: 12, outline: 'none',
+  }
+  const fieldLabel: React.CSSProperties = { display: 'block', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 3 }
+
+  const saveAuth = async () => {
+    if (!username.trim() || !password) return
+    setSaving(true)
+    try {
+      const ok = await gerrit.onSetAuth(username.trim(), password)
+      if (ok) { setUsername(''); setPassword('') }
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div style={{ ...row, display: 'block' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <label style={{ gridColumn: '1 / -1' }}>
+          <span style={fieldLabel}>Host (web base URL)</span>
+          <input style={input} value={host} placeholder="https://review.example.org"
+            onChange={(e) => setHost(e.target.value)}
+            onBlur={() => gerrit.onUpdate({ host: host.trim().replace(/\/+$/, '') })} />
+        </label>
+        <label>
+          <span style={fieldLabel}>Project</span>
+          <input style={input} value={project} placeholder="group/repo"
+            onChange={(e) => setProject(e.target.value)}
+            onBlur={() => gerrit.onUpdate({ project: project.trim() })} />
+        </label>
+        <label>
+          <span style={fieldLabel}>Default target branch</span>
+          <input style={input} value={branch} placeholder="main"
+            onChange={(e) => setBranch(e.target.value)}
+            onBlur={() => gerrit.onUpdate({ branch: branch.trim() || 'main' })} />
+        </label>
+      </div>
+
+      {gerrit.authenticated ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span style={hintText}>Signed in for authenticated REST access.</span>
+          <button className="btn btn-ghost" onClick={gerrit.onClearAuth}>Sign out</button>
+        </div>
+      ) : (
+        <>
+          <span style={{ ...hintText, display: 'block', marginBottom: 6 }}>
+            Optional: username + HTTP password (Gerrit → Settings → HTTP credentials) for
+            authenticated access. Stored encrypted on this machine only.
+          </span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end' }}>
+            <label>
+              <span style={fieldLabel}>Username</span>
+              <input style={input} value={username} autoComplete="off"
+                onChange={(e) => setUsername(e.target.value)} />
+            </label>
+            <label>
+              <span style={fieldLabel}>HTTP password</span>
+              <input style={input} type="password" value={password} autoComplete="off"
+                onChange={(e) => setPassword(e.target.value)} />
+            </label>
+            <button className="btn btn-ghost" disabled={!username.trim() || !password || saving} onClick={saveAuth}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
