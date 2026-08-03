@@ -17,8 +17,6 @@
   and side-by-side views; amend / skip-hooks / sign-off commit options.
 - **History surgery** — interactive rebase, squash/drop a selected range,
   cherry-pick, revert, reset, all from the commit context menu.
-- **Drag-and-drop branching** — drop one branch pill onto another to merge,
-  rebase, or checkout.
 - **Conflict tooling** — guided conflict editor with ours/theirs/both per
   hunk, plus optional `rerere` auto-resolution.
 - **Recovery built in** — reflog browser with restore, bisect wizard, patch
@@ -117,7 +115,7 @@ cp .env.example .env       # then paste your GH_TOKEN inside
 pnpm release               # reads .env, builds, uploads to the GitHub Release
 ```
 
-`.env` is gitignored. Generate the token at https://github.com/settings/tokens with the `repo` scope. If the token leaks, revoke it from the same page immediately.
+`.env` is gitignored. Generate the token at <https://github.com/settings/tokens> with the `repo` scope. If the token leaks, revoke it from the same page immediately.
 
 ## Layout
 
