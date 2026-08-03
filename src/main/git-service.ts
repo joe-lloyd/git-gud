@@ -392,18 +392,20 @@ export class GitService {
     const status: StatusResult = await this.git.status();
     let ahead = 0;
     let behind = 0;
-    try {
-      const trackingRaw = await this.git.raw([
-        "rev-list",
-        "--left-right",
-        "--count",
-        `${status.current}...@{u}`,
-      ]);
-      const parts = trackingRaw.trim().split(/\s+/);
-      ahead = parseInt(parts[0]) || 0;
-      behind = parseInt(parts[1]) || 0;
-    } catch {
-      /* no upstream */
+    if (status.tracking) {
+      try {
+        const trackingRaw = await this.git.raw([
+          "rev-list",
+          "--left-right",
+          "--count",
+          `${status.current}...@{u}`,
+        ]);
+        const parts = trackingRaw.trim().split(/\s+/);
+        ahead = parseInt(parts[0]) || 0;
+        behind = parseInt(parts[1]) || 0;
+      } catch {
+        /* upstream gone (e.g. remote branch deleted) */
+      }
     }
 
     // Fetch line numbers
