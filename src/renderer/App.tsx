@@ -56,6 +56,7 @@ type AppModal =
   | 'confirm-drop-stash'
   | 'stash-branch'
   | 'branch-from-tag'
+  | 'rename-tag'
   | 'edit-author'
   | 'toolbar-stash'
   | 'settings'
@@ -630,6 +631,7 @@ export default function App() {
         })
       openCtx(e, [
         { label: `Create branch from "${tagName}"…`, icon: 'branch', onClick: () => handleCreateBranchFromTag(tagName) },
+        { label: `Rename "${tagName}"…`, icon: 'edit', onClick: () => { setPendingTag(tagName); setModal('rename-tag') } },
         {
           label: `Push tag to ${remote}`, icon: 'arrow-up', disabled: !hasRemote,
           onClick: () => run('Tag pushed', window.gitApi.pushTag(remote, tagName)),
@@ -735,32 +737,46 @@ export default function App() {
   // check stays quiet on "no update"; a manual toolbar check reports every
   // outcome.
   const manualUpdateCheck = useRef(false)
+  // Mirrors the updater lifecycle into the sidebar version chip so download
+  // progress and the ready-to-restart state stay visible after toasts fade.
+  const [appVersion, setAppVersion] = useState('')
+  const [updateInfo, setUpdateInfo] = useState<{ state: 'idle' | 'downloading' | 'ready'; version?: string; percent?: number }>({ state: 'idle' })
+  useEffect(() => {
+    window.gitApi.getAppVersion?.().then(setAppVersion).catch(() => {})
+  }, [])
   useEffect(() => {
     const unsub = window.gitApi.onUpdaterStatus((s) => {
       if (s.state === 'available') {
         manualUpdateCheck.current = false
+        setUpdateInfo({ state: 'downloading', version: s.version, percent: 0 })
         repo.toast.info('Update available', `v${s.version} is downloading…`)
       } else if (s.state === 'downloaded') {
+        setUpdateInfo({ state: 'ready', version: s.version })
         repo.toast.success('Update ready', `v${s.version} — restart Git Gud to install.`, {
           label: 'Restart now',
           onClick: () => { window.gitApi.updaterInstall() },
         })
       } else if (s.state === 'none') {
+        setUpdateInfo({ state: 'idle' })
         if (manualUpdateCheck.current) {
           manualUpdateCheck.current = false
           repo.toast.success('Up to date', 'You are already on the latest version.')
         }
       } else if (s.state === 'error') {
+        setUpdateInfo({ state: 'idle' })
         if (manualUpdateCheck.current) {
           manualUpdateCheck.current = false
           repo.toast.warning('Update check failed', s.error)
         } else {
-          // Expected during dev runs and on unsigned mac builds. Log only.
+          // Expected during dev runs. Log only.
           console.warn('updater error:', s.error)
         }
       }
     })
-    return () => { unsub?.() }
+    const unsubProgress = window.gitApi.onUpdaterProgress((p) => {
+      setUpdateInfo((u) => u.state === 'downloading' ? { ...u, percent: p.percent } : u)
+    })
+    return () => { unsub?.(); unsubProgress?.() }
   }, [repo.toast])
 
   // Toolbar "Check for updates" — feedback comes back through the status
@@ -1086,6 +1102,9 @@ export default function App() {
             footer BELOW it (in-flow) — never overlapping the last section. */}
         <div className="sidebar-col">
         <Sidebar
+          appVersion={appVersion}
+          update={updateInfo}
+          onUpdateAction={() => { updateInfo.state === 'ready' ? window.gitApi.updaterInstall() : handleCheckUpdates() }}
           repoPath={repo.repoPath}
           branches={repo.branches}
           stashes={repo.stashes}
@@ -1479,6 +1498,24 @@ export default function App() {
             const r = await window.gitApi.createBranch(name, tag)
             if (r.success) { repo.toast.success('Branch Created', `${name} at ${tag}`); repo.methods.refresh() }
             else repo.toast.error('Branch Failed', r.error)
+          }}
+        />
+      )}
+      {modal === 'rename-tag' && pendingTag && (
+        <InputModal
+          title={`Rename tag "${pendingTag}"`}
+          subtitle="Recreates the tag at the same commit. A pushed tag keeps its old name on the remote — push the new tag and delete the old one there."
+          placeholder="New tag name"
+          initialValue={pendingTag}
+          confirmLabel="Rename"
+          onClose={closeModal}
+          onConfirm={async (newName) => {
+            const oldName = pendingTag
+            closeModal()
+            if (newName === oldName) return
+            const r = await window.gitApi.renameTag(oldName, newName)
+            if (r.success) { repo.toast.success('Tag Renamed', `"${oldName}" → "${newName}".`); repo.methods.refresh() }
+            else repo.toast.error('Rename Tag Failed', r.error)
           }}
         />
       )}

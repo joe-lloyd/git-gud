@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { MacUpdater } from './mac-updater'
 import { basename, join } from 'path'
 import * as fs from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
@@ -216,14 +217,35 @@ function createWindow(): void {
 // Checks GitHub Releases for a newer version, downloads in the background,
 // then asks the user to restart for the swap. No-op in dev (the dev binary
 // isn't packaged so the updater would just fail).
+// macOS uses the custom MacUpdater: the app ships unsigned (identity: null)
+// and electron-updater's Squirrel.Mac path refuses to swap unsigned bundles —
+// its "restart" silently did nothing. Windows/Linux stay on electron-updater.
 function setupAutoUpdater(): void {
-  if (process.env['ELECTRON_RENDERER_URL']) return  // dev mode
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
+  // Version display works everywhere, including dev.
+  ipcMain.handle('app:version', () => app.getVersion())
+
+  if (!app.isPackaged) return  // dev mode
 
   const send = (channel: string, payload?: unknown) => {
     mainWindow?.webContents.send(channel, payload)
   }
+
+  if (process.platform === 'darwin') {
+    const mac = new MacUpdater({
+      onStatus: (s) => send('updater:status', s),
+      onProgress: (p) => send('updater:progress', p),
+    })
+    setTimeout(() => { mac.checkForUpdates().catch(() => {}) }, 5_000)
+    ipcMain.handle('updater:check', async () => {
+      try { const r = await mac.checkForUpdates(); return { success: true, version: r.version } }
+      catch (e) { return { success: false, error: String(e) } }
+    })
+    ipcMain.handle('updater:install', () => { mac.quitAndInstall() })
+    return
+  }
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('checking-for-update', () => send('updater:status', { state: 'checking' }))
   autoUpdater.on('update-available', (info) => send('updater:status', { state: 'available', version: info.version }))
@@ -1032,6 +1054,12 @@ app.whenReady().then(() => {
   ipcMain.handle('git:delete-tag', async (_event, name: string) => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { await gitService.deleteTag(name); return { success: true } }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
+  ipcMain.handle('git:rename-tag', async (_event, oldName: string, newName: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { await gitService.renameTag(oldName, newName); return { success: true } }
     catch (e) { return { success: false, error: String(e) } }
   })
 

@@ -60,6 +60,29 @@
   background: var(--bg-hover);
 }
 
+/* Version chip — quiet by default, becomes a call-to-action when an update
+   is downloaded and waiting for a restart. */
+.sb-version {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.sb-version:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.sb-version-ready {
+  color: var(--lane-0);
+  font-weight: 600;
+  background: rgba(255,79,195,0.10);
+}
+.sb-version-ready:hover { color: var(--lane-0); background: rgba(255,79,195,0.18); }
+
 
 .sb-nav {
   flex: 1;

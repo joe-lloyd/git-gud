@@ -308,6 +308,8 @@ const gitApi = {
     ipcRenderer.invoke('git:create-tag', name, sha),
   deleteTag: (name: string): Promise<Result> =>
     ipcRenderer.invoke('git:delete-tag', name),
+  renameTag: (oldName: string, newName: string): Promise<Result> =>
+    ipcRenderer.invoke('git:rename-tag', oldName, newName),
   pushTag: (remote: string, name: string): Promise<Result> =>
     ipcRenderer.invoke('git:push-tag', remote, name),
   deleteRemoteTag: (remote: string, name: string): Promise<Result> =>
@@ -363,6 +365,7 @@ const gitApi = {
   },
 
   // ── Auto-updater ─────────────────────────────────────────────────────
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   updaterCheck: (): Promise<{ success: boolean; version?: string; error?: string }> =>
     ipcRenderer.invoke('updater:check'),
   updaterInstall: (): Promise<void> => ipcRenderer.invoke('updater:install'),
