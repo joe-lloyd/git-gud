@@ -54,6 +54,7 @@
   transition: color 0.12s, background 0.12s;
 }
 .wt-header-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.wt-header-btn-danger:hover { color: var(--danger); background: rgba(252,129,129,0.12); }
 
 .wt-refresh-btn {
   font-size: 13px;
@@ -125,6 +126,13 @@
 }
 .wt-file-row:hover   { background: var(--bg-hover); }
 .wt-file-row.selected { background: var(--bg-active); }
+/* Multi-select (cmd/shift-click): accent stripe distinguishes bulk-selected
+   rows from the single focused row. */
+.wt-file-row.multi {
+  background: var(--bg-active);
+  box-shadow: inset 2px 0 0 var(--lane-0);
+}
+.wt-file-row.multi .wt-file-action { opacity: 1; }
 
 .wt-status-svg {
   flex-shrink: 0;

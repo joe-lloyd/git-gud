@@ -29,8 +29,9 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   const [signoff, setSignoff]         = useState(false)
   const [committing, setCommitting]   = useState(false)
   const [error, setError]             = useState<string | null>(null)
-  // Pending discard awaiting in-app confirmation.
-  const [confirmDiscard, setConfirmDiscard] = useState<{ path: string; staged: boolean; isUntracked: boolean } | null>(null)
+  // Pending discard awaiting in-app confirmation. Holds one or many files —
+  // multi-select and "Discard all" funnel through the same modal.
+  const [confirmDiscard, setConfirmDiscard] = useState<Array<{ path: string; staged: boolean; isUntracked: boolean }> | null>(null)
   // A stage/unstage that hit a stale `.git/index.lock`. Holds the operation so
   // it can be re-run verbatim once the user OKs removing the lock.
   const [lockedOp, setLockedOp] = useState<{ label: string; retry: () => Promise<void> } | null>(null)
@@ -42,6 +43,10 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   // so arrow keys walk the full list regardless of section.
   const [focusedIdx, setFocusedIdx] = useState(0)
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
+  // Multi-select for bulk discard: row keys picked via cmd/ctrl-click (toggle)
+  // or shift-click (range from anchor). Plain click clears back to single.
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [selAnchor, setSelAnchor] = useState<number | null>(null)
 
   // Drag-to-resize: top section height as a percentage (default 50%)
   const [splitPct, setSplitPct] = useState(50)
@@ -168,25 +173,82 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   status?.staged.forEach((f) => rows.push({ key: `s:${f.path}`, file: f, staged: true, isUntracked: false }))
 
   // Discard reverts the working tree (and index if staged) back to HEAD for
-  // that file. Destructive, so it routes through an in-app ConfirmModal (native
-  // window.confirm is unreliable in this Electron build).
+  // that file; untracked files are deleted. Destructive, so it routes through
+  // an in-app ConfirmModal (native window.confirm is unreliable in this
+  // Electron build). Clicking discard on a multi-selected row discards the
+  // whole selection.
+  const toDiscardEntry = (r: Row) => ({ path: r.file.path, staged: r.staged, isUntracked: r.isUntracked })
   const handleDiscard = useCallback((row: Row) => {
-    setConfirmDiscard({ path: row.file.path, staged: row.staged, isUntracked: row.isUntracked })
-  }, [])
+    if (selectedKeys.size > 1 && selectedKeys.has(row.key)) {
+      setConfirmDiscard(rows.filter((r) => selectedKeys.has(r.key)).map(toDiscardEntry))
+    } else {
+      setConfirmDiscard([toDiscardEntry(row)])
+    }
+  }, [rows, selectedKeys])
+
+  // "Discard all" = everything in the Changes section (unstaged + untracked).
+  const handleDiscardAll = useCallback(() => {
+    const files = rows.filter((r) => !r.staged).map(toDiscardEntry)
+    if (files.length) setConfirmDiscard(files)
+  }, [rows])
 
   const doDiscard = useCallback(async () => {
     const d = confirmDiscard
     setConfirmDiscard(null)
-    if (!d) return
-    if (d.isUntracked) {
-      const r = await window.gitApi.discardUntracked([d.path])
-      if (!r.success) setError(r.error)
-    } else {
-      const r = await window.gitApi.discardChanges([d.path], { staged: d.staged })
-      if (!r.success) setError(r.error)
+    if (!d || d.length === 0) return
+    // Group by required git op — the APIs already take path arrays.
+    const untracked = d.filter((f) => f.isUntracked).map((f) => f.path)
+    const staged    = d.filter((f) => !f.isUntracked && f.staged).map((f) => f.path)
+    const unstaged  = d.filter((f) => !f.isUntracked && !f.staged).map((f) => f.path)
+    const errs: string[] = []
+    if (untracked.length) {
+      const r = await window.gitApi.discardUntracked(untracked)
+      if (!r.success && r.error) errs.push(r.error)
     }
+    if (staged.length) {
+      const r = await window.gitApi.discardChanges(staged, { staged: true })
+      if (!r.success && r.error) errs.push(r.error)
+    }
+    if (unstaged.length) {
+      const r = await window.gitApi.discardChanges(unstaged, { staged: false })
+      if (!r.success && r.error) errs.push(r.error)
+    }
+    if (errs.length) setError(errs.join(' · '))
+    setSelectedKeys(new Set())
     onRefresh()
   }, [confirmDiscard, onRefresh])
+
+  // Row click with modifiers: cmd/ctrl toggles membership, shift extends the
+  // range from the last anchor, plain click collapses to single + shows diff.
+  const handleRowClick = useCallback((idx: number, e: React.MouseEvent) => {
+    const row = rows[idx]
+    if (!row) return
+    if (e.metaKey || e.ctrlKey) {
+      setSelectedKeys((prev) => {
+        const next = new Set(prev)
+        // Seed with the previously focused row so the first cmd-click reads as
+        // "add this to what I had".
+        if (next.size === 0 && rows[focusedIdx] && focusedIdx !== idx) next.add(rows[focusedIdx].key)
+        if (next.has(row.key)) next.delete(row.key)
+        else next.add(row.key)
+        return next
+      })
+      setSelAnchor(idx)
+      setFocusedIdx(idx)
+      return
+    }
+    if (e.shiftKey) {
+      const anchor = selAnchor ?? focusedIdx
+      const [lo, hi] = anchor <= idx ? [anchor, idx] : [idx, anchor]
+      setSelectedKeys(new Set(rows.slice(lo, hi + 1).map((r) => r.key)))
+      setFocusedIdx(idx)
+      return
+    }
+    setSelectedKeys(new Set())
+    setSelAnchor(idx)
+    setFocusedIdx(idx)
+    onSelectDiff(row.file.path, row.staged)
+  }, [rows, focusedIdx, selAnchor, onSelectDiff])
 
   // Arrow keys + Enter only — Space and letter shortcuts ate keystrokes when
   // focus was in the commit textarea. Stage / discard live on the row buttons
@@ -199,10 +261,13 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
     const focusRow = (idx: number) => {
       const clamped = Math.max(0, Math.min(rows.length - 1, idx))
       setFocusedIdx(clamped)
+      setSelAnchor(clamped)
+      setSelectedKeys(new Set())
       rowRefs.current[clamped]?.focus()
       const r = rows[clamped]
       if (r) onSelectDiff(r.file.path, r.staged)
     }
+    if (e.key === 'Escape')    { setSelectedKeys(new Set()); return }
     if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(focusedIdx + 1); return }
     if (e.key === 'ArrowUp')   { e.preventDefault(); focusRow(focusedIdx - 1); return }
     if (e.key === 'Home')      { e.preventDefault(); focusRow(0); return }
@@ -234,7 +299,10 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
             Changes {unstagedCount > 0 && <span className="wt-count">{unstagedCount}</span>}
           </span>
           {unstagedCount > 0 && (
-            <button className="wt-header-btn" onClick={handleStageAll}>Stage all <Icon name="arrow-down" size={11} /></button>
+            <>
+              <button className="wt-header-btn wt-header-btn-danger" onClick={handleDiscardAll}>Discard all <Icon name="x" size={11} /></button>
+              <button className="wt-header-btn" onClick={handleStageAll}>Stage all <Icon name="arrow-down" size={11} /></button>
+            </>
           )}
           <button className="wt-refresh-btn" onClick={onRefresh} title="Refresh"><Icon name="refresh" size={12} /></button>
         </div>
@@ -251,9 +319,11 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
               label={statusLabel[r.file.status] ?? (r.isUntracked ? 'Untracked' : 'Unknown')}
               color={statusColor[r.file.status] ?? (r.isUntracked ? '#68d391' : '#8b949e')}
               action="stage"
+              multiSelected={selectedKeys.has(r.key)}
+              discardCount={selectedKeys.size > 1 && selectedKeys.has(r.key) ? selectedKeys.size : 1}
               onAction={() => handleStage([r.file.path])}
               onDiscard={() => handleDiscard(r)}
-              onSelect={() => { setFocusedIdx(idx); onSelectDiff(r.file.path, false) }}
+              onSelect={(e) => handleRowClick(idx, e)}
             />
           ) : null)}
         </div>
@@ -287,9 +357,11 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
               focused={focusedIdx === idx}
               statusCode={r.file.status} label={statusLabel[r.file.status] ?? 'Unknown'} color={statusColor[r.file.status] ?? '#8b949e'}
               action="unstage"
+              multiSelected={selectedKeys.has(r.key)}
+              discardCount={selectedKeys.size > 1 && selectedKeys.has(r.key) ? selectedKeys.size : 1}
               onAction={() => handleUnstage([r.file.path])}
               onDiscard={() => handleDiscard(r)}
-              onSelect={() => { setFocusedIdx(idx); onSelectDiff(r.file.path, true) }}
+              onSelect={(e) => handleRowClick(idx, e)}
             />
           ) : null)}
         </div>
@@ -372,12 +444,16 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
         </button>
       </div>
 
-      {confirmDiscard && (
+      {confirmDiscard && confirmDiscard.length > 0 && (
         <ConfirmModal
           title="Discard changes?"
-          message={`${confirmDiscard.staged ? 'Discard staged + working changes' : 'Discard changes'} for ${confirmDiscard.path}.`}
-          detail="This reverts the file to HEAD and cannot be undone."
-          confirmLabel="Discard"
+          message={confirmDiscard.length === 1
+            ? `${confirmDiscard[0].staged ? 'Discard staged + working changes' : 'Discard changes'} for ${confirmDiscard[0].path}.`
+            : `Discard changes for ${confirmDiscard.length} files.`}
+          detail={confirmDiscard.some((f) => f.isUntracked)
+            ? 'Tracked files revert to HEAD; untracked files are deleted. This cannot be undone.'
+            : `This reverts ${confirmDiscard.length === 1 ? 'the file' : 'the files'} to HEAD and cannot be undone.`}
+          confirmLabel={confirmDiscard.length === 1 ? 'Discard' : `Discard ${confirmDiscard.length} files`}
           danger
           onClose={() => setConfirmDiscard(null)}
           onConfirm={doDiscard}
@@ -400,7 +476,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
 
 // ── FileRow ───────────────────────────────────────────────────────────────────
 
-function FileRow({ file, statusCode, label, color, action, onAction, onDiscard, focused, onSelect, rowRef }: {
+function FileRow({ file, statusCode, label, color, action, onAction, onDiscard, focused, multiSelected, discardCount = 1, onSelect, rowRef }: {
   file: FileChange
   statusCode: string
   label: string
@@ -409,14 +485,17 @@ function FileRow({ file, statusCode, label, color, action, onAction, onDiscard, 
   onAction: () => void
   onDiscard: () => void
   focused?: boolean
-  onSelect: () => void
+  multiSelected?: boolean
+  // >1 when this row is part of a multi-selection — discard applies to all.
+  discardCount?: number
+  onSelect: (e: React.MouseEvent) => void
   rowRef?: (el: HTMLButtonElement | null) => void
 }) {
   return (
     <button
       ref={rowRef}
       type="button"
-      className={`wt-file-row ${focused ? 'selected' : ''}`}
+      className={`wt-file-row ${focused ? 'selected' : ''} ${multiSelected ? 'multi' : ''}`}
       onClick={onSelect}
     >
       <FileStatusIcon status={statusCode} color={color} label={label} />
@@ -434,7 +513,7 @@ function FileRow({ file, statusCode, label, color, action, onAction, onDiscard, 
         role="button"
         tabIndex={-1}
         onClick={(e) => { e.stopPropagation(); onDiscard() }}
-        title="Discard"
+        title={discardCount > 1 ? `Discard ${discardCount} selected files` : 'Discard'}
       >
         <Icon name="x" size={12} />
       </span>
