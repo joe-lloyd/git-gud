@@ -1553,6 +1553,26 @@ export class GitService {
     await this.git.raw(["tag", "-d", name]);
   }
 
+  // Git has no native tag rename — recreate at the same target commit, then
+  // delete the old ref. Annotated tags keep their message but get a fresh
+  // tagger/date, and a GPG signature is NOT carried over (re-sign manually).
+  // Create-before-delete order: a name collision aborts with the old tag intact.
+  async renameTag(oldName: string, newName: string): Promise<void> {
+    const type = (await this.git.raw(["tag", "-l", "--format=%(objecttype)", oldName])).trim();
+    if (!type) throw new Error(`Tag "${oldName}" not found`);
+    if (type === "tag") {
+      // Annotated: subject/body via for-each-ref fields so a signed tag's
+      // signature block doesn't leak into the new message.
+      const subject = (await this.git.raw(["tag", "-l", "--format=%(contents:subject)", oldName])).trim();
+      const body = (await this.git.raw(["tag", "-l", "--format=%(contents:body)", oldName])).trim();
+      const message = body ? `${subject}\n\n${body}` : subject;
+      await this.git.raw(["tag", "-a", newName, `${oldName}^{}`, "-m", message || newName]);
+    } else {
+      await this.git.raw(["tag", newName, `${oldName}^{}`]);
+    }
+    await this.git.raw(["tag", "-d", oldName]);
+  }
+
   // Full refs/tags/ path on the wire so a branch with the same name can never
   // be pushed or deleted by accident.
   async pushTag(remote: string, name: string): Promise<void> {

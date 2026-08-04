@@ -114,4 +114,53 @@ describe('GitService Integration Tests', () => {
     // The top commit should be the feature commit since it’s a fast-forward merge
     expect(logs[0].message).toBe('feature commit')
   })
+
+  describe('renameTag', () => {
+    it('renames a lightweight tag, keeping its target', async () => {
+      const sha = (await git.revparse(['HEAD'])).trim()
+      await service.createTag('v1', sha)
+
+      await service.renameTag('v1', 'v1-final')
+
+      const tags = await git.tags()
+      expect(tags.all).toContain('v1-final')
+      expect(tags.all).not.toContain('v1')
+      expect((await git.revparse(['v1-final^{}'])).trim()).toBe(sha)
+      // Stays lightweight — ref points straight at the commit, no tag object.
+      expect((await git.raw(['tag', '-l', '--format=%(objecttype)', 'v1-final'])).trim()).toBe('commit')
+    })
+
+    it('renames an annotated tag, preserving target and message', async () => {
+      const sha = (await git.revparse(['HEAD'])).trim()
+      await git.raw(['tag', '-a', 'rel', sha, '-m', 'Release one\n\nWith a body line.'])
+
+      await service.renameTag('rel', 'rel-1')
+
+      const tags = await git.tags()
+      expect(tags.all).toContain('rel-1')
+      expect(tags.all).not.toContain('rel')
+      expect((await git.revparse(['rel-1^{}'])).trim()).toBe(sha)
+      expect((await git.raw(['tag', '-l', '--format=%(objecttype)', 'rel-1'])).trim()).toBe('tag')
+      const subject = (await git.raw(['tag', '-l', '--format=%(contents:subject)', 'rel-1'])).trim()
+      const body = (await git.raw(['tag', '-l', '--format=%(contents:body)', 'rel-1'])).trim()
+      expect(subject).toBe('Release one')
+      expect(body).toBe('With a body line.')
+    })
+
+    it('rejects renaming a tag that does not exist', async () => {
+      await expect(service.renameTag('nope', 'still-nope')).rejects.toThrow(/not found/)
+    })
+
+    it('keeps the old tag when the new name already exists', async () => {
+      const sha = (await git.revparse(['HEAD'])).trim()
+      await service.createTag('a', sha)
+      await service.createTag('b', sha)
+
+      await expect(service.renameTag('a', 'b')).rejects.toThrow()
+
+      const tags = await git.tags()
+      expect(tags.all).toContain('a') // create-before-delete left it intact
+      expect(tags.all).toContain('b')
+    })
+  })
 })
