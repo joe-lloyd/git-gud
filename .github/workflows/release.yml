@@ -52,3 +52,46 @@ jobs:
           # Release. Auto-provided in CI, no secret config needed.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm release
+
+  # Runs after all three platform builds have published. Removes blockmaps no
+  # updater path reads (dmg blockmaps — mac updates ship as zip; mac zip
+  # blockmaps — the custom MacUpdater full-downloads, it never does
+  # differential) and writes a download guide as the release notes so people
+  # can tell the four real installers from updater plumbing. The Windows
+  # Setup-*.exe.blockmap stays: electron-updater uses it for differential
+  # updates on Windows.
+  tidy-release:
+    name: Tidy release assets
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete unused blockmaps + write download guide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          for asset in $(gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name'); do
+            case "$asset" in
+              *.dmg.blockmap|*mac.zip.blockmap)
+                echo "deleting $asset"
+                gh release delete-asset "$TAG" "$asset" --repo "$REPO" --yes
+                ;;
+            esac
+          done
+          gh release edit "$TAG" --repo "$REPO" --notes "## Downloads
+
+          | Platform | File |
+          | --- | --- |
+          | macOS — Apple Silicon | \`Git-Gud-${VERSION}-arm64.dmg\` |
+          | macOS — Intel | \`Git-Gud-${VERSION}.dmg\` |
+          | Windows | \`Git-Gud-Setup-${VERSION}.exe\` |
+          | Linux | \`Git-Gud-${VERSION}.AppImage\` |
+
+          macOS is unsigned: on first launch, right-click the app → Open.
+
+          All other files (\`.zip\`, \`latest-*.yml\`, \`.blockmap\`) belong to the in-app auto-updater — no need to download them."
