@@ -111,3 +111,30 @@
 }
 .tab-home:hover { background: var(--bg-hover); color: var(--text-primary); }
 .tab-home svg { display: block; }
+
+/* Version chip — right edge of the bar. Quiet by default; becomes the
+   restart call-to-action once an update has downloaded. */
+.tab-bar-spacer { flex: 1; min-width: 8px; }
+.tab-version {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  padding: 0 10px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: color 0.1s, background 0.1s;
+}
+.tab-version:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.tab-version-ready {
+  color: var(--lane-0);
+  font-weight: 600;
+  background: rgba(255,79,195,0.10);
+}
+.tab-version-ready:hover { color: var(--lane-0); background: rgba(255,79,195,0.18); }

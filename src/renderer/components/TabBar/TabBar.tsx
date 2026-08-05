@@ -8,9 +8,17 @@ interface TabBarProps {
   onClose: (path: string) => void
   onOpenMenu: (e: React.MouseEvent) => void
   onGoHome: () => void
+  /** Running app version, shown at the bar's right edge. The native frame
+   *  title carries it too, but macOS uses hiddenInset (no visible title), so
+   *  this header chip is the always-visible home for it. */
+  appVersion: string
+  /** Updater lifecycle — turns the chip into progress / restart-to-install. */
+  update: { state: 'idle' | 'downloading' | 'ready'; version?: string; percent?: number }
+  /** Ready → restart-and-install; otherwise a manual update check. */
+  onUpdateAction: () => void
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onOpenMenu, onGoHome }) => {
+export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onOpenMenu, onGoHome, appVersion, update, onUpdateAction }) => {
   if (tabs.length === 0) return null
   return (
     <div className="tab-bar">
@@ -54,6 +62,22 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, on
       <button className="tab-new" onClick={onOpenMenu} title="Open or clone a repository">
         +
       </button>
+      <div className="tab-bar-spacer" />
+      {appVersion && (
+        <button
+          className={`tab-version ${update.state === 'ready' ? 'tab-version-ready' : ''}`}
+          onClick={onUpdateAction}
+          title={update.state === 'ready'
+            ? `Restart to install v${update.version}`
+            : update.state === 'downloading'
+              ? `Downloading v${update.version}…`
+              : 'Check for updates'}
+        >
+          {update.state === 'downloading' && <>v{appVersion} → v{update.version} · {Math.round(update.percent ?? 0)}%</>}
+          {update.state === 'ready' && <>↻ Restart for v{update.version}</>}
+          {update.state === 'idle' && <>v{appVersion}</>}
+        </button>
+      )}
     </div>
   )
 }

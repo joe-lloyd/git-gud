@@ -1017,6 +1017,9 @@ export default function App() {
         onClose={repo.methods.closeTab}
         onOpenMenu={openRepoSourceMenu}
         onGoHome={repo.methods.handleGoHome}
+        appVersion={appVersion}
+        update={updateInfo}
+        onUpdateAction={() => { updateInfo.state === 'ready' ? window.gitApi.updaterInstall() : handleCheckUpdates() }}
       />
 
       <Toolbar
@@ -1102,9 +1105,6 @@ export default function App() {
             footer BELOW it (in-flow) — never overlapping the last section. */}
         <div className="sidebar-col">
         <Sidebar
-          appVersion={appVersion}
-          update={updateInfo}
-          onUpdateAction={() => { updateInfo.state === 'ready' ? window.gitApi.updaterInstall() : handleCheckUpdates() }}
           repoPath={repo.repoPath}
           branches={repo.branches}
           stashes={repo.stashes}

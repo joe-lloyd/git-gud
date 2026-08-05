@@ -27,7 +27,10 @@ if (IS_DEV_INSTANCE) {
   app.setName('git-gud-dev')
   app.setPath('userData', join(app.getPath('appData'), 'git-gud-dev'))
 }
-const WINDOW_TITLE = IS_DEV_INSTANCE ? 'Git Gud (Dev)' : 'Git Gud'
+// Version in the frame title: visible in the native title bar on Windows and
+// Linux; macOS runs hiddenInset (no chrome title), so the renderer's tab bar
+// shows a version chip instead.
+const WINDOW_TITLE = `${IS_DEV_INSTANCE ? 'Git Gud (Dev)' : 'Git Gud'} v${app.getVersion()}`
 
 let mainWindow: BrowserWindow | null = null
 // All loaded repos — one GitService per open tab.
@@ -200,9 +203,10 @@ function createWindow(): void {
     }
   })
   // The renderer's <title> would overwrite the BrowserWindow title on load —
-  // keep the (Dev) marker so the two instances stay distinguishable.
+  // keep the version (and the (Dev) marker) in the frame title everywhere.
   mainWindow.on('page-title-updated', (e) => {
-    if (IS_DEV_INSTANCE) { e.preventDefault(); mainWindow?.setTitle(WINDOW_TITLE) }
+    e.preventDefault()
+    mainWindow?.setTitle(WINDOW_TITLE)
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -226,8 +230,20 @@ function setupAutoUpdater(): void {
 
   if (!app.isPackaged) return  // dev mode
 
+  // Mirror updater progress into the frame title so Windows/Linux users see
+  // it without any in-app chrome (macOS shows the tab-bar chip instead).
+  let pendingVersion = ''
   const send = (channel: string, payload?: unknown) => {
     mainWindow?.webContents.send(channel, payload)
+    if (channel === 'updater:status') {
+      const s = payload as { state: string; version?: string }
+      if (s.state === 'available') pendingVersion = s.version ?? ''
+      else if (s.state === 'downloaded') mainWindow?.setTitle(`${WINDOW_TITLE} — restart for v${s.version}`)
+      else if (s.state === 'none' || s.state === 'error') mainWindow?.setTitle(WINDOW_TITLE)
+    } else if (channel === 'updater:progress') {
+      const p = payload as { percent: number }
+      mainWindow?.setTitle(`${WINDOW_TITLE} — downloading v${pendingVersion} ${Math.round(p.percent)}%`)
+    }
   }
 
   if (process.platform === 'darwin') {

@@ -12,12 +12,6 @@ const DEFAULT_HEIGHTS: Record<string, number> = { local: 200, remote: 160, stash
 const HEIGHTS_KEY = 'sidebar.sectionHeights'
 
 interface SidebarProps {
-  /** Running app version for the chip under the repo name (empty until loaded). */
-  appVersion: string
-  /** Updater lifecycle mirrored from App — drives the chip's label. */
-  update: { state: 'idle' | 'downloading' | 'ready'; version?: string; percent?: number }
-  /** Ready → restart-and-install; otherwise a manual update check. */
-  onUpdateAction: () => void
   repoPath: string | null
   branches: BranchData
   stashes: StashInfo[]
@@ -33,7 +27,6 @@ interface SidebarProps {
   onCreateBranchFromTag: (tagName: string) => void
   onOpenRepo: () => void
   onRevealRepo: () => void
-  onGoHome: () => void
   onBranchContextMenu: (e: React.MouseEvent, branchName: string, kind: 'local' | 'remote') => void
   onStashContextMenu: (e: React.MouseEvent, index: number) => void
   onTagContextMenu: (e: React.MouseEvent, tagName: string) => void
@@ -45,9 +38,6 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  appVersion,
-  update,
-  onUpdateAction,
   repoPath,
   branches,
   stashes,
@@ -63,7 +53,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCreateBranchFromTag,
   onOpenRepo,
   onRevealRepo,
-  onGoHome,
   onBranchContextMenu,
   onStashContextMenu,
   onTagContextMenu,
@@ -103,32 +92,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="sb-repo-icon"><Icon name="branch" size={13} /></span>
               <span className="truncate">{repoName}</span>
             </button>
-            <button className="sb-home-btn" onClick={onGoHome} title="Close repository">
-              <Icon name="home" size={12} /> Home
-            </button>
           </>
         ) : (
           <button className="btn btn-primary sb-open-btn" onClick={onOpenRepo}>
             Open Repository
-          </button>
-        )}
-        {appVersion && (
-          <button
-            className={`sb-version ${update.state === 'ready' ? 'sb-version-ready' : ''}`}
-            onClick={onUpdateAction}
-            title={update.state === 'ready'
-              ? `Restart to install v${update.version}`
-              : update.state === 'downloading'
-                ? `Downloading v${update.version}…`
-                : 'Check for updates'}
-          >
-            {update.state === 'downloading' && (
-              <>v{appVersion} → v{update.version} · {Math.round(update.percent ?? 0)}%</>
-            )}
-            {update.state === 'ready' && (
-              <><Icon name="refresh" size={10} /> Restart for v{update.version}</>
-            )}
-            {update.state === 'idle' && <>v{appVersion}</>}
           </button>
         )}
       </div>

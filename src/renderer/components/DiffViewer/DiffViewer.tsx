@@ -354,11 +354,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     }
   }
 
-  // Focus the diff on open in working-tree mode so the hunk shortcuts work
-  // without a click. Clamp the focused hunk if the diff shrank.
-  useEffect(() => {
-    if (!isCommitMode && !loading) bodyRef.current?.focus()
-  }, [loading, isCommitMode, filePath])
+  // Deliberately NO autofocus on open: selecting a file in the working-tree
+  // list must keep keyboard focus in that list so arrows keep traversing
+  // files. Click into the diff to use the hunk shortcuts (j/k/s/d).
+  // Clamp the focused hunk if the diff shrank.
   useEffect(() => {
     if (focusedHunkIdx >= hunkStarts.length) setFocusedHunkIdx(Math.max(0, hunkStarts.length - 1))
   }, [hunkStarts.length, focusedHunkIdx])

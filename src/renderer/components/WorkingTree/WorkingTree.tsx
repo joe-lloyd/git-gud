@@ -40,8 +40,9 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   const [amend, setAmend] = useState(false)
   const [draftBeforeAmend, setDraftBeforeAmend] = useState<{ subject: string; body: string }>({ subject: '', body: '' })
   // Single sequential focus index across [unstaged..., untracked..., staged...]
-  // so arrow keys walk the full list regardless of section.
-  const [focusedIdx, setFocusedIdx] = useState(0)
+  // so arrow keys walk the full list regardless of section. null = nothing
+  // selected (the default): traversal arms only after a row is clicked.
+  const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
   // Multi-select for bulk discard: row keys picked via cmd/ctrl-click (toggle)
   // or shift-click (range from anchor). Plain click clears back to single.
@@ -228,7 +229,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
         const next = new Set(prev)
         // Seed with the previously focused row so the first cmd-click reads as
         // "add this to what I had".
-        if (next.size === 0 && rows[focusedIdx] && focusedIdx !== idx) next.add(rows[focusedIdx].key)
+        if (next.size === 0 && focusedIdx !== null && rows[focusedIdx] && focusedIdx !== idx) next.add(rows[focusedIdx].key)
         if (next.has(row.key)) next.delete(row.key)
         else next.add(row.key)
         return next
@@ -238,7 +239,7 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
       return
     }
     if (e.shiftKey) {
-      const anchor = selAnchor ?? focusedIdx
+      const anchor = selAnchor ?? focusedIdx ?? idx
       const [lo, hi] = anchor <= idx ? [anchor, idx] : [idx, anchor]
       setSelectedKeys(new Set(rows.slice(lo, hi + 1).map((r) => r.key)))
       setFocusedIdx(idx)
@@ -253,29 +254,40 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
   // Arrow keys + Enter only — Space and letter shortcuts ate keystrokes when
   // focus was in the commit textarea. Stage / discard live on the row buttons
   // instead. Skip the handler entirely when focus is in any editable element
-  // so typing always wins.
+  // so typing always wins. Traversal arms only after a click selects a row
+  // (focusedIdx !== null); Shift+arrows grow the multi-selection from the
+  // anchor, plain arrows collapse it. Each step opens the diff but keeps
+  // keyboard focus on the row, so arrows never start scrolling the diff pane.
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (rows.length === 0) return
     const t = e.target as HTMLElement | null
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-    const focusRow = (idx: number) => {
+    if (e.key === 'Escape')    { setSelectedKeys(new Set()); return }
+    if (focusedIdx === null) return
+    const focusRow = (idx: number, extend: boolean) => {
       const clamped = Math.max(0, Math.min(rows.length - 1, idx))
       setFocusedIdx(clamped)
-      setSelAnchor(clamped)
-      setSelectedKeys(new Set())
+      if (extend) {
+        const anchor = selAnchor ?? focusedIdx
+        setSelAnchor(anchor)
+        const [lo, hi] = anchor <= clamped ? [anchor, clamped] : [clamped, anchor]
+        setSelectedKeys(new Set(rows.slice(lo, hi + 1).map((r) => r.key)))
+      } else {
+        setSelAnchor(clamped)
+        setSelectedKeys(new Set())
+      }
       rowRefs.current[clamped]?.focus()
       const r = rows[clamped]
       if (r) onSelectDiff(r.file.path, r.staged)
     }
-    if (e.key === 'Escape')    { setSelectedKeys(new Set()); return }
-    if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(focusedIdx + 1); return }
-    if (e.key === 'ArrowUp')   { e.preventDefault(); focusRow(focusedIdx - 1); return }
-    if (e.key === 'Home')      { e.preventDefault(); focusRow(0); return }
-    if (e.key === 'End')       { e.preventDefault(); focusRow(rows.length - 1); return }
+    if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(focusedIdx + 1, e.shiftKey); return }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); focusRow(focusedIdx - 1, e.shiftKey); return }
+    if (e.key === 'Home')      { e.preventDefault(); focusRow(0, e.shiftKey); return }
+    if (e.key === 'End')       { e.preventDefault(); focusRow(rows.length - 1, e.shiftKey); return }
     const cur = rows[focusedIdx]
     if (!cur) return
     if (e.key === 'Enter')     { e.preventDefault(); onSelectDiff(cur.file.path, cur.staged); return }
-  }, [rows, focusedIdx, onSelectDiff])
+  }, [rows, focusedIdx, selAnchor, onSelectDiff])
 
   const statusLabel: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', '?': 'Untracked' }
   const statusColor: Record<string, string> = {
