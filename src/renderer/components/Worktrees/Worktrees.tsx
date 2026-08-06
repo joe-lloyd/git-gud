@@ -18,6 +18,9 @@ export const Worktrees: React.FC<WorktreesProps> = ({ currentPath, onClose, onSw
   // Once the user hand-edits the path we stop auto-deriving it from the branch.
   const [pathEdited, setPathEdited] = useState(false)
   const [adding, setAdding] = useState(false)
+  // Path of the worktree being removed — its button shows a spinner and every
+  // remove is disabled until git answers.
+  const [removing, setRemoving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Inline force-remove prompt (native window.confirm is unreliable in Electron).
   const [confirmForce, setConfirmForce] = useState<{ path: string; error: string } | null>(null)
@@ -52,21 +55,25 @@ export const Worktrees: React.FC<WorktreesProps> = ({ currentPath, onClose, onSw
   }
 
   const handleRemove = async (path: string) => {
-    setError(null); setConfirmForce(null)
-    const r = await window.gitApi.removeWorktree(path)
-    if (r.success) { await load(); return }
-    // git refuses a dirty/locked worktree without --force — show an inline
-    // confirm to force it (no native window.confirm).
-    setConfirmForce({ path, error: r.error })
+    setError(null); setConfirmForce(null); setRemoving(path)
+    try {
+      const r = await window.gitApi.removeWorktree(path)
+      if (r.success) { await load(); return }
+      // git refuses a dirty/locked worktree without --force — show an inline
+      // confirm to force it (no native window.confirm).
+      setConfirmForce({ path, error: r.error })
+    } finally { setRemoving(null) }
   }
 
   const handleForceRemove = async () => {
     if (!confirmForce) return
     const { path } = confirmForce
-    setConfirmForce(null); setError(null)
-    const r = await window.gitApi.removeWorktree(path, true)
-    if (!r.success) setError(r.error)
-    await load()
+    setConfirmForce(null); setError(null); setRemoving(path)
+    try {
+      const r = await window.gitApi.removeWorktree(path, true)
+      if (!r.success) setError(r.error)
+      await load()
+    } finally { setRemoving(null) }
   }
 
   const handleSwitch = async (path: string) => {
@@ -123,8 +130,10 @@ export const Worktrees: React.FC<WorktreesProps> = ({ currentPath, onClose, onSw
                   </button>
                 )}
                 {!t.isMain && (
-                  <button className="btn btn-danger" style={{ fontSize: 11 }} onClick={() => handleRemove(t.path)}>
-                    Remove
+                  <button className="btn btn-danger" style={{ fontSize: 11 }} onClick={() => handleRemove(t.path)} disabled={removing !== null}>
+                    {removing === t.path
+                      ? <><Icon name="refresh" size={11} className="spin" /> Removing…</>
+                      : 'Remove'}
                   </button>
                 )}
               </div>

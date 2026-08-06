@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GitActivity } from '../../../preload/index'
 import { Icon } from '../Icons/Icon'
+import { useCopied } from '../../hooks/useCopied'
 import './ConsoleDock.css'
 
 interface ConsoleDockProps {
@@ -216,11 +217,18 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
     prevScrollHeightRef.current = el.scrollHeight
   }, [ordered.length])
 
-  const copyAll = () => {
-    navigator.clipboard.writeText(ordered.map(formatEntry).join('\n\n')).catch(() => {})
-  }
+  const { copied: copiedAll, copy: copyClipboard } = useCopied()
+  const copyAll = () => { copyClipboard(ordered.map(formatEntry).join('\n\n')) }
+  // Per-entry ✓: one id at a time is plenty — copies are serial by nature.
+  const [copiedEntryId, setCopiedEntryId] = useState<string | null>(null)
+  const copiedEntryTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(copiedEntryTimer.current), [])
   const copyOne = (e: GitActivity) => {
-    navigator.clipboard.writeText(formatEntry(e)).catch(() => {})
+    navigator.clipboard.writeText(formatEntry(e)).then(() => {
+      setCopiedEntryId(e.id)
+      window.clearTimeout(copiedEntryTimer.current)
+      copiedEntryTimer.current = window.setTimeout(() => setCopiedEntryId(null), 1500)
+    }).catch(() => {})
   }
 
   return (
@@ -236,7 +244,9 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
         >
           {showReads ? 'All commands' : 'Changes only'}
         </button>
-        <button className="cdock-btn" onClick={copyAll} title="Copy visible log"><Icon name="copy" size={11} /> Copy</button>
+        <button className={`cdock-btn${copiedAll ? ' is-copied' : ''}`} onClick={copyAll} title="Copy visible log">
+          <Icon name={copiedAll ? 'check' : 'copy'} size={11} /> {copiedAll ? 'Copied' : 'Copy'}
+        </button>
         <button className="cdock-btn" onClick={() => setEntries([])} title="Clear">Clear</button>
         <button className="cdock-btn cdock-close" onClick={onClose} title="Hide console"><Icon name="x" size={12} /></button>
       </div>
@@ -253,7 +263,9 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
             <div className="cdock-cmdline mono">
               <span className="cdock-time" title={new Date(e.ts).toLocaleString()}>{fmtTime(e.ts)}</span>
               <span className="cdock-cmdtext">$ git {e.args.join(' ')}</span>
-              <button className="cdock-entry-copy" onClick={() => copyOne(e)} title="Copy this command + output"><Icon name="copy" size={11} /></button>
+              <button className={`cdock-entry-copy${copiedEntryId === e.id ? ' is-copied' : ''}`} onClick={() => copyOne(e)} title="Copy this command + output">
+                <Icon name={copiedEntryId === e.id ? 'check' : 'copy'} size={11} />
+              </button>
             </div>
             {e.output.trim() && <div className="cdock-output mono">{e.output.replace(/\n+$/, '')}</div>}
             <div className="cdock-status">

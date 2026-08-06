@@ -35,7 +35,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, actions, onClose
               key={i}
               className={`cm-item ${a.danger ? 'danger' : ''}`}
               disabled={a.disabled}
-              onClick={(e) => { e.stopPropagation(); if (!a.disabled) a.onClick() }}
+              // Close BEFORE running the action: stopPropagation blocks the
+              // menu-div onClose, so without this the menu lingered over
+              // whatever the action opened. Long actions signal via toasts.
+              onClick={(e) => { e.stopPropagation(); if (!a.disabled) { onClose(); a.onClick() } }}
             >
               {a.icon && <span className="cm-icon"><Icon name={a.icon} size={14} /></span>}
               {a.label}

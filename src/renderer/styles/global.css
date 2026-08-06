@@ -212,6 +212,19 @@ input[type="checkbox"]:disabled {
 }
 .btn-danger:hover { background: rgba(252,129,129,0.25); }
 
+/* ── Pressed / disabled feedback (app-wide) ─────────────────────────────
+   Every enabled button visibly reacts to a click: a subtle press-in plus a
+   background step stronger than hover. Instant on purpose — a transition
+   would swallow the effect on a quick click. */
+button:not(:disabled):active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary:not(:disabled):active { background: var(--accent-bright); }
+.btn-ghost:not(:disabled):active   { background: rgba(255,255,255,0.14); color: var(--text-primary); }
+.btn-danger:not(:disabled):active  { background: rgba(252,129,129,0.35); }
+
+/* Copy buttons flash green while showing the ✓ (see useCopied). */
+.is-copied, .is-copied:hover { color: var(--success) !important; }
+
 /* ── Tags / Ref Pills ─────────────────────────────────────────────────── */
 .ref-pill {
   display: inline-flex;

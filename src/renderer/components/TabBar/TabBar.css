@@ -48,6 +48,23 @@
   background: var(--lane-0, #ff4fc3);
 }
 
+/* ── Drag-to-reorder ──────────────────────────────────────────────────── */
+.tab.dragging { opacity: 0.45; }
+/* Insertion indicator — a single ::before bar, flipped to whichever edge the
+   drop gap is on (::after is taken by the active-tab accent line). */
+.tab.drop-before::before,
+.tab.drop-after::before {
+  content: '';
+  position: absolute;
+  top: 4px; bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.tab.drop-before::before { left: -1px; }
+.tab.drop-after::before  { right: -1px; }
+
 .tab-name {
   flex: 1;
   min-width: 0;

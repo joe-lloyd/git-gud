@@ -14,7 +14,6 @@ import { PatchPanel } from './components/Patch/PatchPanel'
 import { SearchBar } from './components/Search/SearchBar'
 import { ContextMenu, useContextMenu } from './components/ContextMenu/ContextMenu'
 import { Icon } from './components/Icons/Icon'
-import { ToastContainer } from './components/Toast/Toast'
 import { DiffViewer } from './components/DiffViewer/DiffViewer'
 import { MultiSelectDetail } from './components/MultiSelectDetail/MultiSelectDetail'
 import { ConsoleDock } from './components/ConsoleDock/ConsoleDock'
@@ -563,12 +562,13 @@ export default function App() {
     const [remote, ...rest] = remoteRef.split('/')
     const branch = rest.join('/')
     if (!remote || !branch) return
+    const t = repo.toast.progress('Deleting remote branch…', remoteRef)
     const r = await window.gitApi.deleteRemoteBranch(remote, branch)
     if (r.success) {
-      repo.toast.success('Remote Branch Deleted', `${remoteRef} removed.`)
+      repo.toast.resolve(t, 'success', 'Remote Branch Deleted', `${remoteRef} removed.`)
       repo.methods.refresh()
     } else {
-      repo.toast.error('Delete Remote Branch Failed', r.error)
+      repo.toast.resolve(t, 'error', 'Delete Remote Branch Failed', r.error)
     }
   }, [repo.toast, repo.methods])
 
@@ -576,6 +576,14 @@ export default function App() {
     setPendingTag(tagName)
     setModal('branch-from-tag')
   }, [])
+
+  // Context-menu copies get a toast — the menu closes on click, so unlike a
+  // persistent CopyButton there is no in-place element left to flip to ✓.
+  const copyToClipboard = useCallback((text: string, what: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => repo.toast.success('Copied', what))
+      .catch(() => repo.toast.error('Copy failed', what))
+  }, [repo.toast])
 
   // ── Sidebar context-menu factories ─────────────────────────────────
   const handleBranchContextMenu = useCallback(
@@ -591,7 +599,7 @@ export default function App() {
           { label: 'Force push (--force-with-lease)', icon: 'warning', danger: true, disabled: !isCurrent, onClick: () => repo.methods.handlePush(true) },
           { label: 'Pull from remote',               icon: 'arrow-down',  onClick: () => handlePull() },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Copy branch name',               icon: 'copy',  onClick: () => navigator.clipboard.writeText(branchName) },
+          { label: 'Copy branch name',               icon: 'copy',  onClick: () => copyToClipboard(branchName, branchName) },
         ])
       } else {
         const shortName = branchName.split('/').slice(1).join('/')
@@ -599,7 +607,7 @@ export default function App() {
           { label: `Checkout "${shortName}" (track)`, icon: 'branch',  onClick: () => handleCheckoutRemote(branchName) },
           { label: `Delete remote "${branchName}"`,   icon: 'trash',  danger: true, onClick: () => { setPendingRef({ name: branchName, kind }); setModal('confirm-delete-remote-branch') } },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Copy ref name',                   icon: 'copy',  onClick: () => navigator.clipboard.writeText(branchName) },
+          { label: 'Copy ref name',                   icon: 'copy',  onClick: () => copyToClipboard(branchName, branchName) },
         ])
       }
     },
@@ -624,28 +632,30 @@ export default function App() {
     (e: React.MouseEvent, tagName: string) => {
       const remote = repo.remotes[0]?.name ?? 'origin'
       const hasRemote = repo.remotes.length > 0
-      const run = (label: string, op: Promise<{ success: boolean; error?: string }>) =>
-        op.then((r) => {
-          if (r.success) { repo.toast.success(label, `"${tagName}"`); repo.methods.refresh() }
-          else repo.toast.error(`${label} failed`, r.error)
+      const run = (doing: string, label: string, op: Promise<{ success: boolean; error?: string }>) => {
+        const t = repo.toast.progress(doing, `"${tagName}"`)
+        return op.then((r) => {
+          if (r.success) { repo.toast.resolve(t, 'success', label, `"${tagName}"`); repo.methods.refresh() }
+          else repo.toast.resolve(t, 'error', `${label} failed`, r.error)
         })
+      }
       openCtx(e, [
         { label: `Create branch from "${tagName}"…`, icon: 'branch', onClick: () => handleCreateBranchFromTag(tagName) },
         { label: `Rename "${tagName}"…`, icon: 'edit', onClick: () => { setPendingTag(tagName); setModal('rename-tag') } },
         {
           label: `Push tag to ${remote}`, icon: 'arrow-up', disabled: !hasRemote,
-          onClick: () => run('Tag pushed', window.gitApi.pushTag(remote, tagName)),
+          onClick: () => run('Pushing tag…', 'Tag pushed', window.gitApi.pushTag(remote, tagName)),
         },
         { separator: true, label: '', onClick: () => {} },
-        { label: 'Copy tag name', icon: 'copy', onClick: () => navigator.clipboard.writeText(tagName) },
+        { label: 'Copy tag name', icon: 'copy', onClick: () => copyToClipboard(tagName, tagName) },
         { separator: true, label: '', onClick: () => {} },
         {
           label: 'Delete local tag', icon: 'trash', danger: true,
-          onClick: () => run('Tag deleted', window.gitApi.deleteTag(tagName)),
+          onClick: () => run('Deleting tag…', 'Tag deleted', window.gitApi.deleteTag(tagName)),
         },
         {
           label: `Delete tag from ${remote}`, icon: 'trash', danger: true, disabled: !hasRemote,
-          onClick: () => run('Remote tag deleted', window.gitApi.deleteRemoteTag(remote, tagName)),
+          onClick: () => run('Deleting remote tag…', 'Remote tag deleted', window.gitApi.deleteRemoteTag(remote, tagName)),
         },
       ])
     },
@@ -667,15 +677,18 @@ export default function App() {
           danger: true,
           disabled: isMain || isCurrent,
           onClick: async () => {
+            // The menu is gone the moment this runs — the progress toast is
+            // the only signal the click landed.
+            const t = repo.toast.progress('Removing worktree…', name)
             const r = await window.gitApi.removeWorktree(path)
-            if (r.success) { repo.toast.success('Worktree Removed', name); repo.methods.refresh() }
+            if (r.success) { repo.toast.resolve(t, 'success', 'Worktree Removed', name); repo.methods.refresh() }
             // Plain remove refuses a dirty/locked worktree — surface an in-app
             // confirm (native window.confirm is unreliable here) to force it.
-            else { setPendingWorktree({ path, name, error: r.error }); setModal('confirm-remove-worktree') }
+            else { repo.toast.remove(t); setPendingWorktree({ path, name, error: r.error }); setModal('confirm-remove-worktree') }
           },
         },
         { separator: true, label: '', onClick: () => {} },
-        { label: 'Copy path', icon: 'copy', onClick: () => navigator.clipboard.writeText(path) },
+        { label: 'Copy path', icon: 'copy', onClick: () => copyToClipboard(path, path) },
       ])
     },
     [openCtx, repo.repoPath, repo.methods, repo.toast],
@@ -878,11 +891,13 @@ export default function App() {
     } else repo.toast.error('Drop Failed', r.error ?? 'Could not drop the selected commits.')
   }, [opSelectedShas, repo, clearMultiSelect])
 
-  const copySelectedShas = useCallback(() => {
+  // Returns success so callers can show feedback fitting their surface:
+  // the detail panel flips its button to ✓, the context menu toasts.
+  const copySelectedShas = useCallback(async (): Promise<boolean> => {
     const order = displayCommits
     const list = [...opSelectedShas].sort((a, b) => idxOf(a) - idxOf(b))
       .map(s => order[idxOf(s)]?.shortSha ?? s).join('\n')
-    navigator.clipboard.writeText(list).catch(() => {})
+    return navigator.clipboard.writeText(list).then(() => true).catch(() => false)
   }, [opSelectedShas, displayCommits, idxOf])
 
   const openBulkCommitMenu = useCallback((e: React.MouseEvent) => {
@@ -896,7 +911,11 @@ export default function App() {
       { label: 'Revert commits', icon: 'revert', onClick: bulkRevert },
       { label: rangeNote ?? 'Drop from history', icon: 'trash', danger: true, disabled: !selectionContiguous, onClick: bulkDrop },
       { separator: true, label: '', onClick: () => {} },
-      { label: 'Copy SHAs', icon: 'copy', onClick: copySelectedShas },
+      { label: 'Copy SHAs', icon: 'copy', onClick: () => {
+        copySelectedShas().then((ok) => ok
+          ? repo.toast.success('Copied', `${n} SHA${n === 1 ? '' : 's'}`)
+          : repo.toast.error('Copy failed'))
+      } },
       { label: 'Clear selection', icon: 'x', onClick: clearMultiSelect },
     ])
   }, [opSelectedShas, selectionContiguous, openCtx, bulkSquash, bulkCherryPick, bulkRevert, bulkDrop, copySelectedShas, clearMultiSelect])
@@ -1015,6 +1034,7 @@ export default function App() {
         activePath={repo.mainPath}
         onActivate={repo.methods.switchTab}
         onClose={repo.methods.closeTab}
+        onReorder={repo.methods.reorderTabs}
         onOpenMenu={openRepoSourceMenu}
         onGoHome={repo.methods.handleGoHome}
         appVersion={appVersion}
@@ -1601,8 +1621,6 @@ export default function App() {
       {ctxMenu && (
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} actions={ctxMenu.actions} onClose={closeCtx} />
       )}
-
-      <ToastContainer toasts={repo.toast.toasts} onRemove={repo.toast.remove} />
     </div>
   )
 }

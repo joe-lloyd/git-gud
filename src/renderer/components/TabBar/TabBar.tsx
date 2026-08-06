@@ -1,11 +1,17 @@
-import React from 'react'
+import React, { useState } from 'react'
 import './TabBar.css'
+
+// Tabs' own drag payload type — keeps tab drags from ever being read as the
+// graph's ref-pill drags (and vice versa).
+const TAB_DRAG_MIME = 'application/x-gitgud-tab'
 
 interface TabBarProps {
   tabs: string[]
   activePath: string | null
   onActivate: (path: string) => void
   onClose: (path: string) => void
+  /** Move the tab at `from` so it sits at `to` (indexes into `tabs`). */
+  onReorder: (from: number, to: number) => void
   onOpenMenu: (e: React.MouseEvent) => void
   onGoHome: () => void
   /** Running app version, shown at the bar's right edge. The native frame
@@ -18,7 +24,27 @@ interface TabBarProps {
   onUpdateAction: () => void
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onOpenMenu, onGoHome, appVersion, update, onUpdateAction }) => {
+export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onReorder, onOpenMenu, onGoHome, appVersion, update, onUpdateAction }) => {
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  // Insertion point while dragging: 0..tabs.length (a gap, not a tab).
+  const [dropIdx, setDropIdx] = useState<number | null>(null)
+
+  const clearDrag = () => { setDragIdx(null); setDropIdx(null) }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    // Same-window drag — component state beats dataTransfer.getData (which
+    // some Chromium drop targets return empty).
+    const from = dragIdx
+    if (from !== null && dropIdx !== null) {
+      // dropIdx is a gap index; removing the dragged tab first shifts gaps
+      // right of it down by one.
+      const to = dropIdx > from ? dropIdx - 1 : dropIdx
+      if (to !== from) onReorder(from, to)
+    }
+    clearDrag()
+  }
+
   if (tabs.length === 0) return null
   return (
     <div className="tab-bar">
@@ -34,14 +60,35 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, on
           <path d="M10 20v-6h4v6" />
         </svg>
       </button>
-      {tabs.map((path) => {
+      {tabs.map((path, i) => {
         const name = path.split(/[/\\]/).filter(Boolean).pop() ?? path
         const isActive = path === activePath
+        // The drop indicator renders on the tab right of the gap; a drop past
+        // the last tab renders on the last tab's right edge.
+        const indicator = dropIdx === null || dragIdx === null ? ''
+          : dropIdx === i ? ' drop-before'
+          : dropIdx === tabs.length && i === tabs.length - 1 ? ' drop-after'
+          : ''
         return (
           <div
             key={path}
-            className={`tab ${isActive ? 'active' : ''}`}
+            className={`tab ${isActive ? 'active' : ''}${dragIdx === i ? ' dragging' : ''}${indicator}`}
             title={path}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(TAB_DRAG_MIME, String(i))
+              e.dataTransfer.effectAllowed = 'move'
+              setDragIdx(i)
+            }}
+            onDragEnd={clearDrag}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              const rect = e.currentTarget.getBoundingClientRect()
+              setDropIdx(e.clientX < rect.left + rect.width / 2 ? i : i + 1)
+            }}
+            onDrop={handleDrop}
             onClick={() => !isActive && onActivate(path)}
             onAuxClick={(e) => {
               // Middle-click closes

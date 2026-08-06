@@ -200,6 +200,19 @@ export function useGitRepo() {
     })
   }, [openTabs, mainPath, fetchAll, clearRepoState, persistTabs])
 
+  // Reorder tabs (drag & drop in the tab bar). Pure list move — the active
+  // tab and its services are untouched; only the persisted order changes.
+  const reorderTabs = useCallback((from: number, to: number) => {
+    setOpenTabs((prev) => {
+      if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      persistTabs(next, mainPath)
+      return next
+    })
+  }, [persistTabs, mainPath])
+
   // Silent refresh — no spinner, no openPath. Just re-reads state using the
   // existing gitService in main. Used by focus, FS-watcher, and post-mutation
   // refresh. Failure leaves the UI on its previous data (no flashes).
@@ -313,6 +326,7 @@ export function useGitRepo() {
       switchTab,
       switchWorktree,
       closeTab,
+      reorderTabs,
       refresh,
       handleOpenRepo,
       handleCheckout,

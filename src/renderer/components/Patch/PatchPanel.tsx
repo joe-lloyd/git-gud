@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import type { RepoStatus } from '../../../preload/index'
 import { Icon } from '../Icons/Icon'
+import { useCopied } from '../../hooks/useCopied'
 import './PatchPanel.css'
 
 interface PatchPanelProps {
@@ -95,10 +96,8 @@ export const PatchPanel: React.FC<PatchPanelProps> = ({ status, onClose }) => {
     } finally { setSaving(false) }
   }
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(patch)
-    setInfo({ ok: true, msg: 'Copied to clipboard!' })
-  }
+  const { copied, copy } = useCopied()
+  const handleCopy = () => { copy(patch) }
 
   const handleApply = async () => {
     if (!patch.trim()) { setInfo({ ok: false, msg: 'No patch content' }); return }
@@ -161,7 +160,9 @@ export const PatchPanel: React.FC<PatchPanelProps> = ({ status, onClose }) => {
                       <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                         {saving ? 'Saving…' : 'Save patch…'}
                       </button>
-                      <button className="btn btn-ghost" onClick={handleCopy}>Copy</button>
+                      <button className={`btn btn-ghost${copied ? ' is-copied' : ''}`} onClick={handleCopy}>
+                        {copied ? 'Copied ✓' : 'Copy'}
+                      </button>
                     </>
                   )}
                 </div>

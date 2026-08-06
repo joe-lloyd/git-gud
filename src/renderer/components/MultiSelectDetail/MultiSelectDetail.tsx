@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import type { CommitNode } from '../../../preload/index'
 import { Icon } from '../Icons/Icon'
+import { useCopied } from '../../hooks/useCopied'
 import './MultiSelectDetail.css'
 
 interface MultiSelectDetailProps {
@@ -13,7 +14,8 @@ interface MultiSelectDetailProps {
   onCherryPick: () => void
   onRevert: () => void
   onDrop: () => void
-  onCopyShas: () => void
+  /** Resolves true when the clipboard write succeeded — drives the ✓ flash. */
+  onCopyShas: () => Promise<boolean>
   onClear: () => void
   onSelectOne: (sha: string) => void
 }
@@ -24,6 +26,7 @@ interface MultiSelectDetailProps {
 export const MultiSelectDetail: React.FC<MultiSelectDetailProps> = ({
   shas, commits, contiguous, onSquash, onCherryPick, onRevert, onDrop, onCopyShas, onClear, onSelectOne,
 }) => {
+  const { copied, flash: flashCopied } = useCopied()
   const bySha = useMemo(() => new Map(commits.map(c => [c.sha, c])), [commits])
   const idxOf = (sha: string) => commits.findIndex(c => c.sha === sha)
 
@@ -76,7 +79,10 @@ export const MultiSelectDetail: React.FC<MultiSelectDetailProps> = ({
         <button className="btn btn-danger" disabled={!contiguous} onClick={onDrop} title={contiguous ? 'Remove from history' : 'Selection must be adjacent'}><Icon name="trash" size={13} /> Drop</button>
       </div>
       <div className="msd-actions msd-actions-sub">
-        <button className="btn btn-ghost" onClick={onCopyShas}><Icon name="copy" size={13} /> Copy SHAs</button>
+        <button
+          className={`btn btn-ghost${copied ? ' is-copied' : ''}`}
+          onClick={() => onCopyShas().then((ok) => ok && flashCopied())}
+        ><Icon name={copied ? 'check' : 'copy'} size={13} /> {copied ? 'Copied' : 'Copy SHAs'}</button>
         <button className="btn btn-ghost" onClick={onClear}><Icon name="x" size={13} /> Clear</button>
       </div>
 

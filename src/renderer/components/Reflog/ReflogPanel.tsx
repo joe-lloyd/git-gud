@@ -31,9 +31,19 @@ export const ReflogPanel: React.FC<ReflogPanelProps> = ({ repoPath, onClose, onR
 
   const selector = (e: CommitNode) => e.refs.find((r) => r.includes('@{')) ?? ''
 
+  // In-place ✓ on the row's copy button (also fed by the `c` shortcut, which
+  // targets the focused row — so the flash lands on a visible button).
+  const [copiedSha, setCopiedSha] = useState<string | null>(null)
+  const copiedTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), [])
   const copySha = useCallback((sha: string) => {
-    navigator.clipboard.writeText(sha).then(() => toast.success('Copied', sha.slice(0, 10))).catch(() => {})
-  }, [toast])
+    if (!sha) return
+    navigator.clipboard.writeText(sha).then(() => {
+      setCopiedSha(sha)
+      window.clearTimeout(copiedTimer.current)
+      copiedTimer.current = window.setTimeout(() => setCopiedSha(null), 1500)
+    }).catch(() => {})
+  }, [])
 
   const doRestore = useCallback(async () => {
     const sha = confirmSha
@@ -83,7 +93,9 @@ export const ReflogPanel: React.FC<ReflogPanelProps> = ({ repoPath, onClose, onR
               <div className="reflog-msg" title={e.message}>{e.message}</div>
               <div className="reflog-actions">
                 <button className="reflog-btn" onClick={() => setConfirmSha(e.sha)}>Restore HEAD here</button>
-                <button className="reflog-btn reflog-btn-ghost" onClick={() => copySha(e.sha)}>Copy SHA</button>
+                <button className={`reflog-btn reflog-btn-ghost${copiedSha === e.sha ? ' is-copied' : ''}`} onClick={() => copySha(e.sha)}>
+                  {copiedSha === e.sha ? 'Copied ✓' : 'Copy SHA'}
+                </button>
               </div>
             </div>
           ))}
