@@ -170,6 +170,21 @@ export interface WorktreeInfo {
   isMain: boolean;
 }
 
+// View-only diff options. `ignoreWhitespace` (-w) means the shown hunks no
+// longer match the real index patch — callers must not offer hunk staging
+// off such a diff.
+export interface DiffViewOpts {
+  wordDiff?: boolean;
+  ignoreWhitespace?: boolean;
+}
+
+function diffViewFlags(opts: DiffViewOpts): string[] {
+  return [
+    ...(opts.wordDiff ? ["--word-diff=porcelain"] : []),
+    ...(opts.ignoreWhitespace ? ["-w"] : []),
+  ];
+}
+
 export interface FileChange {
   path: string;
   status: string;
@@ -672,9 +687,9 @@ export class GitService {
     }
   }
 
-  async getCommitFileDiff(sha: string, filePath: string, opts: { wordDiff?: boolean } = {}): Promise<string> {
+  async getCommitFileDiff(sha: string, filePath: string, opts: DiffViewOpts = {}): Promise<string> {
     try {
-      const wd = opts.wordDiff ? ["--word-diff=porcelain"] : [];
+      const wd = diffViewFlags(opts);
       const parents = await this.getParents(sha);
       if (parents.length > 1) {
         // Merge commit — `git show` collapses to nothing by default. Diff the
@@ -703,14 +718,18 @@ export class GitService {
     }
   }
 
-  async getFileDiff(filePath: string, staged: boolean, opts: { wordDiff?: boolean } = {}): Promise<string> {
+  async getFileDiff(filePath: string, staged: boolean, opts: DiffViewOpts = {}): Promise<string> {
     try {
-      const wd = opts.wordDiff ? ["--word-diff=porcelain"] : [];
+      const wd = diffViewFlags(opts);
       const args = staged
         ? ["diff", "--cached", "--unified=5", ...wd, "--", filePath]
         : ["diff", "--unified=5", ...wd, "--", filePath];
       const result = await this.git.raw(args);
       if (!result.trim()) {
+        // Under -w an empty diff usually means "whitespace-only changes",
+        // not "untracked" — the whole-file fallback would be wrong. Let the
+        // viewer explain the empty state instead.
+        if (opts.ignoreWhitespace) return "";
         // Untracked file — show full content as +lines
         const { readFileSync } = await import("fs");
         const { join } = await import("path");

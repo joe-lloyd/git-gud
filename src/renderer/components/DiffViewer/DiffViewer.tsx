@@ -31,6 +31,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   // doesn't map cleanly back to the index.
   const [wordDiff, setWordDiff] = useState(false)
   const [wordDiffError, setWordDiffError] = useState<string | null>(null)
+  // Ignore-whitespace (-w) — the shown hunks then no longer match the real
+  // index patch, so hunk/line staging and discard are disabled while on.
+  const [ignoreWs, setIgnoreWs] = useState(false)
   // Side-by-side (split) vs inline (unified) view. Session-only preference.
   const [splitView, setSplitView] = useState(false)
   // Interactive-add: keyboard-driven hunk staging (working-tree mode only).
@@ -39,18 +42,22 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   const bodyRef = useRef<HTMLDivElement>(null)
   const hunkRefs = useRef<Map<number, HTMLTableRowElement | null>>(new Map())
   const isCommitMode = sha !== null
+  // Hunk/line staging & discard only when the shown diff maps 1:1 onto a real
+  // patch: not viewing a commit, and not under -w (whitespace-ignored hunks
+  // don't apply cleanly to the index).
+  const canPatch = !isCommitMode && !ignoreWs
 
   const refreshDiff = useCallback(() => {
     setLoading(true)
     setWordDiffError(null)
     const p = isCommitMode
-      ? window.gitApi.getCommitFileDiff(sha!, filePath, { wordDiff })
-      : window.gitApi.getFileDiff(filePath, staged, { wordDiff })
+      ? window.gitApi.getCommitFileDiff(sha!, filePath, { wordDiff, ignoreWhitespace: ignoreWs })
+      : window.gitApi.getFileDiff(filePath, staged, { wordDiff, ignoreWhitespace: ignoreWs })
     p.then((d) => {
       setDiff(d || '')
       setLoading(false)
     })
-  }, [filePath, staged, sha, isCommitMode, wordDiff])
+  }, [filePath, staged, sha, isCommitMode, wordDiff, ignoreWs])
 
   useEffect(() => { refreshDiff() }, [refreshDiff])
 
@@ -234,7 +241,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   // cached=true → index (stage/unstage). cached=false → working tree (discard).
   // reverse undoes the patch direction, used for unstage and for discard.
   const applyPatch = async (patch: string, opts: { cached: boolean; reverse: boolean }) => {
-    if (isCommitMode) return
+    if (!canPatch) return
     setLoading(true)
     setApplyError(null)
     const r = await window.gitApi.applyPatch(patch, opts)
@@ -338,7 +345,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     hunkRefs.current.get(hunkStarts[next])?.scrollIntoView({ block: 'nearest' })
   }
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (isCommitMode) return
+    if (!canPatch) return
     const t = e.target as HTMLElement | null
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
     if (e.key === '?') { e.preventDefault(); setShowShortcuts((v) => !v); return }
@@ -366,7 +373,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     <div
       className="diff-viewer fade-in"
       ref={bodyRef}
-      tabIndex={isCommitMode ? undefined : 0}
+      tabIndex={canPatch ? 0 : undefined}
       onKeyDown={handleKeyDown}
     >
       {/* Header bar */}
@@ -396,7 +403,16 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
         >
           Word diff
         </button>
-        {!isCommitMode && (
+        <button
+          className={`diff-toggle ${ignoreWs ? 'on' : ''}`}
+          onClick={() => setIgnoreWs((v) => !v)}
+          title={ignoreWs
+            ? 'Showing diff with whitespace-only changes hidden (git diff -w). Hunk staging is disabled while on.'
+            : 'Hide whitespace-only changes (git diff -w)'}
+        >
+          Ignore whitespace
+        </button>
+        {canPatch && (
           <button
             className={`diff-toggle ${showShortcuts ? 'on' : ''}`}
             onClick={() => setShowShortcuts((v) => !v)}
@@ -407,7 +423,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
         )}
         <button className="diff-close" onClick={onClose} title="Close diff (Esc)"><Icon name="x" size={12} /> Close</button>
       </div>
-      {showShortcuts && !isCommitMode && (
+      {showShortcuts && canPatch && (
         <div className="diff-shortcuts">
           <div className="diff-shortcuts-title">Hunk shortcuts</div>
           <ul>
@@ -426,7 +442,11 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
       {loading ? (
         <div className="diff-loading">Loading diff…</div>
       ) : diff.trim() === '' ? (
-        <div className="diff-loading">No diff available for this file.</div>
+        <div className="diff-loading">
+          {ignoreWs
+            ? 'No changes left to show — the differences are whitespace-only (or the file is untracked). Turn off "Ignore whitespace" to see them.'
+            : 'No diff available for this file.'}
+        </div>
       ) : wordDiff && wordDiffLines ? (
         <div className="diff-body">
           <table className="diff-table diff-table-word">
@@ -472,7 +492,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                     <tr key={ri} className={`diff-line diff-line-${type}`}>
                       <td className="diff-content" colSpan={4}>
                         {text}
-                        {type === 'hunk' && !isCommitMode && (
+                        {type === 'hunk' && canPatch && (
                           <span className="diff-chunk-actions">
                             <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
                               {staged ? <>Unstage chunk <Icon name="arrow-up" size={11} /></> : <>Stage chunk <Icon name="arrow-down" size={11} /></>}
@@ -522,7 +542,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
           <table className="diff-table">
             <tbody>
               {lines.map(({ text, type, i, hunkIndex, oldNo, newNo }) => {
-                const lineActionable = !isCommitMode && (type === 'add' || type === 'remove')
+                const lineActionable = canPatch && (type === 'add' || type === 'remove')
                 const lineHint = lineActionable ? (staged ? 'Click to unstage · Alt-click to discard' : 'Click to stage · Alt-click to discard') : ''
                 const onLineClick = lineActionable ? () => handleStageLine(hunkIndex, i) : undefined
                 // Alt+click on the sign discards that single line instead of staging it.
@@ -556,7 +576,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                       {html !== undefined
                         ? <code className="hljs diff-code" dangerouslySetInnerHTML={{ __html: html }} />
                         : plainText}
-                      {type === 'hunk' && !isCommitMode && (
+                      {type === 'hunk' && canPatch && (
                         <span className="diff-chunk-actions">
                           <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>
                             {staged ? <>Unstage chunk <Icon name="arrow-up" size={11} /></> : <>Stage chunk <Icon name="arrow-down" size={11} /></>}

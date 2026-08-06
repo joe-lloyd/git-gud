@@ -203,9 +203,9 @@ const gitApi = {
 
   getCommitDiff: (sha: string): Promise<string> => ipcRenderer.invoke('git:commit-diff', sha),
   getCommitFiles: (sha: string): Promise<FileChange[]> => ipcRenderer.invoke('git:commit-files', sha),
-  getFileDiff: (filePath: string, staged: boolean, opts?: { wordDiff?: boolean }): Promise<string> =>
+  getFileDiff: (filePath: string, staged: boolean, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean }): Promise<string> =>
     ipcRenderer.invoke('git:file-diff', filePath, staged, opts),
-  getCommitFileDiff: (sha: string, filePath: string, opts?: { wordDiff?: boolean }): Promise<string> =>
+  getCommitFileDiff: (sha: string, filePath: string, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean }): Promise<string> =>
     ipcRenderer.invoke('git:commit-file-diff', sha, filePath, opts),
 
 
