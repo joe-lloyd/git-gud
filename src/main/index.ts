@@ -1144,7 +1144,7 @@ app.whenReady().then(() => {
     try { return await gitService.formatPatch(sha) } catch { return '' }
   })
 
-  ipcMain.handle('git:apply-patch', async (_event, patchContent: string, opts: { reverse?: boolean, cached?: boolean } = {}) => {
+  ipcMain.handle('git:apply-patch', async (_event, patchContent: string, opts: { reverse?: boolean, cached?: boolean, ignoreWhitespace?: boolean } = {}) => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { await gitService.applyPatch(patchContent, opts); return { success: true } }
     catch (e) { return { success: false, error: String(e) } }

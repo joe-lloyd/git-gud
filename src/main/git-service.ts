@@ -730,6 +730,11 @@ export class GitService {
         // not "untracked" — the whole-file fallback would be wrong. Let the
         // viewer explain the empty state instead.
         if (opts.ignoreWhitespace) return "";
+        // Empty diff on a TRACKED file just means no changes on this side
+        // (e.g. everything was staged) — dumping the whole file as +lines
+        // here misread the state. Fallback is for untracked files only.
+        const tracked = (await this.git.raw(["ls-files", "--", filePath])).trim();
+        if (tracked) return "";
         // Untracked file — show full content as +lines
         const { readFileSync } = await import("fs");
         const { join } = await import("path");
@@ -1811,7 +1816,7 @@ export class GitService {
 
   async applyPatch(
     patchContent: string,
-    opts: { reverse?: boolean; cached?: boolean } = {},
+    opts: { reverse?: boolean; cached?: boolean; ignoreWhitespace?: boolean } = {},
   ): Promise<void> {
     // Write to temp file and apply
     const { writeFileSync, unlinkSync } = await import("fs");
@@ -1823,6 +1828,9 @@ export class GitService {
       const args = ["apply", "--recount"];
       if (opts.cached) args.push("--cached");
       if (opts.reverse) args.push("--reverse");
+      // For hunks built from a `diff -w` view: context/removed lines may
+      // differ from the target by whitespace only — match them loosely.
+      if (opts.ignoreWhitespace) args.push("--ignore-whitespace");
       args.push(tmpFile);
       await this.git.raw(args);
     } catch (err) {

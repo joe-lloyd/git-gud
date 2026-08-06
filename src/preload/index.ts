@@ -341,7 +341,7 @@ const gitApi = {
   bisectReset: (): Promise<Result> => ipcRenderer.invoke('git:bisect-reset'),
 
   formatPatch: (sha: string): Promise<string> => ipcRenderer.invoke('git:format-patch', sha),
-  applyPatch: (patchContent: string, opts?: { reverse?: boolean, cached?: boolean }): Promise<Result> =>
+  applyPatch: (patchContent: string, opts?: { reverse?: boolean, cached?: boolean, ignoreWhitespace?: boolean }): Promise<Result> =>
     ipcRenderer.invoke('git:apply-patch', patchContent, opts),
   buildWorkingPatch: (tracked: string[], untracked: string[]): Promise<string> =>
     ipcRenderer.invoke('git:working-patch', tracked, untracked),

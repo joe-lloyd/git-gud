@@ -42,10 +42,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   const bodyRef = useRef<HTMLDivElement>(null)
   const hunkRefs = useRef<Map<number, HTMLTableRowElement | null>>(new Map())
   const isCommitMode = sha !== null
-  // Hunk/line staging & discard only when the shown diff maps 1:1 onto a real
-  // patch: not viewing a commit, and not under -w (whitespace-ignored hunks
-  // don't apply cleanly to the index).
-  const canPatch = !isCommitMode && !ignoreWs
+  // Hunk/line staging & discard everywhere except commit mode. Under -w the
+  // hunk's context/removed lines can differ from the target by whitespace, so
+  // applyPatch adds --ignore-whitespace; the +/− content lines are verbatim
+  // file lines either way. Whitespace-only changes (hidden by the view)
+  // simply stay unstaged.
+  const canPatch = !isCommitMode
 
   // Full old/new file contents for whole-file highlighting (see the highlight
   // memo). Fetched alongside the diff; null until they arrive or on failure.
@@ -262,7 +264,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     if (!canPatch) return
     setLoading(true)
     setApplyError(null)
-    const r = await window.gitApi.applyPatch(patch, opts)
+    const r = await window.gitApi.applyPatch(patch, { ...opts, ignoreWhitespace: ignoreWs })
     if (r.success) {
       onApplied?.()
     } else {
@@ -425,7 +427,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
           className={`diff-toggle ${ignoreWs ? 'on' : ''}`}
           onClick={() => setIgnoreWs((v) => !v)}
           title={ignoreWs
-            ? 'Showing diff with whitespace-only changes hidden (git diff -w). Hunk staging is disabled while on.'
+            ? 'Showing diff with whitespace-only changes hidden (git diff -w). Staging a chunk stages its content changes; hidden whitespace-only changes stay unstaged.'
             : 'Hide whitespace-only changes (git diff -w)'}
         >
           Ignore whitespace
