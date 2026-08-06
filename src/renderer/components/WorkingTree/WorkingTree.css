@@ -277,6 +277,20 @@
   padding: 4px 8px;
 }
 
+/* Broken core.hooksPath: hooks would be silently skipped. */
+.wt-hooks-warn {
+  font-size: 11px;
+  color: var(--warning);
+  background: rgba(246,173,85,0.08);
+  border: 1px solid rgba(246,173,85,0.2);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.wt-hooks-warn code {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+}
+
 /* Gerrit mode: neutral hint in place of the force-push warning. */
 .wt-amend-hint {
   display: flex;

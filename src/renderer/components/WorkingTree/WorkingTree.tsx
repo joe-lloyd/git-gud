@@ -444,6 +444,14 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
           </label>
         </div>
 
+        {/* core.hooksPath → missing dir means git runs zero hooks silently
+            (fresh-worktree husky trap). Moot when the user opted out anyway. */}
+        {status?.hooksPathBroken && !noVerify && (
+          <div className="wt-hooks-warn">
+            <Icon name="warning" size={12} /> Hooks directory <code>{status.hooksPathBroken}</code> (core.hooksPath) is missing — git will silently skip all hooks. Run your install/prepare script to regenerate it.
+          </div>
+        )}
+
         {error && <div className="wt-error">{error}</div>}
         <button
           className="btn btn-primary wt-commit-btn"

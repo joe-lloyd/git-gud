@@ -40,6 +40,9 @@ export type RepoStatus = {
   conflict?: ConflictState
   // True while a `git bisect` session is in progress (BISECT_LOG exists).
   inBisect: boolean
+  // Set when core.hooksPath points at a missing directory — git silently
+  // runs zero hooks then. Holds the configured value for display.
+  hooksPathBroken?: string
 }
 
 // Snapshot of in-flight merge/rebase. Empty conflictedFiles + inMerge/inRebase

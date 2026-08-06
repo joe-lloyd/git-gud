@@ -4,6 +4,8 @@ import simpleGit, {
   StatusResult,
 } from "simple-git";
 import { spawn } from "child_process";
+import { existsSync } from "fs";
+import { isAbsolute, join } from "path";
 import {
   buildReviewRefspec,
   classifyReviewPushError,
@@ -184,6 +186,9 @@ export interface RepoStatus {
   behind: number;
   conflict?: ConflictState;
   inBisect: boolean;
+  // Set when core.hooksPath points at a directory that doesn't exist — git
+  // then silently runs zero hooks. Holds the configured value for display.
+  hooksPathBroken?: string;
 }
 
 export interface ConflictState {
@@ -466,7 +471,28 @@ export class GitService {
       behind,
       conflict: await this.getConflictState(),
       inBisect: await this.isBisecting(),
+      hooksPathBroken: await this.getBrokenHooksPath(),
     };
+  }
+
+  // core.hooksPath aimed at a missing directory makes git run zero hooks with
+  // no warning (find_hook just returns null). Classic trap: husky's gitignored
+  // `.husky/_` shim dir absent in a fresh worktree, or `install --ignore-scripts`
+  // skipping the `prepare` script that generates it. Returns the configured
+  // value when broken so the commit UI can warn, undefined otherwise.
+  private async getBrokenHooksPath(): Promise<string | undefined> {
+    try {
+      // `--type=path` expands `~`. A relative path resolves against the
+      // worktree root — where git runs hooks (githooks(5)).
+      const hooksPath = (
+        await this.git.raw(["config", "--type=path", "--get", "core.hooksPath"])
+      ).trim();
+      if (!hooksPath) return undefined;
+      const resolved = isAbsolute(hooksPath) ? hooksPath : join(this.repoPath, hooksPath);
+      return existsSync(resolved) ? undefined : hooksPath;
+    } catch {
+      return undefined; // unset → git exits non-zero; default hooks dir needs no check
+    }
   }
 
   // A bisect session is in progress iff git's BISECT_LOG control file exists —
