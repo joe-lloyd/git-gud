@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { GitService, isIndexLockError } from '../../src/main/git-service'
 import simpleGit, { SimpleGit } from 'simple-git'
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'fs'
+import { mkdtempSync, realpathSync, writeFileSync, rmSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
 
@@ -43,7 +43,9 @@ describe('GitService.removeIndexLock', () => {
   let lockPath: string
 
   beforeEach(async () => {
-    tmpRepoPath = mkdtempSync(join(tmpdir(), 'git-gud-lock-'))
+    // realpath: macOS tmpdir is a symlink (/var → /private/var) and git
+    // reports lock paths resolved, so expectations must compare realpaths.
+    tmpRepoPath = realpathSync(mkdtempSync(join(tmpdir(), 'git-gud-lock-')))
     git = simpleGit(tmpRepoPath)
     await git.init(['--initial-branch=main'])
     await git.addConfig('user.name', 'Tester')
