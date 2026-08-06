@@ -25,14 +25,40 @@ describe('resolveLanguage', () => {
     expect(resolveLanguage('app/.env')).toBe('bash')
   })
 
-  it('returns null for .txt', () => {
+  it('maps doc and config types', () => {
+    expect(resolveLanguage('README.md')).toBe('markdown')
+    expect(resolveLanguage('docs/guide.markdown')).toBe('markdown')
+    expect(resolveLanguage('ci.yml')).toBe('yaml')
+    expect(resolveLanguage('index.html')).toBe('xml')
+    expect(resolveLanguage('logo.svg')).toBe('xml')
+    expect(resolveLanguage('Cargo.toml')).toBe('ini')
+    expect(resolveLanguage('.editorconfig')).toBe('ini')
+  })
+
+  it('maps extensionless well-known files by bare name', () => {
+    expect(resolveLanguage('Makefile')).toBe('makefile')
+    expect(resolveLanguage('services/api/Dockerfile')).toBe('dockerfile')
+    expect(resolveLanguage('Gemfile')).toBe('ruby')
+  })
+
+  it('maps common language extensions', () => {
+    expect(resolveLanguage('main.py')).toBe('python')
+    expect(resolveLanguage('lib.rs')).toBe('rust')
+    expect(resolveLanguage('a.c')).toBe('c')
+    expect(resolveLanguage('a.hpp')).toBe('cpp')
+    expect(resolveLanguage('App.java')).toBe('java')
+    expect(resolveLanguage('Main.kt')).toBe('kotlin')
+    expect(resolveLanguage('schema.sql')).toBe('sql')
+  })
+
+  it('returns null for .txt and noisy-if-highlighted files', () => {
     expect(resolveLanguage('notes.txt')).toBeNull()
+    expect(resolveLanguage('.gitignore')).toBeNull()
+    expect(resolveLanguage('pnpm-lock.lock')).toBeNull()
   })
 
   it('returns null for unmapped extensions', () => {
-    expect(resolveLanguage('README.md')).toBeNull()
     expect(resolveLanguage('archive.bin')).toBeNull()
-    expect(resolveLanguage('Makefile')).toBeNull()
   })
 })
 
@@ -89,5 +115,18 @@ describe('highlightLines', () => {
     const out = highlightLines('a\n', 'typescript')
     expect(out).toHaveLength(2)
     expect(out[1]).toBe('')
+  })
+
+  it('produces hljs-* tokens for markdown', () => {
+    const out = highlightLines('# Title\n\n- item\n[link](https://x.y)', 'markdown')
+    expect(out).toHaveLength(4)
+    expect(out[0]).toMatch(/hljs-section/)   // heading
+    expect(out[2]).toMatch(/hljs-bullet/)    // list marker
+    expect(out[3]).toMatch(/hljs-link/)      // link target
+  })
+
+  it('produces hljs-* tokens for yaml', () => {
+    const out = highlightLines('name: ci\non:\n  push: {}', 'yaml')
+    expect(out[0]).toMatch(/hljs-attr/)
   })
 })

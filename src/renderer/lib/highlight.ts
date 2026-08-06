@@ -14,7 +14,25 @@ import json from 'highlight.js/lib/languages/json'
 import bash from 'highlight.js/lib/languages/bash'
 import css from 'highlight.js/lib/languages/css'
 import scss from 'highlight.js/lib/languages/scss'
+import less from 'highlight.js/lib/languages/less'
 import go from 'highlight.js/lib/languages/go'
+import markdown from 'highlight.js/lib/languages/markdown'
+import yaml from 'highlight.js/lib/languages/yaml'
+import xml from 'highlight.js/lib/languages/xml'
+import python from 'highlight.js/lib/languages/python'
+import rust from 'highlight.js/lib/languages/rust'
+import c from 'highlight.js/lib/languages/c'
+import cpp from 'highlight.js/lib/languages/cpp'
+import csharp from 'highlight.js/lib/languages/csharp'
+import java from 'highlight.js/lib/languages/java'
+import kotlin from 'highlight.js/lib/languages/kotlin'
+import swift from 'highlight.js/lib/languages/swift'
+import ruby from 'highlight.js/lib/languages/ruby'
+import php from 'highlight.js/lib/languages/php'
+import sql from 'highlight.js/lib/languages/sql'
+import ini from 'highlight.js/lib/languages/ini'
+import dockerfile from 'highlight.js/lib/languages/dockerfile'
+import makefile from 'highlight.js/lib/languages/makefile'
 
 let registered = false
 function registerLanguages(): void {
@@ -25,13 +43,32 @@ function registerLanguages(): void {
   hljs.registerLanguage('bash', bash)
   hljs.registerLanguage('css', css)
   hljs.registerLanguage('scss', scss)
+  hljs.registerLanguage('less', less)
   hljs.registerLanguage('go', go)
+  hljs.registerLanguage('markdown', markdown)
+  hljs.registerLanguage('yaml', yaml)
+  hljs.registerLanguage('xml', xml)
+  hljs.registerLanguage('python', python)
+  hljs.registerLanguage('rust', rust)
+  hljs.registerLanguage('c', c)
+  hljs.registerLanguage('cpp', cpp)
+  hljs.registerLanguage('csharp', csharp)
+  hljs.registerLanguage('java', java)
+  hljs.registerLanguage('kotlin', kotlin)
+  hljs.registerLanguage('swift', swift)
+  hljs.registerLanguage('ruby', ruby)
+  hljs.registerLanguage('php', php)
+  hljs.registerLanguage('sql', sql)
+  hljs.registerLanguage('ini', ini)
+  hljs.registerLanguage('dockerfile', dockerfile)
+  hljs.registerLanguage('makefile', makefile)
   registered = true
 }
 registerLanguages()
 
 // Extension → highlight.js language id. `null` means "render as plain text".
-// Keys are lowercase, no leading dot. Dotfiles like `.env` use the bare key.
+// Keys are lowercase, no leading dot. Extensionless files (Makefile,
+// Dockerfile) and dotfiles (.env, .editorconfig) match on the bare name.
 const EXT_MAP: Record<string, string | null> = {
   js: 'javascript',
   mjs: 'javascript',
@@ -47,8 +84,58 @@ const EXT_MAP: Record<string, string | null> = {
   css: 'css',
   scss: 'scss',
   sass: 'scss',
+  less: 'less',
   go: 'go',
+  // docs / markup
+  md: 'markdown',
+  markdown: 'markdown',
+  mdx: 'markdown', // approximation — hljs has no MDX grammar
+  xml: 'xml',
+  html: 'xml',
+  htm: 'xml',
+  xhtml: 'xml',
+  svg: 'xml',
+  plist: 'xml',
+  // config
+  yml: 'yaml',
+  yaml: 'yaml',
+  ini: 'ini',
+  toml: 'ini', // approximation — close enough for typical tomls
+  cfg: 'ini',
+  properties: 'ini',
+  editorconfig: 'ini',
+  gitconfig: 'ini',
+  npmrc: 'ini',
+  dockerfile: 'dockerfile',
+  makefile: 'makefile',
+  mk: 'makefile',
+  // languages
+  py: 'python',
+  pyw: 'python',
+  rs: 'rust',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  hh: 'cpp',
+  hxx: 'cpp',
+  cs: 'csharp',
+  java: 'java',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  swift: 'swift',
+  rb: 'ruby',
+  gemfile: 'ruby',
+  rakefile: 'ruby',
+  php: 'php',
+  sql: 'sql',
+  // explicit plain text
   txt: null,
+  gitignore: null,
+  gitattributes: null,
+  lock: null,
 }
 
 export function resolveLanguage(filePath: string): string | null {
