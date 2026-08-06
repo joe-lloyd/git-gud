@@ -159,12 +159,14 @@ export function useGerrit(
   const writeMode = useCallback(async (rawNext: GerritMode) => {
     const next = { ...rawNext, host: canonicalGerritRestHost(rawNext.host) }
     setModeState(next)
-    await Promise.all([
-      window.gitApi.setConfig(CONFIG.enabled, next.enabled === true ? 'true' : 'false'),
-      next.host ? window.gitApi.setConfig(CONFIG.host, next.host) : Promise.resolve(null),
-      next.project ? window.gitApi.setConfig(CONFIG.project, next.project) : Promise.resolve(null),
-      next.branch ? window.gitApi.setConfig(CONFIG.branch, next.branch) : Promise.resolve(null),
-    ]).catch(() => { /* config write failure — state still applies this session */ })
+    // Sequential on purpose: parallel `git config` writes race on
+    // .git/config.lock ("could not lock config file: File exists").
+    try {
+      await window.gitApi.setConfig(CONFIG.enabled, next.enabled === true ? 'true' : 'false')
+      if (next.host) await window.gitApi.setConfig(CONFIG.host, next.host)
+      if (next.project) await window.gitApi.setConfig(CONFIG.project, next.project)
+      if (next.branch) await window.gitApi.setConfig(CONFIG.branch, next.branch)
+    } catch { /* config write failure — state still applies this session */ }
   }, [])
 
   const enable = useCallback(async (overrides?: Partial<Pick<GerritMode, 'host' | 'project' | 'branch'>>) => {
