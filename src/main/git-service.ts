@@ -4,7 +4,7 @@ import simpleGit, {
   StatusResult,
 } from "simple-git";
 import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
 import {
   buildReviewRefspec,
@@ -743,6 +743,35 @@ export class GitService {
       return result;
     } catch {
       return "";
+    }
+  }
+
+  // Full old/new file contents behind a diff view. The renderer highlights
+  // COMPLETE files and slices out the shown rows by line number — an excerpt
+  // alone misrenders multi-line tokens (a block comment opened above the hunk,
+  // or closed below it, paints the rest of the excerpt as comment).
+  // A side that doesn't exist (new file, deleted file, root commit) is "".
+  private async showOrEmpty(spec: string): Promise<string> {
+    try { return await this.git.raw(["show", spec]) } catch { return "" }
+  }
+
+  async getFileDiffSources(filePath: string, staged: boolean): Promise<{ oldText: string; newText: string }> {
+    // unstaged: old = index (:0:path), new = working tree
+    // staged:   old = HEAD:path,      new = index (:0:path)
+    const index = () => this.showOrEmpty(`:0:${filePath}`)
+    if (staged) {
+      return { oldText: await this.showOrEmpty(`HEAD:${filePath}`), newText: await index() }
+    }
+    let newText = ""
+    try { newText = readFileSync(join(this.repoPath, filePath), "utf8") } catch { /* deleted */ }
+    return { oldText: await index(), newText }
+  }
+
+  async getCommitFileDiffSources(sha: string, filePath: string): Promise<{ oldText: string; newText: string }> {
+    // Matches getCommitFileDiff: first parent vs the commit (merges included).
+    return {
+      oldText: await this.showOrEmpty(`${sha}^1:${filePath}`),
+      newText: await this.showOrEmpty(`${sha}:${filePath}`),
     }
   }
 

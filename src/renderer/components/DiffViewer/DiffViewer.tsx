@@ -47,14 +47,22 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   // don't apply cleanly to the index).
   const canPatch = !isCommitMode && !ignoreWs
 
+  // Full old/new file contents for whole-file highlighting (see the highlight
+  // memo). Fetched alongside the diff; null until they arrive or on failure.
+  const [sources, setSources] = useState<{ oldText: string; newText: string } | null>(null)
+
   const refreshDiff = useCallback(() => {
     setLoading(true)
     setWordDiffError(null)
     const p = isCommitMode
       ? window.gitApi.getCommitFileDiff(sha!, filePath, { wordDiff, ignoreWhitespace: ignoreWs })
       : window.gitApi.getFileDiff(filePath, staged, { wordDiff, ignoreWhitespace: ignoreWs })
-    p.then((d) => {
+    const s = isCommitMode
+      ? window.gitApi.getCommitFileDiffSources(sha!, filePath)
+      : window.gitApi.getFileDiffSources(filePath, staged)
+    Promise.all([p, s.catch(() => null)]).then(([d, src]) => {
       setDiff(d || '')
+      setSources(src)
       setLoading(false)
     })
   }, [filePath, staged, sha, isCommitMode, wordDiff, ignoreWs])
@@ -175,14 +183,26 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     })
 
     // Build per-row highlighted HTML when we have a registered language.
-    // Word-diff and oversized diffs skip highlighting entirely (the latter
-    // because tokenizing megabytes of text in the renderer thread is wasteful
-    // and the value is marginal).
+    // Word-diff and oversized inputs skip highlighting entirely (tokenizing
+    // megabytes in the renderer thread is wasteful and the value marginal).
     const html = new Map<number, string>()
-    const skip = wordDiff || lang === null || diff.length > HIGHLIGHT_MAX_BYTES
-    if (!skip) {
-      // Highlight each side as one stream so multi-line tokens (block
-      // comments, template literals) color consistently across rows.
+    const srcBytes = sources ? sources.oldText.length + sources.newText.length : 0
+    const skip = wordDiff || lang === null || diff.length > HIGHLIGHT_MAX_BYTES || srcBytes > HIGHLIGHT_MAX_BYTES
+    if (!skip && sources) {
+      // Preferred path: highlight the COMPLETE old/new files, then pick each
+      // row's fragment by its line number. Hunk excerpts alone misrender
+      // multi-line tokens — a block comment opened above the hunk (or left
+      // unclosed inside it) would paint everything after it as comment.
+      const oldHtml = highlightLines(sources.oldText, lang)
+      const newHtml = highlightLines(sources.newText, lang)
+      for (const l of lines) {
+        // Context rows prefer the new side so additions/context align tonally.
+        if (l.newNo !== null && newHtml[l.newNo - 1] !== undefined) html.set(l.i, newHtml[l.newNo - 1])
+        else if (l.oldNo !== null && oldHtml[l.oldNo - 1] !== undefined) html.set(l.i, oldHtml[l.oldNo - 1])
+      }
+    } else if (!skip) {
+      // Fallback (sources unavailable): highlight the excerpt streams. Multi-
+      // line tokens crossing hunk borders may misrender here.
       const oldText: string[] = []
       const newText: string[] = []
       const oldRowIdx: number[] = []
@@ -199,14 +219,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
       }
       const oldHtml = highlightLines(oldText.join('\n'), lang)
       const newHtml = highlightLines(newText.join('\n'), lang)
-      // Context rows live in both streams — prefer the new-side rendering so
-      // additions/context line up tonally.
       for (let k = 0; k < oldRowIdx.length; k++) html.set(oldRowIdx[k], oldHtml[k] ?? '')
       for (let k = 0; k < newRowIdx.length; k++) html.set(newRowIdx[k], newHtml[k] ?? '')
     }
 
     return { lines, highlightHtml: html }
-  }, [diff, lang, wordDiff])
+  }, [diff, lang, wordDiff, sources])
 
   // Pair the unified lines into side-by-side rows: context spans both columns;
   // runs of removes/adds within a hunk are zipped (remove[k] ↔ add[k]) so a

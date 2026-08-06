@@ -207,6 +207,12 @@ const gitApi = {
     ipcRenderer.invoke('git:file-diff', filePath, staged, opts),
   getCommitFileDiff: (sha: string, filePath: string, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean }): Promise<string> =>
     ipcRenderer.invoke('git:commit-file-diff', sha, filePath, opts),
+  // Full old/new file contents behind a diff — lets the viewer highlight
+  // complete files so multi-line tokens (block comments) render correctly.
+  getFileDiffSources: (filePath: string, staged: boolean): Promise<{ oldText: string; newText: string }> =>
+    ipcRenderer.invoke('git:file-diff-sources', filePath, staged),
+  getCommitFileDiffSources: (sha: string, filePath: string): Promise<{ oldText: string; newText: string }> =>
+    ipcRenderer.invoke('git:commit-file-diff-sources', sha, filePath),
 
 
   checkout: (branch: string): Promise<{ success: boolean; error?: string; kind?: PullErrorKind }> =>

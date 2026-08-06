@@ -751,6 +751,14 @@ app.whenReady().then(() => {
     if (!gitService) return ''
     try { return await gitService.getCommitFileDiff(sha, filePath, opts ?? {}) } catch { return '' }
   })
+  ipcMain.handle('git:file-diff-sources', async (_event, filePath: string, staged: boolean) => {
+    if (!gitService) return { oldText: '', newText: '' }
+    try { return await gitService.getFileDiffSources(filePath, staged) } catch { return { oldText: '', newText: '' } }
+  })
+  ipcMain.handle('git:commit-file-diff-sources', async (_event, sha: string, filePath: string) => {
+    if (!gitService) return { oldText: '', newText: '' }
+    try { return await gitService.getCommitFileDiffSources(sha, filePath) } catch { return { oldText: '', newText: '' } }
+  })
 
   // ── Basic Operations ─────────────────────────────────────────────────
   ipcMain.handle('git:checkout', async (_event, branch: string) => {
