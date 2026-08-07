@@ -1,0 +1,74 @@
+name: Docs
+
+# Builds the VitePress site in docs-site/ and publishes it to GitHub Pages at
+# https://joe-lloyd.github.io/git-gud/.
+#
+# The site's content is *generated* from docs/, openspec/specs/, and
+# resources/icon.svg by docs-site/scripts/sync-content.mjs, so this runs on
+# changes to any of those — editing docs/user-guide.md alone republishes.
+#
+# One-time setup: repo Settings → Pages → Source: "GitHub Actions".
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs-site/**'
+      - 'docs/**'
+      - 'openspec/specs/**'
+      - 'resources/icon.svg'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two Pages deploys race; in-flight runs finish rather than cancel so
+# a deploy is never left half-applied.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from the root package.json "packageManager", matching the
+      # release workflow.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          # docs-site is its own pnpm workspace root — it deliberately does not
+          # share the app's lockfile.
+          cache-dependency-path: docs-site/pnpm-lock.yaml
+
+      - name: Install docs dependencies
+        working-directory: docs-site
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm build` runs the content sync first, then vitepress build.
+      - name: Build site
+        working-directory: docs-site
+        run: pnpm build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -43,6 +43,14 @@
 
 ## Documentation
 
+**📖 [joe-lloyd.github.io/git-gud](https://joe-lloyd.github.io/git-gud/)** — the
+docs site: install walkthroughs per platform, the user guide, and every spec.
+Send colleagues there rather than a bare `.dmg`; the
+[install guide](https://joe-lloyd.github.io/git-gud/install/) explains the
+unsigned-app warnings they'll hit.
+
+Same content, in the repo:
+
 - **[User guide](docs/user-guide.md)** — how to use everything, with screenshots.
 - **[Git feature coverage](docs/git-features.md)** — what we support, what's partial, what's planned.
 - **[Design system](docs/design/design-system.md)** — color tokens, typography, components; plus the **[icon reference](docs/design/icons.md)** every UI icon must come from.
@@ -107,6 +115,26 @@ pnpm test:repos   # build throwaway test repos under ~/Projects/MyProjects/git-g
 pnpm build:icon   # rebuild app icon from resources/icon.svg
 ```
 
+## Docs site
+
+`docs-site/` is a VitePress site published to GitHub Pages by
+`.github/workflows/docs.yml` on every push to `main` that touches `docs/`,
+`openspec/specs/`, or the site itself.
+
+```bash
+cd docs-site
+pnpm install
+pnpm dev        # local preview at http://localhost:5173/git-gud/
+pnpm build      # production build into .vitepress/dist
+```
+
+It has its own lockfile (and its own `pnpm-workspace.yaml`) so VitePress never
+lands in the app's dependency tree. Only the install guides under
+`docs-site/install/` and the landing page are written there — the guides,
+design docs, specs, and screenshots are copied out of this repo at build time by
+`docs-site/scripts/sync-content.mjs`, so `docs/` stays the source of truth. Edit
+the originals; the generated directories are gitignored.
+
 ## Testing
 
 ```bash
@@ -129,11 +157,17 @@ pnpm dist         # build + package installers for the current platform into dis
 pnpm dist:mac     # mac-only (.dmg + .zip in dist/)
 ```
 
-Drop the resulting `.dmg` onto Applications. First launch needs Ctrl-click → **Open** (the app isn't signed — Apple Developer ID can be added later to remove the warning and unlock seamless auto-update).
+A locally built app is never quarantined, so it opens straight away. A
+*downloaded* `.dmg` is another matter — macOS reports the unsigned build as
+"damaged" until the quarantine flag is cleared; the
+[install guide](https://joe-lloyd.github.io/git-gud/install/macos) covers it.
 
 ## Releasing (in-app updates)
 
-The app embeds `electron-updater`, which polls GitHub Releases on launch. To ship an update:
+The app checks GitHub Releases on launch — `electron-updater` on Windows/Linux,
+and the custom `src/main/mac-updater.ts` on macOS (Squirrel.Mac refuses to swap
+an unsigned bundle, so that path downloads, verifies, and replaces the app
+itself). To ship an update:
 
 1. Bump `version` in `package.json` (semver — `0.1.0` → `0.2.0`).
 2. Commit: `git commit -am "release: v0.2.0"`.
@@ -158,4 +192,5 @@ pnpm release               # reads .env, builds, uploads to the GitHub Release
 - `resources/` — app icon source + generated assets
 - `scripts/` — build-time helpers
 - `docs/` — user guide, feature coverage, README screenshots
+- `docs-site/` — VitePress site (install guides + everything above), deployed to GitHub Pages
 - `openspec/changes/` — in-flight feature plans (proposals, specs, tasks)

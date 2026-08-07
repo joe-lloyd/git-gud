@@ -1,0 +1,16 @@
+{
+  "name": "git-gud-docs",
+  "private": true,
+  "version": "1.4.1",
+  "description": "Static documentation site for Git Gud (install guides, user guide, specs)",
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync-content.mjs",
+    "dev": "pnpm sync && vitepress dev",
+    "build": "pnpm sync && vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  }
+}

@@ -1,0 +1,73 @@
+/*
+ * Brand tokens lifted from the app's own design system
+ * (`src/renderer/styles/global.css`, documented in docs/design/design-system.md)
+ * so the site and the app read as the same product. Neon hot pink is the only
+ * accent; surfaces are the app's dark stack.
+ */
+
+:root {
+  --gg-accent: #ff4fc3;
+  --gg-accent-bright: #ff2d95;
+  --gg-accent-hover: #ff79d6;
+  --gg-on-accent: #1a0f17;
+
+  --vp-c-brand-1: #d1148a; /* darkened for AA contrast on the light theme */
+  --vp-c-brand-2: var(--gg-accent-bright);
+  --vp-c-brand-3: var(--gg-accent);
+  --vp-c-brand-soft: rgba(255, 79, 195, 0.16);
+
+  --vp-button-brand-bg: var(--gg-accent);
+  --vp-button-brand-hover-bg: var(--gg-accent-hover);
+  --vp-button-brand-active-bg: var(--gg-accent-bright);
+  --vp-button-brand-text: var(--gg-on-accent);
+  --vp-button-brand-hover-text: var(--gg-on-accent);
+  --vp-button-brand-border: transparent;
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    120deg,
+    var(--gg-accent-bright) 20%,
+    #f6ad55 80%
+  );
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    var(--gg-accent-bright) 40%,
+    #f6ad55 80%
+  );
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+.dark {
+  /* The app's surface stack: deepest → base → elevated → panel. */
+  --vp-c-bg: #0d1117;
+  --vp-c-bg-alt: #13181f;
+  --vp-c-bg-elv: #1a2030;
+  --vp-c-bg-soft: #1a2030;
+
+  --vp-c-brand-1: var(--gg-accent);
+  --vp-c-brand-2: var(--gg-accent-hover);
+
+  --vp-c-text-1: #f0f4f8;
+  --vp-c-text-2: #aab4bf;
+  --vp-c-text-3: #7c8a9a;
+}
+
+/* Screenshots are UI captures with their own dark chrome — a border keeps them
+   from bleeding into the page background. */
+.vp-doc img {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+}
+
+/* The status legend in git-features.md and the spec index both run wide; let
+   them scroll rather than squeeze the columns. Keeping the first column on one
+   line stops feature and capability names breaking mid-phrase. */
+.vp-doc table {
+  display: block;
+  overflow-x: auto;
+}
+
+.vp-doc td:first-child,
+.vp-doc th:first-child {
+  white-space: nowrap;
+}

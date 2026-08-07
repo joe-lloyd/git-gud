@@ -1,0 +1,13 @@
+# The docs site is its own pnpm workspace root on purpose. Without this file
+# pnpm would walk up, find the app's workspace at the repo root, and pull
+# VitePress into the lockfile the Electron release build installs from.
+# Keeping it separate means `pnpm install --frozen-lockfile` in release.yml
+# never sees a docs dependency.
+packages: []
+
+# VitePress bundles with Vite, which needs esbuild's postinstall to fetch its
+# platform binary. Mirrors the root workspace's allowance.
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild
