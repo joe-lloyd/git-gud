@@ -743,9 +743,9 @@ app.whenReady().then(() => {
     if (!gitService) return []
     try { return await gitService.getCommitFiles(sha) } catch { return [] }
   })
-  ipcMain.handle('git:file-diff', async (_event, filePath: string, staged: boolean, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean }) => {
-    if (!gitService) return ''
-    try { return await gitService.getFileDiff(filePath, staged, opts ?? {}) } catch { return '' }
+  ipcMain.handle('git:file-diff', async (_event, filePath: string, staged: boolean, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean; fullUntracked?: boolean }) => {
+    if (!gitService) return { diff: '' }
+    try { return await gitService.getFileDiff(filePath, staged, opts ?? {}) } catch { return { diff: '' } }
   })
   ipcMain.handle('git:commit-file-diff', async (_event, sha: string, filePath: string, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean }) => {
     if (!gitService) return ''

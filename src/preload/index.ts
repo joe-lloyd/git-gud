@@ -28,6 +28,25 @@ export type BranchData = {
 
 export type TagInfo = { name: string; sha: string }
 export type StashInfo = { index: number; message: string; sha: string }
+
+// Mirrors main/git-service: whole-file highlight sources, or why they were
+// withheld (size cap / binary) so the viewer can tell the user.
+export type DiffSources = {
+  oldText: string
+  newText: string
+  skipped?: { reason: 'too-large' | 'binary'; sizeBytes: number; limitBytes: number }
+}
+// Mirrors main/git-service: a diff plus an optional untracked-file fallback
+// notice. `truncated` previews can be re-requested with `fullUntracked: true`
+// when `canLoadFull`.
+export type FileDiffNotice = {
+  reason: 'untracked-large' | 'untracked-binary'
+  sizeBytes: number
+  shownBytes: number
+  truncated: boolean
+  canLoadFull: boolean
+}
+export type FileDiffResult = { diff: string; notice?: FileDiffNotice }
 export type WorktreeInfo = { path: string; branch: string; sha: string; isMain: boolean }
 export type FileChange = { path: string; status: string; add?: number; del?: number }
 export type RepoStatus = {
@@ -203,15 +222,16 @@ const gitApi = {
 
   getCommitDiff: (sha: string): Promise<string> => ipcRenderer.invoke('git:commit-diff', sha),
   getCommitFiles: (sha: string): Promise<FileChange[]> => ipcRenderer.invoke('git:commit-files', sha),
-  getFileDiff: (filePath: string, staged: boolean, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean }): Promise<string> =>
+  getFileDiff: (filePath: string, staged: boolean, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean; fullUntracked?: boolean }): Promise<FileDiffResult> =>
     ipcRenderer.invoke('git:file-diff', filePath, staged, opts),
   getCommitFileDiff: (sha: string, filePath: string, opts?: { wordDiff?: boolean; ignoreWhitespace?: boolean }): Promise<string> =>
     ipcRenderer.invoke('git:commit-file-diff', sha, filePath, opts),
   // Full old/new file contents behind a diff — lets the viewer highlight
   // complete files so multi-line tokens (block comments) render correctly.
-  getFileDiffSources: (filePath: string, staged: boolean): Promise<{ oldText: string; newText: string }> =>
+  // `skipped` set (with empty texts) when the file is too large or binary.
+  getFileDiffSources: (filePath: string, staged: boolean): Promise<DiffSources> =>
     ipcRenderer.invoke('git:file-diff-sources', filePath, staged),
-  getCommitFileDiffSources: (sha: string, filePath: string): Promise<{ oldText: string; newText: string }> =>
+  getCommitFileDiffSources: (sha: string, filePath: string): Promise<DiffSources> =>
     ipcRenderer.invoke('git:commit-file-diff-sources', sha, filePath),
 
 

@@ -4,7 +4,7 @@ import simpleGit, {
   StatusResult,
 } from "simple-git";
 import { spawn } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import { isAbsolute, join } from "path";
 import {
   buildReviewRefspec,
@@ -172,10 +172,52 @@ export interface WorktreeInfo {
 
 // View-only diff options. `ignoreWhitespace` (-w) means the shown hunks no
 // longer match the real index patch — callers must not offer hunk staging
-// off such a diff.
+// off such a diff. `fullUntracked` is the user's explicit "load the whole
+// file anyway" override for the untracked-preview size cap below.
 export interface DiffViewOpts {
   wordDiff?: boolean;
   ignoreWhitespace?: boolean;
+  fullUntracked?: boolean;
+}
+
+// ── Large-file guards ────────────────────────────────────────────────────────
+// Diff plumbing materializes whole files as JS strings in the MAIN process.
+// A big enough file pushes the V8 heap over its limit, which is a fatal,
+// uncatchable abort of the entire app (SIGTRAP via brk — seen in the wild).
+// Every whole-file path checks these caps first and reports why content was
+// withheld so the renderer can tell the user instead of silently degrading.
+export const SOURCE_MAX_BYTES = 10_000_000; // whole-file highlight sources
+export const UNTRACKED_PREVIEW_MAX_BYTES = 1_000_000; // auto-shown untracked preview
+export const UNTRACKED_LOAD_MAX_BYTES = 50_000_000; // "load entire file" ceiling
+
+// Full old/new file text for whole-file highlighting, or the reason it was
+// withheld. Empty texts + `skipped` → the viewer falls back to excerpt
+// highlighting and surfaces the reason.
+export interface DiffSources {
+  oldText: string;
+  newText: string;
+  skipped?: { reason: "too-large" | "binary"; sizeBytes: number; limitBytes: number };
+}
+
+// A file diff plus an optional notice about a size/binary fallback the user
+// should know about (and may override via `DiffViewOpts.fullUntracked`).
+export interface FileDiffResult {
+  diff: string;
+  notice?: {
+    reason: "untracked-large" | "untracked-binary";
+    sizeBytes: number;
+    shownBytes: number;
+    /** `diff` holds only the first part of the file. */
+    truncated: boolean;
+    /** A re-request with `fullUntracked: true` is allowed at this size. */
+    canLoadFull: boolean;
+  };
+}
+
+// NUL byte in the leading bytes → not text; +line previews and highlighting
+// are useless regardless of size.
+function looksBinary(text: string): boolean {
+  return text.slice(0, 8192).includes("\u0000");
 }
 
 function diffViewFlags(opts: DiffViewOpts): string[] {
@@ -718,7 +760,7 @@ export class GitService {
     }
   }
 
-  async getFileDiff(filePath: string, staged: boolean, opts: DiffViewOpts = {}): Promise<string> {
+  async getFileDiff(filePath: string, staged: boolean, opts: DiffViewOpts = {}): Promise<FileDiffResult> {
     try {
       const wd = diffViewFlags(opts);
       const args = staged
@@ -729,25 +771,66 @@ export class GitService {
         // Under -w an empty diff usually means "whitespace-only changes",
         // not "untracked" — the whole-file fallback would be wrong. Let the
         // viewer explain the empty state instead.
-        if (opts.ignoreWhitespace) return "";
+        if (opts.ignoreWhitespace) return { diff: "" };
         // Empty diff on a TRACKED file just means no changes on this side
         // (e.g. everything was staged) — dumping the whole file as +lines
         // here misread the state. Fallback is for untracked files only.
         const tracked = (await this.git.raw(["ls-files", "--", filePath])).trim();
-        if (tracked) return "";
-        // Untracked file — show full content as +lines
-        const { readFileSync } = await import("fs");
-        const { join } = await import("path");
-        const content = readFileSync(join(this.repoPath, filePath), "utf8");
-        const lines = content
-          .split("\n")
-          .map((l) => `+${l}`)
-          .join("\n");
-        return `--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1 @@\n${lines}`;
+        if (tracked) return { diff: "" };
+        return this.untrackedPreview(filePath, opts.fullUntracked === true);
       }
-      return result;
+      return { diff: result };
     } catch {
-      return "";
+      return { diff: "" };
+    }
+  }
+
+  // Untracked file → synthetic all-+lines diff. Size-guarded: past
+  // UNTRACKED_PREVIEW_MAX_BYTES only the first chunk is shown unless the user
+  // explicitly asked for the whole file (`full`), and never past
+  // UNTRACKED_LOAD_MAX_BYTES — materializing a whole huge file as split/mapped
+  // strings is exactly the allocation pattern that OOM-kills the main process.
+  private async untrackedPreview(filePath: string, full: boolean): Promise<FileDiffResult> {
+    const fsp = await import("fs/promises");
+    const abs = join(this.repoPath, filePath);
+    const sizeBytes = (await fsp.stat(abs)).size;
+    const fd = await fsp.open(abs, "r");
+    try {
+      const sniff = Buffer.alloc(Math.min(8192, sizeBytes));
+      await fd.read(sniff, 0, sniff.length, 0);
+      if (sniff.includes(0)) {
+        return {
+          diff: "",
+          notice: { reason: "untracked-binary", sizeBytes, shownBytes: 0, truncated: false, canLoadFull: false },
+        };
+      }
+
+      const wantFull = full && sizeBytes <= UNTRACKED_LOAD_MAX_BYTES;
+      const readBytes = wantFull ? sizeBytes : Math.min(sizeBytes, UNTRACKED_PREVIEW_MAX_BYTES);
+      const buf = Buffer.alloc(readBytes);
+      await fd.read(buf, 0, readBytes, 0);
+      let content = buf.toString("utf8");
+      const truncated = readBytes < sizeBytes;
+      if (truncated) {
+        // Don't cut mid-line: drop the trailing partial line from the preview.
+        const nl = content.lastIndexOf("\n");
+        if (nl > 0) content = content.slice(0, nl);
+      }
+      const body = content.split("\n").map((l) => `+${l}`).join("\n");
+      return {
+        diff: `--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1 @@\n${body}`,
+        notice: sizeBytes > UNTRACKED_PREVIEW_MAX_BYTES
+          ? {
+              reason: "untracked-large",
+              sizeBytes,
+              shownBytes: readBytes,
+              truncated,
+              canLoadFull: sizeBytes <= UNTRACKED_LOAD_MAX_BYTES,
+            }
+          : undefined,
+      };
+    } finally {
+      await fd.close();
     }
   }
 
@@ -760,24 +843,68 @@ export class GitService {
     try { return await this.git.raw(["show", spec]) } catch { return "" }
   }
 
-  async getFileDiffSources(filePath: string, staged: boolean): Promise<{ oldText: string; newText: string }> {
+  // Blob size WITHOUT materializing the content — lets the sources guard
+  // reject oversized files before any full-file string exists. 0 when the
+  // object is absent (new file, deleted file, root commit).
+  private async blobSize(spec: string): Promise<number> {
+    try {
+      const out = await this.git.raw(["cat-file", "-s", spec]);
+      return parseInt(out.trim(), 10) || 0;
+    } catch { return 0 }
+  }
+
+  // Both sides read fully into memory + a structured-clone copy over IPC, so
+  // cap by the LARGER side before reading anything. Binary content is refused
+  // after the (bounded) read — highlighting mangled bytes helps nobody.
+  private guardSources(oldText: string, newText: string, sizeBytes: number): DiffSources {
+    if (looksBinary(oldText) || looksBinary(newText)) {
+      return { oldText: "", newText: "", skipped: { reason: "binary", sizeBytes, limitBytes: SOURCE_MAX_BYTES } }
+    }
+    return { oldText, newText }
+  }
+
+  async getFileDiffSources(filePath: string, staged: boolean): Promise<DiffSources> {
     // unstaged: old = index (:0:path), new = working tree
     // staged:   old = HEAD:path,      new = index (:0:path)
     const index = () => this.showOrEmpty(`:0:${filePath}`)
+    let oldSize: number
+    let newSize: number
     if (staged) {
-      return { oldText: await this.showOrEmpty(`HEAD:${filePath}`), newText: await index() }
+      [oldSize, newSize] = await Promise.all([
+        this.blobSize(`HEAD:${filePath}`),
+        this.blobSize(`:0:${filePath}`),
+      ])
+    } else {
+      oldSize = await this.blobSize(`:0:${filePath}`)
+      try { newSize = statSync(join(this.repoPath, filePath)).size } catch { newSize = 0 }
+    }
+    const sizeBytes = Math.max(oldSize, newSize)
+    if (sizeBytes > SOURCE_MAX_BYTES) {
+      return { oldText: "", newText: "", skipped: { reason: "too-large", sizeBytes, limitBytes: SOURCE_MAX_BYTES } }
+    }
+    if (staged) {
+      return this.guardSources(await this.showOrEmpty(`HEAD:${filePath}`), await index(), sizeBytes)
     }
     let newText = ""
     try { newText = readFileSync(join(this.repoPath, filePath), "utf8") } catch { /* deleted */ }
-    return { oldText: await index(), newText }
+    return this.guardSources(await index(), newText, sizeBytes)
   }
 
-  async getCommitFileDiffSources(sha: string, filePath: string): Promise<{ oldText: string; newText: string }> {
+  async getCommitFileDiffSources(sha: string, filePath: string): Promise<DiffSources> {
     // Matches getCommitFileDiff: first parent vs the commit (merges included).
-    return {
-      oldText: await this.showOrEmpty(`${sha}^1:${filePath}`),
-      newText: await this.showOrEmpty(`${sha}:${filePath}`),
+    const [oldSize, newSize] = await Promise.all([
+      this.blobSize(`${sha}^1:${filePath}`),
+      this.blobSize(`${sha}:${filePath}`),
+    ])
+    const sizeBytes = Math.max(oldSize, newSize)
+    if (sizeBytes > SOURCE_MAX_BYTES) {
+      return { oldText: "", newText: "", skipped: { reason: "too-large", sizeBytes, limitBytes: SOURCE_MAX_BYTES } }
     }
+    return this.guardSources(
+      await this.showOrEmpty(`${sha}^1:${filePath}`),
+      await this.showOrEmpty(`${sha}:${filePath}`),
+      sizeBytes,
+    )
   }
 
   async getCommitFiles(sha: string): Promise<FileChange[]> {

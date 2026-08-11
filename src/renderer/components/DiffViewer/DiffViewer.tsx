@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import type { DiffSources, FileDiffNotice, FileDiffResult } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
 import { resolveLanguage, highlightLines } from '../../lib/highlight'
 import { Icon } from '../Icons/Icon'
@@ -7,6 +8,15 @@ import './DiffViewer.css'
 // Files larger than this skip syntax highlighting — tokenization scales with
 // length and the visual win is small on huge diffs.
 const HIGHLIGHT_MAX_BYTES = 500_000
+
+// Mirrors UNTRACKED_LOAD_MAX_BYTES in main/git-service — display only.
+const UNTRACKED_LOAD_MAX_BYTES = 50_000_000
+
+const fmtBytes = (n: number): string =>
+  n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB`
+  : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB`
+  : n >= 1e3 ? `${Math.round(n / 1e3)} KB`
+  : `${n} B`
 
 interface DiffViewerProps {
   filePath: string
@@ -42,34 +52,45 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   const bodyRef = useRef<HTMLDivElement>(null)
   const hunkRefs = useRef<Map<number, HTMLTableRowElement | null>>(new Map())
   const isCommitMode = sha !== null
+
+  // Full old/new file contents for whole-file highlighting (see the highlight
+  // memo). Fetched alongside the diff; null until they arrive or on failure.
+  const [sources, setSources] = useState<DiffSources | null>(null)
+  // Size/binary fallback notice for untracked files — surfaced as a banner so
+  // the user knows WHY the view is limited, with an explicit override.
+  const [diffNotice, setDiffNotice] = useState<FileDiffNotice | null>(null)
+  // User clicked "Load entire file" on a truncated untracked preview.
+  const [fullUntracked, setFullUntracked] = useState(false)
+
   // Hunk/line staging & discard everywhere except commit mode. Under -w the
   // hunk's context/removed lines can differ from the target by whitespace, so
   // applyPatch adds --ignore-whitespace; the +/− content lines are verbatim
   // file lines either way. Whitespace-only changes (hidden by the view)
-  // simply stay unstaged.
-  const canPatch = !isCommitMode
-
-  // Full old/new file contents for whole-file highlighting (see the highlight
-  // memo). Fetched alongside the diff; null until they arrive or on failure.
-  const [sources, setSources] = useState<{ oldText: string; newText: string } | null>(null)
+  // simply stay unstaged. A TRUNCATED untracked preview also can't patch —
+  // staging half a file would corrupt the index's view of it.
+  const canPatch = !isCommitMode && !diffNotice?.truncated
 
   const refreshDiff = useCallback(() => {
     setLoading(true)
     setWordDiffError(null)
-    const p = isCommitMode
-      ? window.gitApi.getCommitFileDiff(sha!, filePath, { wordDiff, ignoreWhitespace: ignoreWs })
-      : window.gitApi.getFileDiff(filePath, staged, { wordDiff, ignoreWhitespace: ignoreWs })
+    const p: Promise<FileDiffResult> = isCommitMode
+      ? window.gitApi.getCommitFileDiff(sha!, filePath, { wordDiff, ignoreWhitespace: ignoreWs }).then((d) => ({ diff: d }))
+      : window.gitApi.getFileDiff(filePath, staged, { wordDiff, ignoreWhitespace: ignoreWs, fullUntracked })
     const s = isCommitMode
       ? window.gitApi.getCommitFileDiffSources(sha!, filePath)
       : window.gitApi.getFileDiffSources(filePath, staged)
-    Promise.all([p, s.catch(() => null)]).then(([d, src]) => {
-      setDiff(d || '')
+    Promise.all([p, s.catch(() => null)]).then(([r, src]) => {
+      setDiff(r?.diff || '')
+      setDiffNotice(r?.notice ?? null)
       setSources(src)
       setLoading(false)
     })
-  }, [filePath, staged, sha, isCommitMode, wordDiff, ignoreWs])
+  }, [filePath, staged, sha, isCommitMode, wordDiff, ignoreWs, fullUntracked])
 
   useEffect(() => { refreshDiff() }, [refreshDiff])
+
+  // The load-full override is per-file consent — never carry it to the next file.
+  useEffect(() => { setFullUntracked(false) }, [filePath, staged, sha])
 
   // ── Word-diff porcelain parse ──────────────────────────────────────────────
   // Format spec (`man git-diff`):
@@ -187,16 +208,19 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     // Build per-row highlighted HTML when we have a registered language.
     // Word-diff and oversized inputs skip highlighting entirely (tokenizing
     // megabytes in the renderer thread is wasteful and the value marginal).
+    // Sources the main process withheld (too large / binary) count as absent
+    // so the excerpt fallback below still applies where feasible.
     const html = new Map<number, string>()
-    const srcBytes = sources ? sources.oldText.length + sources.newText.length : 0
+    const usableSources = sources && !sources.skipped ? sources : null
+    const srcBytes = usableSources ? usableSources.oldText.length + usableSources.newText.length : 0
     const skip = wordDiff || lang === null || diff.length > HIGHLIGHT_MAX_BYTES || srcBytes > HIGHLIGHT_MAX_BYTES
-    if (!skip && sources) {
+    if (!skip && usableSources) {
       // Preferred path: highlight the COMPLETE old/new files, then pick each
       // row's fragment by its line number. Hunk excerpts alone misrender
       // multi-line tokens — a block comment opened above the hunk (or left
       // unclosed inside it) would paint everything after it as comment.
-      const oldHtml = highlightLines(sources.oldText, lang)
-      const newHtml = highlightLines(sources.newText, lang)
+      const oldHtml = highlightLines(usableSources.oldText, lang)
+      const newHtml = highlightLines(usableSources.newText, lang)
       for (const l of lines) {
         // Context rows prefer the new side so additions/context align tonally.
         if (l.newNo !== null && newHtml[l.newNo - 1] !== undefined) html.set(l.i, newHtml[l.newNo - 1])
@@ -457,6 +481,39 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
       )}
       {wordDiffError && <div className="diff-banner">{wordDiffError}</div>}
       {applyError && <div className="diff-banner diff-banner-error">git apply: {applyError}</div>}
+      {/* Transparency banners: say WHY the view is limited instead of silently
+          degrading, and offer the explicit override where one is safe. */}
+      {sources?.skipped?.reason === 'too-large' && lang !== null && !wordDiff && (
+        <div className="diff-banner">
+          Whole-file syntax highlighting is off — this file is {fmtBytes(sources.skipped.sizeBytes)} and
+          files over {fmtBytes(sources.skipped.limitBytes)} aren't loaded in full, to protect the app's memory.
+        </div>
+      )}
+      {diffNotice?.reason === 'untracked-binary' && (
+        <div className="diff-banner">
+          Untracked binary file ({fmtBytes(diffNotice.sizeBytes)}) — no text preview to show.
+        </div>
+      )}
+      {diffNotice?.reason === 'untracked-large' && (
+        <div className="diff-banner">
+          {diffNotice.truncated ? (
+            <>
+              This untracked file is {fmtBytes(diffNotice.sizeBytes)} — showing the
+              first {fmtBytes(diffNotice.shownBytes)} to protect the app's memory.
+              Hunk staging is disabled on this partial view.{' '}
+              {diffNotice.canLoadFull ? (
+                <button className="diff-toggle" onClick={() => setFullUntracked(true)}>
+                  Load entire file
+                </button>
+              ) : (
+                <>Files over {fmtBytes(UNTRACKED_LOAD_MAX_BYTES)} can't be shown in full.</>
+              )}
+            </>
+          ) : (
+            <>Entire untracked file loaded ({fmtBytes(diffNotice.sizeBytes)}).</>
+          )}
+        </div>
+      )}
 
       {/* Diff body */}
       {loading ? (
