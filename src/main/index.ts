@@ -308,7 +308,10 @@ app.whenReady().then(() => {
   ipcMain.handle('git:open-dialog', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ['openDirectory'],
-      title: 'Open Git Repository'
+      title: 'Open Git Repository',
+      // Electron 43 defaults dialogs to ~/Downloads — home is the sane
+      // starting point for hunting down a repo.
+      defaultPath: app.getPath('home')
     })
     if (result.canceled || result.filePaths.length === 0) return null
     const repoPath = result.filePaths[0]
@@ -363,6 +366,8 @@ app.whenReady().then(() => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ['openDirectory', 'createDirectory'],
       title: 'Choose a folder to clone into',
+      // Electron 43 defaults dialogs to ~/Downloads — match default-clone-dir.
+      defaultPath: app.getPath('home'),
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
