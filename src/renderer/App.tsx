@@ -269,6 +269,20 @@ export default function App() {
     setPendingHeadAuthor(null)
   }, [])
 
+  // Bisect, Patch, and Reflog all render in the same right-panel slot, but
+  // live in two independent pieces of state (`modal` vs `showReflog`). Opening
+  // one must close the others — otherwise both stay "open" and whichever is
+  // checked first in the render just covers the other.
+  const openSidePanel = useCallback((panel: 'bisect' | 'patch') => {
+    setShowReflog(false)
+    setModal(panel)
+  }, [])
+
+  const toggleReflog = useCallback(() => {
+    setModal((m) => (m === 'bisect' || m === 'patch' ? null : m))
+    setShowReflog((v) => !v)
+  }, [])
+
   // The "+" tab / "Open Repository" entry points offer a choice: pick a local
   // folder, or clone from a remote (any URL or a signed-in service).
   const openRepoSourceMenu = useCallback((e: React.MouseEvent) => {
@@ -998,7 +1012,7 @@ export default function App() {
       { separator: true, label: '', onClick: () => {} },
 
       { label: 'Create tag here…', icon: 'tag', onClick: () => actions.requestTagHere(sha) },
-      { label: 'Export patch…',    icon: 'file-diff', onClick: () => { repo.setSelectedSha(sha); setModal('patch') } },
+      { label: 'Export patch…',    icon: 'file-diff', onClick: () => { repo.setSelectedSha(sha); openSidePanel('patch') } },
       {
         label: 'Edit author…',
         icon: 'edit',
@@ -1019,7 +1033,7 @@ export default function App() {
         { label: 'Mark as Bisect Bad',  icon: 'x-circle', danger: true, onClick: () => bisectMark(false) },
       ] : []),
     ])
-  }, [actions, repo, openCtx, opSelectedShas, selectedShas, openBulkCommitMenu])
+  }, [actions, repo, openCtx, opSelectedShas, selectedShas, openBulkCommitMenu, openSidePanel])
 
   const rebaseCommits = repo.selectedSha
     ? repo.commits.slice(0, repo.commits.findIndex(c => c.sha === repo.selectedSha) + 1).slice(0, 20)
@@ -1152,12 +1166,12 @@ export default function App() {
         />
 
         <div className="advanced-bar">
-          <button className="adv-btn" title="Bisect" onClick={() => setModal('bisect')}><Icon name="bisect" size={13} /> Bisect</button>
-          <button className="adv-btn" title="Patch" onClick={() => setModal('patch')}><Icon name="file-diff" size={13} /> Patch</button>
+          <button className={`adv-btn ${modal === 'bisect' ? 'active' : ''}`} title="Bisect" onClick={() => openSidePanel('bisect')}><Icon name="bisect" size={13} /> Bisect</button>
+          <button className={`adv-btn ${modal === 'patch' ? 'active' : ''}`} title="Patch" onClick={() => openSidePanel('patch')}><Icon name="file-diff" size={13} /> Patch</button>
           <button
             className={`adv-btn ${showReflog ? 'active' : ''}`}
             title="Reflog — recover lost commits"
-            onClick={() => setShowReflog((v) => !v)}
+            onClick={toggleReflog}
           ><Icon name="history" size={13} /> Reflog</button>
           <button className="adv-btn" title="Clean untracked/ignored files" onClick={() => setModal('clean')}><Icon name="clean" size={13} /> Clean</button>
         </div>

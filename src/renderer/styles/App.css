@@ -178,6 +178,13 @@
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+/* The panel currently occupying the right-panel slot (Bisect / Patch /
+   Reflog are mutually exclusive — opening one closes the others). */
+.adv-btn.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+.adv-btn.active:hover { background: var(--accent-subtle); color: var(--accent-hover); }
 
 /* Welcome screen */
 .welcome {
