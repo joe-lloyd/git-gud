@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Icon } from '../Icons/Icon'
 import './Toolbar.css'
 
@@ -18,6 +18,8 @@ interface ToolbarProps {
   onStash: () => void
   onPop: () => Promise<void>
   onRefresh: () => void
+  /** True while a repo refresh is in flight — animates the refresh button. */
+  refreshing?: boolean
   onNewBranch: () => void
   /** Opens the push options menu (force push etc.) — caret click or right-click on Push */
   onPushMenu?: (e: React.MouseEvent) => void
@@ -48,6 +50,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onStash,
   onPop,
   onRefresh,
+  refreshing = false,
   onNewBranch,
   onPushMenu,
   onPullMenu,
@@ -68,6 +71,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setter(true)
     try { await fn() } finally { setter(false) }
   }
+
+  // Silent refreshes usually finish in well under a frame's worth of git
+  // reads — stretch the indicator to a minimum beat so the animation reads as
+  // "checked" instead of flickering.
+  const MIN_SPIN_MS = 700
+  const [spinning, setSpinning] = useState(false)
+  const spinUntil = useRef(0)
+  useEffect(() => {
+    if (refreshing) {
+      spinUntil.current = Date.now() + MIN_SPIN_MS
+      setSpinning(true)
+      return
+    }
+    const remain = spinUntil.current - Date.now()
+    if (remain <= 0) { setSpinning(false); return }
+    const t = setTimeout(() => setSpinning(false), remain)
+    return () => clearTimeout(t)
+  }, [refreshing])
 
   if (!repoPath) return null
 
@@ -189,7 +210,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button className="tb-icon-btn" title="Toggle console" onClick={onToggleConsole}><Icon name="terminal" /></button>
         <button className="tb-icon-btn" title="Check for updates" onClick={onCheckUpdates}><Icon name="update" /></button>
         <button className="tb-icon-btn" title="Settings" onClick={onSettings}><Icon name="settings" /></button>
-        <button className="tb-icon-btn" title="Refresh — re-read the repository state from disk" onClick={onRefresh}><Icon name="refresh" /></button>
+        <button
+          className={`tb-icon-btn tb-refresh ${spinning ? 'refreshing' : ''}`}
+          title="Refresh — re-read the repository state from disk"
+          onClick={onRefresh}
+        >
+          <span className="tb-refresh-icon"><Icon name="refresh" /></span>
+          {/* Boss-bar style sweep — absolutely positioned, zero layout shift */}
+          <span className="tb-refresh-bar" aria-hidden="true" />
+        </button>
       </div>
     </div>
   )

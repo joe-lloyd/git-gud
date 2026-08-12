@@ -1083,6 +1083,7 @@ export default function App() {
         onStash={() => setModal('toolbar-stash')}
         onPop={handleToolbarPop}
         onRefresh={repo.methods.refresh}
+        refreshing={repo.refreshing}
         onNewBranch={() => setModal('new-branch')}
         onSearchToggle={() => setShowSearch(true)}
         onGitHubShow={() => setModal('github')}

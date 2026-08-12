@@ -119,8 +119,61 @@
   font-size: 14px;
   color: var(--text-muted);
   transition: background 0.15s, color 0.15s;
+  position: relative;
 }
 .tb-icon-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* ── Refresh indicator ────────────────────────────────────────────────
+   Same visual language as the conflict panel's boss health bar: a thin
+   trough with a danger→warning gradient fill. Everything is absolutely
+   positioned inside the fixed 30×30 button — zero layout shift. */
+.tb-refresh-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tb-refresh.refreshing { color: var(--warning); }
+.tb-refresh.refreshing .tb-refresh-icon {
+  animation: spin 0.9s cubic-bezier(0.45, 0.1, 0.55, 0.9) infinite;
+}
+
+.tb-refresh-bar {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--bg-deepest);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.tb-refresh.refreshing .tb-refresh-bar { opacity: 1; }
+.tb-refresh-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--danger), var(--warning));
+  box-shadow: 0 0 6px rgba(252, 129, 129, 0.5);
+  transform: translateX(-100%);
+}
+.tb-refresh.refreshing .tb-refresh-bar::after {
+  animation: tb-refresh-sweep 1.1s ease-in-out infinite;
+}
+@keyframes tb-refresh-sweep {
+  0%   { transform: translateX(-100%); }
+  55%  { transform: translateX(0); }
+  100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tb-refresh.refreshing .tb-refresh-icon { animation: none; }
+  /* Static filled bar still signals "busy" without motion. */
+  .tb-refresh.refreshing .tb-refresh-bar::after { animation: none; transform: none; }
 }

@@ -21,6 +21,12 @@ export function useGitRepo() {
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState<string | null>(null)
   const [selectedSha, setSelectedSha] = useState<string | null>(null)
+  // True while any silent refresh is in flight (manual, focus, FS-watcher,
+  // post-mutation). Drives the toolbar refresh indicator — unlike `loading`
+  // it never swaps the UI out, it just animates. Counter-backed so
+  // overlapping refreshes don't flicker the flag off early.
+  const [refreshing, setRefreshing]   = useState(false)
+  const refreshCount = useRef(0)
 
   const toast = useToasts()
 
@@ -218,7 +224,13 @@ export function useGitRepo() {
   // refresh. Failure leaves the UI on its previous data (no flashes).
   const refresh = useCallback(async () => {
     if (!repoPath) return
+    refreshCount.current += 1
+    setRefreshing(true)
     try { await fetchAll() } catch { /* keep prior state on transient failure */ }
+    finally {
+      refreshCount.current -= 1
+      if (refreshCount.current === 0) setRefreshing(false)
+    }
   }, [repoPath, fetchAll])
 
   // Always call the *latest* refresh from listeners — avoids stale closures
@@ -317,6 +329,7 @@ export function useGitRepo() {
     status, setStatus,
     remotes, setRemotes,
     loading, setLoading,
+    refreshing,
     error, setError,
     selectedSha, setSelectedSha,
     toast,
