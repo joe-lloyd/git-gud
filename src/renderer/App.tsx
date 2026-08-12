@@ -358,6 +358,18 @@ export default function App() {
     repo.toast.error('Checkout failed', r.error)
   }, [repo.methods, repo.toast])
 
+  // All isolated commit actions live in their own hook. Declared before the
+  // sidebar context-menu factories below, which reuse these actions for
+  // ref-level entries (merge / rebase / reset / tag on a branch tip).
+  const actions = useCommitActions({
+    toast:          repo.toast,
+    // Override so SHA checkout (detached HEAD) goes through the autostash
+    // prompt path too.
+    methods:        { ...repo.methods, handleCheckout },
+    openModal,
+    setSelectedSha: repo.setSelectedSha,
+  })
+
   // ── Sidebar handlers ────────────────────────────────────────────────
   const handleCheckoutRemote = useCallback(async (remoteRef: string) => {
     // origin/feature-x → checks out local "feature-x" tracking origin/feature-x
@@ -617,15 +629,32 @@ export default function App() {
         ])
       } else {
         const shortName = branchName.split('/').slice(1).join('/')
+        // The remote branch tip — powers the commit-level entries (merge,
+        // rebase, reset, tag…), same set as right-clicking its node in the
+        // tree. Missing only if branches refreshed out from under the click.
+        const sha = repo.branches.remote.find((b) => b.name === branchName)?.sha
         openCtx(e, [
-          { label: `Checkout "${shortName}" (track)`, icon: 'branch',  onClick: () => handleCheckoutRemote(branchName) },
-          { label: `Delete remote "${branchName}"`,   icon: 'trash',  danger: true, onClick: () => { setPendingRef({ name: branchName, kind }); setModal('confirm-delete-remote-branch') } },
+          { label: `Checkout "${shortName}" (track)`,      icon: 'branch',  onClick: () => handleCheckoutRemote(branchName) },
+          { label: 'Checkout commit (detached HEAD)',      icon: 'commit',  disabled: !sha, onClick: () => sha && actions.checkoutSha(sha) },
+          { label: 'Create branch here…',                  icon: 'branch',  disabled: !sha, onClick: () => sha && actions.requestBranchHere(sha) },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Copy ref name',                   icon: 'copy',  onClick: () => copyToClipboard(branchName, branchName) },
+          { label: `Merge "${branchName}" into current branch`, icon: 'merge',  disabled: !sha, onClick: () => sha && actions.mergeThisIntoCurrent(sha) },
+          { label: 'Rebase current branch onto this',      icon: 'rebase',  disabled: !sha, onClick: () => sha && actions.rebaseTo(sha) },
+          { label: 'Cherry-pick tip commit',               icon: 'cherry-pick', disabled: !sha, onClick: () => sha && actions.cherryPick(sha) },
+          { separator: true, label: '', onClick: () => {} },
+          { label: 'Reset → Soft',   icon: 'reset',  disabled: !sha, onClick: () => sha && actions.resetSoft(sha) },
+          { label: 'Reset → Mixed',  icon: 'reset',  disabled: !sha, onClick: () => sha && actions.resetMixed(sha) },
+          { label: 'Reset → Hard',   icon: 'reset',  danger: true, disabled: !sha, onClick: () => sha && actions.requestResetHard(sha) },
+          { separator: true, label: '', onClick: () => {} },
+          { label: 'Create tag here…',                     icon: 'tag',  disabled: !sha, onClick: () => sha && actions.requestTagHere(sha) },
+          { separator: true, label: '', onClick: () => {} },
+          { label: `Delete remote "${branchName}"`,        icon: 'trash',  danger: true, onClick: () => { setPendingRef({ name: branchName, kind }); setModal('confirm-delete-remote-branch') } },
+          { separator: true, label: '', onClick: () => {} },
+          { label: 'Copy ref name',                        icon: 'copy',  onClick: () => copyToClipboard(branchName, branchName) },
         ])
       }
     },
-    [openCtx, repo.status, repo.methods, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull],
+    [openCtx, repo.status, repo.methods, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, copyToClipboard],
   )
 
   const handleStashContextMenu = useCallback(
@@ -823,16 +852,6 @@ export default function App() {
       repo.toast.info('Updates unavailable', 'Update checks only work in the installed app, not dev mode.')
     }
   }, [repo.toast])
-
-  // All isolated commit actions live in their own hook
-  const actions = useCommitActions({
-    toast:          repo.toast,
-    // Override so SHA checkout (detached HEAD) goes through the autostash
-    // prompt path too.
-    methods:        { ...repo.methods, handleCheckout },
-    openModal,
-    setSelectedSha: repo.setSelectedSha,
-  })
 
   // Keyboard shortcuts
   useEffect(() => {
