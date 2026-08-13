@@ -33,6 +33,7 @@ import sql from 'highlight.js/lib/languages/sql'
 import ini from 'highlight.js/lib/languages/ini'
 import dockerfile from 'highlight.js/lib/languages/dockerfile'
 import makefile from 'highlight.js/lib/languages/makefile'
+import dos from 'highlight.js/lib/languages/dos'
 
 let registered = false
 function registerLanguages(): void {
@@ -62,6 +63,7 @@ function registerLanguages(): void {
   hljs.registerLanguage('ini', ini)
   hljs.registerLanguage('dockerfile', dockerfile)
   hljs.registerLanguage('makefile', makefile)
+  hljs.registerLanguage('dos', dos)
   registered = true
 }
 registerLanguages()
@@ -81,6 +83,8 @@ const EXT_MAP: Record<string, string | null> = {
   bash: 'bash',
   zsh: 'bash',
   env: 'bash',
+  bat: 'dos',
+  cmd: 'dos',
   css: 'css',
   scss: 'scss',
   sass: 'scss',

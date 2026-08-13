@@ -49,6 +49,8 @@ describe('resolveLanguage', () => {
     expect(resolveLanguage('App.java')).toBe('java')
     expect(resolveLanguage('Main.kt')).toBe('kotlin')
     expect(resolveLanguage('schema.sql')).toBe('sql')
+    expect(resolveLanguage('build.bat')).toBe('dos')
+    expect(resolveLanguage('scripts/Deploy.CMD')).toBe('dos')
   })
 
   it('returns null for .txt and noisy-if-highlighted files', () => {
@@ -128,5 +130,13 @@ describe('highlightLines', () => {
   it('produces hljs-* tokens for yaml', () => {
     const out = highlightLines('name: ci\non:\n  push: {}', 'yaml')
     expect(out[0]).toMatch(/hljs-attr/)
+  })
+
+  it('produces hljs-* tokens for batch files', () => {
+    const out = highlightLines('@echo off\nrem greet the user\nset NAME=world\necho Hello %NAME%', 'dos')
+    expect(out).toHaveLength(4)
+    expect(out[0]).toMatch(/hljs-built_in/)  // echo
+    expect(out[1]).toMatch(/hljs-comment/)   // rem …
+    expect(out[3]).toMatch(/hljs-variable/)  // %NAME%
   })
 })
