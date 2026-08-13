@@ -33,7 +33,10 @@ export type CommitStreamResult = {
 // only known for the spawn-based commit path; simple-git's outputHandler gives
 // output but not the code, so `failed` is derived from git's stderr there.
 // `kind` lets the console hide routine read-only polling (status/log/refs…)
-// while always surfacing mutations (rebase, reset, pull…).
+// while always surfacing mutations (rebase, reset, pull…). `expected` marks
+// probe commands that may legitimately fail (asking git for an object that
+// may not exist — an untracked file's index entry, a new file in HEAD); the
+// console renders those as a warning, not a failure.
 export type GitActivity = {
   id: string;
   repoPath: string;
@@ -41,6 +44,7 @@ export type GitActivity = {
   output: string;
   failed: boolean;
   kind: "read" | "write";
+  expected?: boolean;
   exitCode?: number | null;
   durationMs: number;
   ts: number;
@@ -289,6 +293,7 @@ export class GitService {
     // both streams end, deriving `failed` from git's own error lines.
     this.git = simpleGit(repoPath).outputHandler((_command, stdout, stderr, args) => {
       if (!this.onActivity) return;
+      const expected = this.consumeProbe(args ?? []);
       const id = `${Date.now()}-${activitySeq++}`;
       const start = Date.now();
       const MAX = 200_000;
@@ -309,6 +314,7 @@ export class GitService {
           output: scrubSecrets(clean, secrets),
           failed: /^(fatal|error):/m.test(clean),
           kind: classifyGitArgs(args ?? []),
+          expected: expected || undefined,
           durationMs: Date.now() - start,
           ts: start,
         });
@@ -834,13 +840,37 @@ export class GitService {
     }
   }
 
+  // Probes ask git for an object that may not exist (an untracked file's
+  // index entry, a new file in HEAD, a root commit's parent), so their
+  // failures are anticipated and handled. rawProbe() registers the exact argv
+  // before running; the outputHandler consumes the match and tags the record
+  // `expected`, so the activity console shows a warning instead of a failure.
+  // Keyed by argv with a count, so identical concurrent probes each consume
+  // one registration and unrelated commands are never mis-tagged.
+  private pendingProbes = new Map<string, number>();
+
+  private consumeProbe(args: string[]): boolean {
+    const key = args.join("\x1f");
+    const n = this.pendingProbes.get(key);
+    if (!n) return false;
+    if (n === 1) this.pendingProbes.delete(key);
+    else this.pendingProbes.set(key, n - 1);
+    return true;
+  }
+
+  private rawProbe(args: string[]): Promise<string> {
+    const key = args.join("\x1f");
+    this.pendingProbes.set(key, (this.pendingProbes.get(key) ?? 0) + 1);
+    return this.git.raw(args);
+  }
+
   // Full old/new file contents behind a diff view. The renderer highlights
   // COMPLETE files and slices out the shown rows by line number — an excerpt
   // alone misrenders multi-line tokens (a block comment opened above the hunk,
   // or closed below it, paints the rest of the excerpt as comment).
   // A side that doesn't exist (new file, deleted file, root commit) is "".
   private async showOrEmpty(spec: string): Promise<string> {
-    try { return await this.git.raw(["show", spec]) } catch { return "" }
+    try { return await this.rawProbe(["show", spec]) } catch { return "" }
   }
 
   // Blob size WITHOUT materializing the content — lets the sources guard
@@ -848,7 +878,7 @@ export class GitService {
   // object is absent (new file, deleted file, root commit).
   private async blobSize(spec: string): Promise<number> {
     try {
-      const out = await this.git.raw(["cat-file", "-s", spec]);
+      const out = await this.rawProbe(["cat-file", "-s", spec]);
       return parseInt(out.trim(), 10) || 0;
     } catch { return 0 }
   }

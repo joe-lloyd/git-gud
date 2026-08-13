@@ -141,6 +141,8 @@ export type CommitResult = {
 
 // One git command + its response, pushed on `git:activity` for the git console.
 // `kind` distinguishes routine read-only polling from actual mutations.
+// `expected` marks probes whose failure was anticipated and handled (e.g. an
+// untracked file has no index entry) — shown as a warning, not a failure.
 export type GitActivity = {
   id: string
   repoPath: string
@@ -148,6 +150,7 @@ export type GitActivity = {
   output: string
   failed: boolean
   kind: 'read' | 'write'
+  expected?: boolean
   exitCode?: number | null
   durationMs: number
   ts: number

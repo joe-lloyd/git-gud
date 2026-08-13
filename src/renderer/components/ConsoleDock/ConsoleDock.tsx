@@ -171,9 +171,15 @@ const fmtTime = (ts: number) => {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
+// Status word for one activity record. `failed (expected)` is the middle
+// state: git exited with an error the app anticipated and handled (e.g. an
+// untracked file has no index entry to show).
+const statusLabel = (e: GitActivity) =>
+  `${e.failed ? (e.expected ? 'failed (expected)' : 'failed') : 'ok'}${e.exitCode != null ? ` (exit ${e.exitCode})` : ''}`
+
 // Serialize one activity record the way you'd paste it into a terminal/issue.
 const formatEntry = (e: GitActivity) =>
-  `[${fmtTime(e.ts)}] $ git ${e.args.join(' ')}\n${e.output}${e.output.endsWith('\n') || !e.output ? '' : '\n'}↳ ${e.failed ? 'failed' : 'ok'}${e.exitCode != null ? ` (exit ${e.exitCode})` : ''} · ${e.durationMs}ms`
+  `[${fmtTime(e.ts)}] $ git ${e.args.join(' ')}\n${e.output}${e.output.endsWith('\n') || !e.output ? '' : '\n'}↳ ${statusLabel(e)} · ${e.durationMs}ms`
 
 const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => void }> = ({ repoPath, onClose }) => {
   const [entries, setEntries] = useState<GitActivity[]>([])
@@ -197,8 +203,9 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
   }, [])
 
   // Stored oldest→newest (append order); shown newest-first so the latest
-  // command is always on top and you scroll DOWN into history.
-  const visible = showReads ? entries : entries.filter((e) => e.kind !== 'read' || e.failed)
+  // command is always on top and you scroll DOWN into history. Expected-to-
+  // fail probes count as routine reads, not failures worth surfacing.
+  const visible = showReads ? entries : entries.filter((e) => e.kind !== 'read' || (e.failed && !e.expected))
   const ordered = useMemo(() => [...visible].reverse(), [visible])
 
   // New entries are inserted at the TOP. If the user is following (near the
@@ -259,7 +266,7 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
           </div>
         )}
         {ordered.map((e) => (
-          <div key={e.id} className={`cdock-entry ${e.failed ? 'failed' : ''}`}>
+          <div key={e.id} className={`cdock-entry ${e.failed ? (e.expected ? 'warned' : 'failed') : ''}`}>
             <div className="cdock-cmdline mono">
               <span className="cdock-time" title={new Date(e.ts).toLocaleString()}>{fmtTime(e.ts)}</span>
               <span className="cdock-cmdtext">$ git {e.args.join(' ')}</span>
@@ -269,8 +276,11 @@ const GitActivityConsole: React.FC<{ repoPath: string | null; onClose: () => voi
             </div>
             {e.output.trim() && <div className="cdock-output mono">{e.output.replace(/\n+$/, '')}</div>}
             <div className="cdock-status">
-              <span className={e.failed ? 'cdock-fail' : 'cdock-ok'}>
-                <Icon name={e.failed ? 'x' : 'check'} size={10} /> {e.failed ? 'failed' : 'ok'}{e.exitCode != null ? ` (exit ${e.exitCode})` : ''}
+              <span
+                className={e.failed ? (e.expected ? 'cdock-warn' : 'cdock-fail') : 'cdock-ok'}
+                title={e.failed && e.expected ? 'The app expected this command might fail and handled it — e.g. an untracked file has no index entry to show.' : undefined}
+              >
+                <Icon name={e.failed ? (e.expected ? 'warning' : 'x') : 'check'} size={10} /> {statusLabel(e)}
               </span>
               <span className="cdock-dur">{e.durationMs}ms</span>
             </div>
