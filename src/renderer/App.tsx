@@ -616,16 +616,36 @@ export default function App() {
     (e: React.MouseEvent, branchName: string, kind: 'local' | 'remote') => {
       if (kind === 'local') {
         const isCurrent = repo.status?.branch === branchName
+        // The branch tip — powers the same commit-level entries as the remote
+        // menu below. Missing only if branches refreshed out from under the
+        // click. Merge/rebase/cherry-pick target the CURRENT branch, so they
+        // are no-ops on the current branch itself — disabled there. Resets
+        // stay enabled: Reset → Hard on the current branch is "discard all
+        // uncommitted changes".
+        const sha = repo.branches.local.find((b) => b.name === branchName)?.sha
         openCtx(e, [
-          { label: `Checkout "${branchName}"`,       icon: 'branch',  disabled: isCurrent, onClick: () => handleCheckout(branchName) },
-          { label: `Rename "${branchName}"…`,        icon: 'edit',  onClick: () => { setPendingRef({ name: branchName, kind }); setModal('rename-branch') } },
-          { label: `Delete "${branchName}"`,         icon: 'trash',  danger: true, disabled: isCurrent, onClick: () => handleDeleteBranch(branchName, false) },
+          { label: `Checkout "${branchName}"`,        icon: 'branch',  disabled: isCurrent, onClick: () => handleCheckout(branchName) },
+          { label: 'Checkout commit (detached HEAD)', icon: 'commit',  disabled: !sha, onClick: () => sha && actions.checkoutSha(sha) },
+          { label: 'Create branch here…',             icon: 'branch',  disabled: !sha, onClick: () => sha && actions.requestBranchHere(sha) },
+          { label: `Rename "${branchName}"…`,         icon: 'edit',  onClick: () => { setPendingRef({ name: branchName, kind }); setModal('rename-branch') } },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Push to remote',                 icon: 'arrow-up',  onClick: () => repo.methods.handlePush() },
+          { label: `Merge "${branchName}" into current branch`, icon: 'merge',  disabled: !sha || isCurrent, onClick: () => sha && actions.mergeThisIntoCurrent(sha) },
+          { label: 'Rebase current branch onto this', icon: 'rebase',  disabled: !sha || isCurrent, onClick: () => sha && actions.rebaseTo(sha) },
+          { label: 'Cherry-pick tip commit',          icon: 'cherry-pick', disabled: !sha || isCurrent, onClick: () => sha && actions.cherryPick(sha) },
+          { separator: true, label: '', onClick: () => {} },
+          { label: 'Reset → Soft',   icon: 'reset',  disabled: !sha, onClick: () => sha && actions.resetSoft(sha) },
+          { label: 'Reset → Mixed',  icon: 'reset',  disabled: !sha, onClick: () => sha && actions.resetMixed(sha) },
+          { label: 'Reset → Hard',   icon: 'reset',  danger: true, disabled: !sha, onClick: () => sha && actions.requestResetHard(sha) },
+          { separator: true, label: '', onClick: () => {} },
+          { label: 'Create tag here…',                icon: 'tag',  disabled: !sha, onClick: () => sha && actions.requestTagHere(sha) },
+          { separator: true, label: '', onClick: () => {} },
+          { label: 'Push to remote',                  icon: 'arrow-up',  onClick: () => repo.methods.handlePush() },
           { label: 'Force push (--force-with-lease)', icon: 'warning', danger: true, disabled: !isCurrent, onClick: () => repo.methods.handlePush(true) },
-          { label: 'Pull from remote',               icon: 'arrow-down',  onClick: () => handlePull() },
+          { label: 'Pull from remote',                icon: 'arrow-down',  onClick: () => handlePull() },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Copy branch name',               icon: 'copy',  onClick: () => copyToClipboard(branchName, branchName) },
+          { label: `Delete "${branchName}"`,          icon: 'trash',  danger: true, disabled: isCurrent, onClick: () => handleDeleteBranch(branchName, false) },
+          { separator: true, label: '', onClick: () => {} },
+          { label: 'Copy branch name',                icon: 'copy',  onClick: () => copyToClipboard(branchName, branchName) },
         ])
       } else {
         const shortName = branchName.split('/').slice(1).join('/')
@@ -654,7 +674,7 @@ export default function App() {
         ])
       }
     },
-    [openCtx, repo.status, repo.methods, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, copyToClipboard],
+    [openCtx, repo.status, repo.methods, repo.branches.local, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, copyToClipboard],
   )
 
   const handleStashContextMenu = useCallback(
