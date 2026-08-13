@@ -161,6 +161,8 @@ A locally built app is never quarantined, so it opens straight away. A
 *downloaded* `.dmg` is another matter — macOS reports the unsigned build as
 "damaged" until the quarantine flag is cleared; the
 [install guide](https://joe-lloyd.github.io/git-gud/install/macos) covers it.
+`scripts/install-macos.sh` (the `curl | bash` installer the guide leads with)
+sidesteps the flag entirely by downloading outside the browser.
 
 ## Releasing (in-app updates)
 

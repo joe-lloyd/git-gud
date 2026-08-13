@@ -16,6 +16,13 @@ needs one extra step on every OS, because the app isn't code-signed.
 | **Windows** — x64 | `Git Gud Setup <version>.exe` | [Dismiss SmartScreen](/install/windows) |
 | **Linux** — x64 | `Git Gud-<version>.AppImage` | [Mark it executable](/install/linux) |
 
+On macOS you can skip the browser — and the "damaged" dialog — entirely with
+[the one-command install](/install/macos#fastest-one-command):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joe-lloyd/git-gud/main/scripts/install-macos.sh | bash
+```
+
 Prefer to compile it yourself? See [build from source](/install/build-from-source) —
 a locally built app skips every warning below.
 

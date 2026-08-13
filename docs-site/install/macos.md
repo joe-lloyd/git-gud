@@ -5,7 +5,23 @@ description: 'Install Git Gud on macOS and clear the "app is damaged" Gatekeeper
 
 # Install on macOS
 
-Three steps: pick the right build, drag it in, clear the quarantine flag.
+One command, or three manual steps — both end in the same place.
+
+## Fastest: one command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joe-lloyd/git-gud/main/scripts/install-macos.sh | bash
+```
+
+That downloads the right build for your Mac (Apple Silicon or Intel), verifies
+its checksum, installs it into `/Applications`, and opens it. No "damaged"
+dialog, ever — the quarantine flag that triggers it is added by *browsers*, and
+`curl` doesn't set one. It's the same trick the
+[in-app updater](/install/updating) uses, which is why updates never prompt
+either. ([Read the script](https://github.com/joe-lloyd/git-gud/blob/main/scripts/install-macos.sh)
+before piping it to bash if you like — it's short.)
+
+Prefer clicking things? The manual route:
 
 ## 1. Pick the right build
 

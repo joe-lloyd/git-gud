@@ -92,6 +92,22 @@ jobs:
           | Windows | \`Git-Gud-Setup-${VERSION}.exe\` |
           | Linux | \`Git-Gud-${VERSION}.AppImage\` |
 
-          macOS is unsigned: on first launch, right-click the app → Open.
+          ### macOS first launch
+
+          The app is unsigned, so a browser-downloaded DMG makes Gatekeeper claim the app is \"damaged\" (right-click → Open does **not** clear that dialog — that trick only works for the *unidentified developer* one). Two ways around it:
+
+          **Skip the browser** — paste this in Terminal; it downloads the right build for your Mac without the quarantine flag browsers add, so the dialog never appears:
+
+          \`\`\`sh
+          curl -fsSL https://raw.githubusercontent.com/joe-lloyd/git-gud/main/scripts/install-macos.sh | bash
+          \`\`\`
+
+          **Or clear the flag once** after dragging the app out of the DMG into Applications:
+
+          \`\`\`sh
+          xattr -dr com.apple.quarantine \"/Applications/Git Gud.app\"
+          \`\`\`
+
+          Full walkthrough: https://joe-lloyd.github.io/git-gud/install/macos — updates are unaffected either way; the in-app updater downloads directly, so it never re-triggers Gatekeeper.
 
           All other files (\`.zip\`, \`latest-*.yml\`, \`.blockmap\`) belong to the in-app auto-updater — no need to download them."
