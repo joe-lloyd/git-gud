@@ -1305,6 +1305,40 @@ export class GitService {
 
   async fetch(): Promise<void> {
     await this.git.raw([...this.getAuthConfigs(), "fetch", "--all", "--prune"]);
+    await this.repairRemoteHead();
+  }
+
+  // Pruning a remote's default branch (e.g. a repo renamed master → main)
+  // leaves refs/remotes/<remote>/HEAD pointing at a ref that no longer exists.
+  // Git tolerates the dangle but every UI listing remote branches then shows a
+  // phantom default. Cheap to detect locally; only re-queries the remote when
+  // the symref is actually broken.
+  private async repairRemoteHead(): Promise<void> {
+    for (const remote of await this.listRemoteNames()) {
+      try {
+        const target = (
+          await this.git.raw(["symbolic-ref", "-q", `refs/remotes/${remote}/HEAD`])
+        ).trim();
+        if (!target) continue;
+        await this.git.raw(["rev-parse", "--verify", "--quiet", target]);
+      } catch {
+        // Missing or dangling symref — re-derive it from the remote.
+        try {
+          await this.git.raw([...this.getAuthConfigs(), "remote", "set-head", remote, "-a"]);
+        } catch {
+          // Remote unreachable or has no HEAD; a dangling symref is harmless.
+        }
+      }
+    }
+  }
+
+  private async listRemoteNames(): Promise<string[]> {
+    try {
+      const raw = await this.git.raw(["remote"]);
+      return raw.split("\n").map((l) => l.trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
   }
 
   // Pull with optional recovery hints. The renderer calls this twice when
@@ -1319,7 +1353,9 @@ export class GitService {
   //   'auth'       → credentials missing / rejected
   //   'unknown'    → anything else
   async pull(opts: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean } = {}): Promise<{ success: boolean; error?: string; kind?: string }> {
-    const args = [...this.getAuthConfigs(), "pull"];
+    // --prune so the fetch half of the pull drops tracking refs for branches
+    // deleted upstream; otherwise they linger until someone fetches explicitly.
+    const args = [...this.getAuthConfigs(), "pull", "--prune"];
     if (opts.ffOnly) args.push("--ff-only");
     else if (opts.rebase === true) args.push("--rebase");
     else if (opts.rebase === false) args.push("--no-rebase");
@@ -1453,14 +1489,33 @@ export class GitService {
     await this.git.raw(["branch", "-m", oldName, newName]);
   }
 
-  async deleteRemoteBranch(remote: string, branch: string): Promise<void> {
-    await this.git.raw([
-      ...this.getAuthConfigs(),
-      "push",
-      remote,
-      "--delete",
-      branch,
-    ]);
+  // A branch the remote already dropped (PR auto-delete, someone else's
+  // cleanup) leaves a stale refs/remotes/<remote>/<branch> in every clone that
+  // has not pruned since. Deleting it fails with "remote ref does not exist" —
+  // git is right and no flag forces it through, because there is nothing there
+  // to delete. Treat that error as proof the branch is gone and drop the stale
+  // tracking ref locally instead. Lossless: a ref that really exists comes
+  // straight back on the next fetch.
+  async deleteRemoteBranch(remote: string, branch: string): Promise<{ alreadyGone: boolean }> {
+    try {
+      await this.git.raw([
+        ...this.getAuthConfigs(),
+        "push",
+        remote,
+        "--delete",
+        branch,
+      ]);
+      return { alreadyGone: false };
+    } catch (e: unknown) {
+      if (!isMissingRemoteRef(String(e))) throw e;
+      try {
+        await this.git.raw(["update-ref", "-d", `refs/remotes/${remote}/${branch}`]);
+      } catch {
+        // No local tracking ref either — nothing left to clean up.
+      }
+      await this.repairRemoteHead();
+      return { alreadyGone: true };
+    }
   }
 
   async revert(sha: string): Promise<void> {
@@ -1815,8 +1870,33 @@ export class GitService {
     await this.git.raw([...this.getAuthConfigs(), "push", remote, `refs/tags/${name}`]);
   }
 
-  async deleteRemoteTag(remote: string, name: string): Promise<void> {
+  // Unlike deleteRemoteBranch this never sees "remote ref does not exist":
+  // git only raises that for a short refname it has to resolve remotely.
+  // A fully-qualified delete of a missing ref exits 0 with nothing but
+  // "warning: deleting a non-existent ref" on stderr, so a delete of an
+  // already-gone tag would silently report success. Ask first instead.
+  //
+  // Nothing local is pruned either way. refs/tags/<name> is not a tracking
+  // ref: it is the user's own tag, possibly one they created and have not
+  // pushed yet, so deleting it here could destroy an object the remote never
+  // had. The renderer points them at "Delete local tag" instead.
+  async deleteRemoteTag(remote: string, name: string): Promise<{ alreadyGone: boolean }> {
+    const listed = await this.git.raw([
+      ...this.getAuthConfigs(),
+      "ls-remote",
+      "--tags",
+      remote,
+      `refs/tags/${name}`,
+    ]);
+    // Match the exact ref: `refs/tags/v1` must not be satisfied by `v1.1`,
+    // and the peeled `refs/tags/v1^{}` line of an annotated tag is not it.
+    const exists = listed
+      .split("\n")
+      .some((line) => line.split(/\s+/)[1] === `refs/tags/${name}`);
+    if (!exists) return { alreadyGone: true };
+
     await this.git.raw([...this.getAuthConfigs(), "push", remote, "--delete", `refs/tags/${name}`]);
+    return { alreadyGone: false };
   }
 
   async getWorktrees(): Promise<WorktreeInfo[]> {
@@ -2122,6 +2202,14 @@ export function classifyPullError(msg: string): string {
   if (/conflict.*merge|automatic merge failed|fix conflicts and then commit/i.test(msg)) return "conflict";
   if (/could not read username|authentication failed|terminal prompts disabled/i.test(msg)) return "auth";
   return "unknown";
+}
+
+// ── Stale remote-ref detector ─────────────────────────────────────────────────
+// `git push <remote> --delete <branch>` when the branch is already gone:
+//   error: unable to delete 'foo': remote ref does not exist
+// Narrow on purpose — every other push failure must stay a real error.
+export function isMissingRemoteRef(msg: string): boolean {
+  return /remote ref does not exist/i.test(msg);
 }
 
 // ── Raw log parser ────────────────────────────────────────────────────────────

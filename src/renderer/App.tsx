@@ -591,7 +591,12 @@ export default function App() {
     const t = repo.toast.progress('Deleting remote branch…', remoteRef)
     const r = await window.gitApi.deleteRemoteBranch(remote, branch)
     if (r.success) {
-      repo.toast.resolve(t, 'success', 'Remote Branch Deleted', `${remoteRef} removed.`)
+      if (r.alreadyGone) {
+        repo.toast.resolve(t, 'warning', 'Branch Was Already Gone',
+          `${remoteRef} no longer exists on ${remote} — the stale local copy has been pruned.`)
+      } else {
+        repo.toast.resolve(t, 'success', 'Remote Branch Deleted', `${remoteRef} removed.`)
+      }
       repo.methods.refresh()
     } else {
       repo.toast.resolve(t, 'error', 'Delete Remote Branch Failed', r.error)
@@ -695,10 +700,19 @@ export default function App() {
     (e: React.MouseEvent, tagName: string) => {
       const remote = repo.remotes[0]?.name ?? 'origin'
       const hasRemote = repo.remotes.length > 0
-      const run = (doing: string, label: string, op: Promise<{ success: boolean; error?: string }>) => {
+      const run = (
+        doing: string,
+        label: string,
+        op: Promise<{ success: boolean; error?: string; alreadyGone?: boolean }>,
+      ) => {
         const t = repo.toast.progress(doing, `"${tagName}"`)
         return op.then((r) => {
-          if (r.success) { repo.toast.resolve(t, 'success', label, `"${tagName}"`); repo.methods.refresh() }
+          if (r.success && r.alreadyGone) {
+            repo.toast.resolve(t, 'warning', 'Tag Was Already Gone',
+              `${remote} has no tag "${tagName}". Your local tag is untouched — use "Delete local tag" to remove it.`)
+            repo.methods.refresh()
+          }
+          else if (r.success) { repo.toast.resolve(t, 'success', label, `"${tagName}"`); repo.methods.refresh() }
           else repo.toast.resolve(t, 'error', `${label} failed`, r.error)
         })
       }

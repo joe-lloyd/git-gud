@@ -5,6 +5,7 @@ import { basename, join } from 'path'
 import * as fs from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
 import { GitService, redactAuthArgs, scrubSecrets, isIndexLockError, type GitActivity } from './git-service'
+import { applyShellPath } from './shell-path'
 import { GitHubService } from './github-service'
 import { ProviderService, type HostedProvider } from './provider-service'
 import { GerritService } from './gerrit-service'
@@ -286,7 +287,12 @@ function setupAutoUpdater(): void {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Before anything spawns git: a Dock/Finder launch inherits launchd's
+  // minimal PATH, which hides Homebrew binaries git needs (gpg, git-lfs,
+  // hook interpreters). No-op when launched from a terminal.
+  await applyShellPath()
+
   // macOS dock icon — BrowserWindow.icon doesn't change the dock at runtime
   // on Darwin; app.dock.setIcon does. Silently skipped on other platforms.
   if (process.platform === 'darwin' && app.dock) {
@@ -915,7 +921,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('git:delete-remote-branch', async (_event, remote: string, branch: string) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.deleteRemoteBranch(remote, branch); return { success: true } }
+    try {
+      const { alreadyGone } = await gitService.deleteRemoteBranch(remote, branch)
+      return { success: true, alreadyGone }
+    }
     catch (e) { return { success: false, error: String(e) } }
   })
 
@@ -1100,7 +1109,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('git:delete-remote-tag', async (_event, remote: string, name: string) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.deleteRemoteTag(remote, name); return { success: true } }
+    try {
+      const { alreadyGone } = await gitService.deleteRemoteTag(remote, name)
+      return { success: true, alreadyGone }
+    }
     catch (e) { return { success: false, error: String(e) } }
   })
 

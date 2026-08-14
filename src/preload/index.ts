@@ -301,7 +301,9 @@ const gitApi = {
     ipcRenderer.invoke('git:delete-branch', name, force),
   renameBranch: (oldName: string, newName: string): Promise<Result> =>
     ipcRenderer.invoke('git:rename-branch', oldName, newName),
-  deleteRemoteBranch: (remote: string, branch: string): Promise<Result> =>
+  // alreadyGone: the remote had no such branch, so a stale local tracking ref
+  // was pruned instead of a real remote delete.
+  deleteRemoteBranch: (remote: string, branch: string): Promise<Result & { alreadyGone?: boolean }> =>
     ipcRenderer.invoke('git:delete-remote-branch', remote, branch),
   merge: (branch: string): Promise<Result> => ipcRenderer.invoke('git:merge', branch),
   mergeCurrentInto: (targetBranch: string): Promise<Result & { autoStashed?: boolean }> =>
@@ -344,7 +346,8 @@ const gitApi = {
     ipcRenderer.invoke('git:rename-tag', oldName, newName),
   pushTag: (remote: string, name: string): Promise<Result> =>
     ipcRenderer.invoke('git:push-tag', remote, name),
-  deleteRemoteTag: (remote: string, name: string): Promise<Result> =>
+  // alreadyGone: the remote had no such tag. The local tag is left alone.
+  deleteRemoteTag: (remote: string, name: string): Promise<Result & { alreadyGone?: boolean }> =>
     ipcRenderer.invoke('git:delete-remote-tag', remote, name),
   runDragAction: (
     source: string,
