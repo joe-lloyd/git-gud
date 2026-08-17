@@ -193,12 +193,15 @@
 .diff-line-remove .diff-sign { color: #fc8181; }
 .diff-line-hunk   .diff-sign { color: var(--lane-0); }
 
+/* Wrap long lines so they never clip: the table is width:100%/fixed-layout,
+   so the .diff-body scroller can't grow horizontally — without wrapping,
+   anything past the pane edge is silently cut off. */
 .diff-content {
   padding: 0 10px;
-  white-space: pre;
+  white-space: pre-wrap;
   overflow: hidden;
   color: var(--text-secondary);
-  word-break: break-all;
+  word-break: break-word;
   position: relative;
 }
 .diff-line-add    .diff-content { color: #9ae6b4; }
