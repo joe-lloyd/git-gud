@@ -25,8 +25,8 @@ describe('filterRefGroups', () => {
     )
   })
 
-  it('master switch hides all pills', () => {
-    expect(filterRefGroups(groups(), vis({ enabled: false }))).toEqual([])
+  it('turning every kind off hides all pills', () => {
+    expect(filterRefGroups(groups(), vis({ local: false, remote: false, tags: false, gerrit: false }))).toEqual([])
   })
 
   it('hides tags only', () => {
@@ -67,8 +67,7 @@ describe('refsColumnHidden', () => {
     expect(refsColumnHidden(vis({ local: false, remote: false, tags: false }))).toBe(false)
   })
 
-  it('is true when the master switch is off or every kind is off', () => {
-    expect(refsColumnHidden(vis({ enabled: false }))).toBe(true)
+  it('is true only when every kind is off', () => {
     expect(refsColumnHidden(vis({ local: false, remote: false, tags: false, gerrit: false }))).toBe(true)
   })
 })
@@ -78,5 +77,11 @@ describe('normalizeRefVisibility', () => {
     expect(normalizeRefVisibility(null)).toEqual(DEFAULT_REF_VISIBILITY)
     expect(normalizeRefVisibility('nope')).toEqual(DEFAULT_REF_VISIBILITY)
     expect(normalizeRefVisibility({ tags: false, bogus: 1 })).toEqual(vis({ tags: false }))
+  })
+
+  it('keeps tool-private namespaces out of the graph by default', () => {
+    expect(DEFAULT_REF_VISIBILITY.otherRefs).toBe(false)
+    // A blob saved before this setting existed must not silently switch it on.
+    expect(normalizeRefVisibility({ local: true }).otherRefs).toBe(false)
   })
 })

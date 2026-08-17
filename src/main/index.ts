@@ -714,9 +714,14 @@ app.whenReady().then(async () => {
 
   // ── Git Service Wrapping ──────────────────────────────────────────────────────
   // ── Graph / Log ──────────────────────────────────────────────────────
-  ipcMain.handle('git:log', async (_event, limit = 500) => {
+  ipcMain.handle('git:log', async (_event, limit = 500, opts: { includeOtherRefs?: boolean } = {}) => {
     if (!gitService) return []
-    try { return await gitService.getLog(limit) } catch { return [] }
+    try { return await gitService.getLog(limit, opts) } catch { return [] }
+  })
+
+  ipcMain.handle('git:other-ref-namespaces', async () => {
+    if (!gitService) return []
+    try { return await gitService.getOtherRefNamespaces() } catch { return [] }
   })
 
   ipcMain.handle('git:branches', async () => {

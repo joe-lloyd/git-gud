@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Icon } from '../Icons/Icon'
-import { RefKind, RefVisibility, refsColumnHidden } from '../../lib/refFilter'
+import { RefKind, RefVisibility } from '../../lib/refFilter'
+import type { OtherRefNamespace } from '../../../preload/index'
 import './Toolbar.css'
 
 interface ToolbarProps {
@@ -35,9 +36,11 @@ interface ToolbarProps {
   onSettings?: () => void
   onToggleConsole?: () => void
   onCheckUpdates?: () => void
-  /** Ref-pill visibility in the graph — click toggles all, caret opens per-kind. */
+  /** What the graph shows — other-ref namespaces plus which pill kinds. */
   refVisibility?: RefVisibility
-  onToggleRefs?: () => void
+  /** Tool-private namespaces found in the repo (labels the "Other refs" row). */
+  otherRefNamespaces?: OtherRefNamespace[]
+  onToggleOtherRefs?: () => void
   onToggleRefKind?: (kind: RefKind) => void
 }
 
@@ -67,7 +70,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleConsole,
   onCheckUpdates,
   refVisibility,
-  onToggleRefs,
+  otherRefNamespaces = [],
+  onToggleOtherRefs,
   onToggleRefKind,
 }) => {
   const [fetching, setFetching] = useState(false)
@@ -213,10 +217,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </div>
 
       <div className="tb-right">
-        {refVisibility && onToggleRefs && onToggleRefKind && (
+        {refVisibility && onToggleOtherRefs && onToggleRefKind && (
           <RefsToggle
             visibility={refVisibility}
-            onToggleAll={onToggleRefs}
+            otherRefNamespaces={otherRefNamespaces}
+            onToggleOtherRefs={onToggleOtherRefs}
             onToggleKind={onToggleRefKind}
           />
         )}
@@ -243,8 +248,10 @@ function TbIcon({ children, spin }: { children: React.ReactNode; spin?: boolean 
   return <span className={`tb-icon ${spin ? 'spin' : ''}`}>{children}</span>
 }
 
-// Ref pills in the graph: click hides/shows them all, the caret opens per-kind
-// checkboxes (local / remote / tags / Gerrit changes).
+// What the graph shows. The top switch controls whether tool-private ref
+// namespaces (T3 Chat checkpoints, refs/notes, …) are walked at all — those
+// commits are nobody's branch, so they're off by default. Below it, the pill
+// kinds that get labels in the refs column.
 const REF_KIND_LABELS: { kind: RefKind; label: string }[] = [
   { kind: 'local', label: 'Local branches' },
   { kind: 'remote', label: 'Remote branches' },
@@ -252,9 +259,10 @@ const REF_KIND_LABELS: { kind: RefKind; label: string }[] = [
   { kind: 'gerrit', label: 'Gerrit changes' },
 ]
 
-function RefsToggle({ visibility, onToggleAll, onToggleKind }: {
+function RefsToggle({ visibility, otherRefNamespaces, onToggleOtherRefs, onToggleKind }: {
   visibility: RefVisibility
-  onToggleAll: () => void
+  otherRefNamespaces: OtherRefNamespace[]
+  onToggleOtherRefs: () => void
   onToggleKind: (kind: RefKind) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -274,35 +282,45 @@ function RefsToggle({ visibility, onToggleAll, onToggleKind }: {
     }
   }, [open])
 
-  const hidden = refsColumnHidden(visibility)
+  // "refs/t3 (3), refs/notes (1)" — what turning the switch on would add.
+  const otherSummary = otherRefNamespaces.length
+    ? otherRefNamespaces.map((n) => `${n.namespace} (${n.count})`).join(', ')
+    : 'none in this repo'
+  const otherCount = otherRefNamespaces.reduce((n, ns) => n + ns.count, 0)
 
   return (
     <div className="tb-refs" ref={wrapRef}>
       <button
-        className={`tb-icon-btn ${hidden ? 'tb-refs-off' : ''}`}
-        title={`${hidden ? 'Show' : 'Hide'} branch/tag labels in the graph (right-click to pick kinds)`}
-        onClick={onToggleAll}
-        onContextMenu={(e) => { e.preventDefault(); setOpen(true) }}
-      >
-        <Icon name="tag" />
-      </button>
-      <button
-        className="tb-refs-caret"
-        title="Choose which refs to show"
+        className={`tb-icon-btn ${open ? 'active' : ''}`}
+        title="Graph refs — choose what the tree shows"
         onClick={() => setOpen((o) => !o)}
       >
-        <Icon name="chevron-down" size={9} />
+        <Icon name="tag" />
+        {visibility.otherRefs && otherCount > 0 && <span className="tb-refs-dot" />}
       </button>
 
       {open && (
         <div className="tb-refs-menu">
-          <label className="tb-refs-item">
-            <input type="checkbox" checked={visibility.enabled} onChange={onToggleAll} />
-            <span>Show refs</span>
+          <div className="tb-refs-title">Show in graph</div>
+          <label className="tb-refs-item" title={otherSummary}>
+            <input
+              type="checkbox"
+              checked={visibility.otherRefs}
+              disabled={otherRefNamespaces.length === 0}
+              onChange={onToggleOtherRefs}
+            />
+            <span>Other refs{otherCount > 0 ? ` (${otherCount})` : ''}</span>
           </label>
+          <div className="tb-refs-hint">
+            {otherRefNamespaces.length
+              ? `Commits reachable only from ${otherSummary}.`
+              : 'No tool-private ref namespaces in this repo.'}
+          </div>
+
           <div className="tb-refs-sep" />
+          <div className="tb-refs-title">Labels</div>
           {REF_KIND_LABELS.map(({ kind, label }) => (
-            <label key={kind} className={`tb-refs-item ${visibility.enabled ? '' : 'dim'}`}>
+            <label key={kind} className="tb-refs-item">
               <input type="checkbox" checked={visibility[kind]} onChange={() => onToggleKind(kind)} />
               <span>{label}</span>
             </label>

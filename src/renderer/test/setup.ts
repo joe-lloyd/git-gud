@@ -19,6 +19,7 @@ Object.defineProperty(window, 'gitApi', {
     getStashes: vi.fn().mockResolvedValue([]),
     getStatus: vi.fn().mockResolvedValue(null),
     getRemotes: vi.fn().mockResolvedValue([]),
+    getOtherRefNamespaces: vi.fn().mockResolvedValue([]),
     getCommitDiff: vi.fn(),
     getCommitFiles: vi.fn().mockResolvedValue([]),
     getFileDiff: vi.fn(),

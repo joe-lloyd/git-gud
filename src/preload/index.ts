@@ -26,6 +26,10 @@ export type BranchData = {
   remote: BranchInfo[]
 }
 
+// A ref namespace outside branches/tags/remotes/stash — e.g. T3 Chat's
+// refs/t3/checkpoints/*. Mirrors main/git-service's OtherRefNamespace.
+export type OtherRefNamespace = { namespace: string; count: number }
+
 export type TagInfo = { name: string; sha: string }
 export type StashInfo = { index: number; message: string; sha: string }
 
@@ -216,7 +220,12 @@ const gitApi = {
   saveTabs: (payload: { tabs: SavedTab[]; active: string | null }): Promise<boolean> =>
     ipcRenderer.invoke('app:save-tabs', payload),
 
-  getLog: (limit?: number): Promise<CommitNode[]> => ipcRenderer.invoke('git:log', limit),
+  // includeOtherRefs adds tool-private namespaces (refs/t3/*, refs/notes, …)
+  // to the walk; off by default so the graph shows only real branches/tags.
+  getLog: (limit?: number, opts?: { includeOtherRefs?: boolean }): Promise<CommitNode[]> =>
+    ipcRenderer.invoke('git:log', limit, opts ?? {}),
+  getOtherRefNamespaces: (): Promise<OtherRefNamespace[]> =>
+    ipcRenderer.invoke('git:other-ref-namespaces'),
   getBranches: (): Promise<BranchData> => ipcRenderer.invoke('git:branches'),
   getTags: (): Promise<TagInfo[]> => ipcRenderer.invoke('git:tags'),
   getStashes: (): Promise<StashInfo[]> => ipcRenderer.invoke('git:stashes'),

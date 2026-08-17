@@ -186,30 +186,28 @@
   display: flex;
   align-items: center;
 }
-.tb-refs .tb-icon-btn.tb-refs-off {
-  color: var(--text-muted);
-  opacity: 0.5;
+.tb-refs .tb-icon-btn.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
-.tb-refs-caret {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 30px;
-  margin-left: -6px;
-  border-radius: 4px;
-  color: var(--text-muted);
-  background: transparent;
-  transition: background 0.15s, color 0.15s;
+/* Accent dot — the graph is currently walking tool-private ref namespaces,
+   so extra commits in the tree are explained rather than mysterious. */
+.tb-refs-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
 }
-.tb-refs-caret:hover { background: var(--bg-hover); color: var(--text-primary); }
 
 .tb-refs-menu {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
   z-index: 1200;
-  min-width: 180px;
+  min-width: 220px;
   padding: 6px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -228,8 +226,24 @@
   white-space: nowrap;
 }
 .tb-refs-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-/* Kinds stay clickable while the master switch is off — ticking one re-arms it. */
-.tb-refs-item.dim { opacity: 0.55; }
+.tb-refs-item input:disabled { cursor: default; }
+.tb-refs-item:has(input:disabled) { opacity: 0.5; cursor: default; }
+
+.tb-refs-title {
+  padding: 4px 8px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tb-refs-hint {
+  padding: 0 8px 4px;
+  max-width: 230px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
 .tb-refs-sep {
   height: 1px;
   margin: 4px 2px;

@@ -103,6 +103,36 @@ const DECORATE_ARGS = [
   "--decorate-refs=refs/gitgud/changes",
 ];
 
+// The ref namespaces the graph walks by default. `--all` would also drag in
+// every tool-private namespace (T3 Chat's refs/t3/checkpoints/*, jj/gerrit
+// scratch refs, refs/notes, …), whose commits then show up as undecorated
+// nodes and extra lanes in someone's tree. Those are opt-in via
+// getLog({ includeOtherRefs: true }).
+const DEFAULT_LOG_REFS = [
+  "HEAD",
+  "--branches",
+  "--tags",
+  "--remotes",
+  "--glob=refs/gitgud/changes",
+];
+
+// Namespaces already covered by DEFAULT_LOG_REFS — anything else is "other".
+const KNOWN_REF_PREFIXES = [
+  "refs/heads/",
+  "refs/remotes/",
+  "refs/tags/",
+  "refs/stash",
+  "refs/gitgud/",
+];
+
+/** A tool-private ref namespace found in the repo, e.g. `refs/t3` ×3. */
+export interface OtherRefNamespace {
+  /** Namespace prefix, e.g. "refs/t3". */
+  namespace: string;
+  /** How many refs live under it. */
+  count: number;
+}
+
 // Auth is injected into network commands as
 //   -c http.<host>.extraheader=AUTHORIZATION: basic <base64-credential>
 // (see main/index.ts and provider-service.ts). Those argv strings flow into
@@ -346,7 +376,7 @@ export class GitService {
     }
   }
 
-  async getLog(limit = 500): Promise<CommitNode[]> {
+  async getLog(limit = 500, opts: { includeOtherRefs?: boolean } = {}): Promise<CommitNode[]> {
     // Use ASCII unit-separator \x1f between fields so empty %D never collapses
     // into the message line (which happens with newline-only separators).
     const FS = "\x1f";
@@ -361,21 +391,54 @@ export class GitService {
       /* no stashes */
     }
 
+    // Showing other refs means decorating them too, otherwise their commits
+    // arrive as anonymous nodes with no hint of where they came from.
+    const decorate = opts.includeOtherRefs
+      // "refs/*" (glob, not a bare prefix) is what actually matches every
+      // namespace — a bare "refs" decorates nothing.
+      ? [...DECORATE_ARGS, "--decorate-refs=refs/*"]
+      : DECORATE_ARGS;
+
     const rawOutput = await this.git.raw([
       "log",
       `--max-count=${limit}`,
-      "--all",
+      ...(opts.includeOtherRefs ? ["--all"] : DEFAULT_LOG_REFS),
       "--parents",
       // --date-order still guarantees child-before-parent (the lane
       // algorithm's invariant) but interleaves branches by commit time, so
       // a feature commit merged later doesn't surface above older mainline
       // history the way --topo-order would group it.
       "--date-order",
-      ...DECORATE_ARGS,
+      ...decorate,
       `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}${TRAILER_FIELD}${FS}%s`,
       ...extraRefs,
     ]);
     return parseRawLog(rawOutput);
+  }
+
+  /**
+   * Tool-private ref namespaces present in this repo (refs/t3, refs/notes, …),
+   * newest-count first. Drives the "Other refs" toggle's label so the user can
+   * see exactly what turning it on would add to the graph.
+   */
+  async getOtherRefNamespaces(): Promise<OtherRefNamespace[]> {
+    let raw: string;
+    try {
+      raw = await this.git.raw(["for-each-ref", "--format=%(refname)"]);
+    } catch {
+      return [];
+    }
+    const counts = new Map<string, number>();
+    for (const ref of raw.trim().split("\n").filter(Boolean)) {
+      if (KNOWN_REF_PREFIXES.some((p) => ref.startsWith(p))) continue;
+      // Group at the namespace level: refs/t3/checkpoints/<id>/turn/0 → refs/t3
+      const parts = ref.split("/");
+      const namespace = parts.length >= 2 ? `${parts[0]}/${parts[1]}` : ref;
+      counts.set(namespace, (counts.get(namespace) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([namespace, count]) => ({ namespace, count }))
+      .sort((a, b) => b.count - a.count || a.namespace.localeCompare(b.namespace));
   }
 
   async getBranches(): Promise<BranchData> {

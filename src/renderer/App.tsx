@@ -74,7 +74,10 @@ interface PendingRef {
 }
 
 export default function App() {
-  const repo = useGitRepo()
+  // What the graph shows (pill kinds + whether tool-private ref namespaces are
+  // walked at all). Declared first: the log walk depends on it.
+  const refs = useRefVisibility()
+  const repo = useGitRepo({ includeOtherRefs: refs.visibility.otherRefs })
   const settings = useSettings()  // applies saved text-scale + contrast on mount
   const [modal, setModal]                 = useState<AppModal>(null)
   const [pendingSha, setPendingSha]       = useState<string | null>(null)
@@ -98,8 +101,6 @@ export default function App() {
   // Gerrit mode — everything renders behind gerrit.enabled; non-Gerrit repos
   // see zero UI difference (see openspec/changes/add-gerrit-mode).
   const gerrit = useGerrit(repo.repoPath, repo.commits, repo.methods.refresh)
-  // Ref pills in the graph — toolbar toggle, persisted across launches.
-  const refs = useRefVisibility()
   // Focus + scroll the graph to a commit (Gerrit jump-to-current etc.).
   const focusCommit = useCallback((sha: string) => {
     setSelectedShas([sha])
@@ -1161,7 +1162,8 @@ export default function App() {
         onToggleConsole={() => setConsoleVisible((v) => !v)}
         onCheckUpdates={handleCheckUpdates}
         refVisibility={refs.visibility}
-        onToggleRefs={refs.toggleEnabled}
+        otherRefNamespaces={repo.otherRefNamespaces}
+        onToggleOtherRefs={refs.toggleOtherRefs}
         onToggleRefKind={refs.toggleKind}
       />
 

@@ -1,10 +1,17 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo, TagInfo, SavedTab } from '../../preload/index'
+import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo, TagInfo, SavedTab, OtherRefNamespace } from '../../preload/index'
 import { useToasts } from '../components/Toast/Toast'
 
 const EMPTY_BRANCHES: BranchData = { local: [], remote: [] }
 
-export function useGitRepo() {
+export interface GraphLogOptions {
+  /** Walk tool-private ref namespaces (refs/t3/*, refs/notes, …) too. */
+  includeOtherRefs: boolean
+}
+
+const DEFAULT_LOG_OPTIONS: GraphLogOptions = { includeOtherRefs: false }
+
+export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
   // One tab per repository. `repoPath` is the ACTIVE WORKTREE path (what all
   // git reads/writes target); `mainPath` is the repo's main worktree — the
   // tab's identity. Switching worktrees changes repoPath, never the tab.
@@ -18,6 +25,9 @@ export function useGitRepo() {
   const [worktrees, setWorktrees]     = useState<WorktreeInfo[]>([])
   const [status, setStatus]           = useState<RepoStatus | null>(null)
   const [remotes, setRemotes]         = useState<RemoteInfo[]>([])
+  // Tool-private ref namespaces present in the repo (refs/t3, refs/notes, …).
+  // Only used to label the "Other refs" toggle; empty in normal repos.
+  const [otherRefNamespaces, setOtherRefNamespaces] = useState<OtherRefNamespace[]>([])
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState<string | null>(null)
   const [selectedSha, setSelectedSha] = useState<string | null>(null)
@@ -27,6 +37,7 @@ export function useGitRepo() {
   // overlapping refreshes don't flicker the flag off early.
   const [refreshing, setRefreshing]   = useState(false)
   const refreshCount = useRef(0)
+  const logOptionsRef = useRef(logOptions)
 
   const toast = useToasts()
 
@@ -73,14 +84,17 @@ export function useGitRepo() {
   // Fetch every piece of repo state. Used by both initial load and refresh.
   // Doesn't touch loading state — caller decides whether to show a spinner.
   const fetchAll = useCallback(async () => {
-    const [log, branchData, stashData, tagData, st, wt, rmts] = await Promise.all([
-      window.gitApi.getLog(2000),
+    const [log, branchData, stashData, tagData, st, wt, rmts, otherRefs] = await Promise.all([
+      window.gitApi.getLog(2000, { includeOtherRefs: logOptionsRef.current.includeOtherRefs }),
       window.gitApi.getBranches(),
       window.gitApi.getStashes(),
       window.gitApi.getTags(),
       window.gitApi.getStatus(),
       window.gitApi.getWorktrees(),
       window.gitApi.getRemotes(),
+      // Optional call: an older preload (dev reload against a stale main)
+      // simply reports no extra namespaces instead of failing the whole load.
+      Promise.resolve(window.gitApi.getOtherRefNamespaces?.() ?? []).catch(() => [] as OtherRefNamespace[]),
     ])
     // Keep the same array reference when the log is truly unchanged — a fresh
     // array every refresh would needlessly re-run the (worker-based) graph
@@ -104,6 +118,7 @@ export function useGitRepo() {
     setWorktrees(wt)
     setStatus(st)
     setRemotes(rmts)
+    setOtherRefNamespaces(otherRefs)
   }, [])
 
   // Open a repo (or one of its worktrees). Opening any worktree of an
@@ -237,6 +252,16 @@ export function useGitRepo() {
   const refreshRef = useRef(refresh)
   useEffect(() => { refreshRef.current = refresh }, [refresh])
 
+  // Log options are read through a ref so flipping them doesn't rebuild
+  // fetchAll (and with it loadRepo / switchTab / every listener). The effect
+  // below re-walks the log once the ref is current.
+  const didLogOptionsMount = useRef(false)
+  useEffect(() => {
+    logOptionsRef.current = logOptions
+    if (!didLogOptionsMount.current) { didLogOptionsMount.current = true; return }
+    refreshRef.current()
+  }, [logOptions.includeOtherRefs])
+
   // Refresh on window focus (catches external CLI ops while app was blurred)
   useEffect(() => {
     const onFocus = () => refreshRef.current()
@@ -328,6 +353,7 @@ export function useGitRepo() {
     worktrees, setWorktrees,
     status, setStatus,
     remotes, setRemotes,
+    otherRefNamespaces,
     loading, setLoading,
     refreshing,
     error, setError,

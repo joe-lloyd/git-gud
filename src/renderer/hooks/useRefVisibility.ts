@@ -6,18 +6,16 @@ import {
   normalizeRefVisibility,
 } from '../lib/refFilter'
 
-// Which ref pills the graph shows. Persisted in localStorage (app-wide, not
-// per-repo) so the tree looks the same on every launch.
+// What the graph shows. Persisted in localStorage (app-wide, not per-repo) so
+// the tree looks the same on every launch.
 const KEY = 'ui.refVisibility'
 
 export interface RefVisibilityState {
   visibility: RefVisibility
-  /** Master switch — hides/reveals the whole refs column. */
-  toggleEnabled: () => void
-  /** Flip one kind (local / remote / tags / gerrit). */
+  /** Walk tool-private namespaces (refs/t3/*, refs/notes, …) in the log. */
+  toggleOtherRefs: () => void
+  /** Flip one pill kind (local / remote / tags / gerrit). */
   toggleKind: (kind: RefKind) => void
-  /** All kinds on (and the master switch on). */
-  showAll: () => void
 }
 
 export function useRefVisibility(): RefVisibilityState {
@@ -34,24 +32,15 @@ export function useRefVisibility(): RefVisibilityState {
     try { localStorage.setItem(KEY, JSON.stringify(visibility)) } catch { /* quota — ignore */ }
   }, [visibility])
 
-  const toggleEnabled = useCallback(
-    () => setVisibility((v) => ({ ...v, enabled: !v.enabled })),
+  const toggleOtherRefs = useCallback(
+    () => setVisibility((v) => ({ ...v, otherRefs: !v.otherRefs })),
     [],
   )
 
-  // Turning a kind back on while the master switch is off would look broken —
-  // re-arm the master switch with it.
   const toggleKind = useCallback(
-    (kind: RefKind) =>
-      setVisibility((v) => {
-        const next = { ...v, [kind]: !v[kind] }
-        if (next[kind]) next.enabled = true
-        return next
-      }),
+    (kind: RefKind) => setVisibility((v) => ({ ...v, [kind]: !v[kind] })),
     [],
   )
 
-  const showAll = useCallback(() => setVisibility({ ...DEFAULT_REF_VISIBILITY }), [])
-
-  return { visibility, toggleEnabled, toggleKind, showAll }
+  return { visibility, toggleOtherRefs, toggleKind }
 }
