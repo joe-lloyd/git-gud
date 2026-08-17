@@ -34,6 +34,7 @@ Object.defineProperty(window, 'gitApi', {
     stashApply: vi.fn().mockResolvedValue({ success: true }),
     fetch: vi.fn().mockResolvedValue({ success: true }),
     pull: vi.fn().mockResolvedValue({ success: true }),
+    fastForwardBranch: vi.fn().mockResolvedValue({ success: true }),
     push: vi.fn().mockResolvedValue({ success: true }),
     createBranch: vi.fn().mockResolvedValue({ success: true }),
     deleteBranch: vi.fn().mockResolvedValue({ success: true }),

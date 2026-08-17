@@ -1433,6 +1433,44 @@ export class GitService {
     }
   }
 
+  // Update a local branch that is NOT checked out from its remote, without
+  // touching the working tree or the current branch: `git fetch <remote>
+  // <remoteBranch>:<localBranch>`. Without a leading `+` git only permits
+  // fast-forwards for this refspec, so the branch can never lose commits.
+  //
+  // Failure kinds the renderer can react to:
+  //   'not-ff'           → local branch has commits the remote doesn't
+  //   'no-remote-branch' → no such branch on the remote
+  //   'checked-out'      → branch is checked out (here or in a worktree);
+  //                        callers should route that case to pull() instead
+  async fastForwardBranch(branchName: string): Promise<{ success: boolean; error?: string; kind?: string }> {
+    // Prefer the branch's configured upstream (it may live on a non-origin
+    // remote or track a differently-named branch); fall back to origin/<name>.
+    let remote = "origin";
+    let remoteBranch = branchName;
+    try {
+      const up = (await this.git.raw(["rev-parse", "--abbrev-ref", `${branchName}@{upstream}`])).trim();
+      const slash = up.indexOf("/");
+      if (slash > 0) {
+        remote = up.slice(0, slash);
+        remoteBranch = up.slice(slash + 1);
+      }
+    } catch {
+      // No upstream configured — origin/<branch> is the sensible guess.
+    }
+    try {
+      await this.git.raw([...this.getAuthConfigs(), "fetch", remote, `${remoteBranch}:${branchName}`]);
+      return { success: true };
+    } catch (e: unknown) {
+      const msg = String(e);
+      const kind = /non-fast-forward|\[rejected\]/i.test(msg) ? "not-ff"
+        : /couldn't find remote ref|no such ref/i.test(msg) ? "no-remote-branch"
+        : /checked out/i.test(msg) ? "checked-out"
+        : classifyPullError(msg);
+      return { success: false, error: msg, kind };
+    }
+  }
+
   // `force` uses --force-with-lease (not --force): the push is refused if the
   // remote moved past what we last fetched, so it can't silently stomp work.
   async push(force = false): Promise<{ success: boolean; error?: string }> {

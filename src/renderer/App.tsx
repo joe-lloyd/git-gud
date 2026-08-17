@@ -324,6 +324,30 @@ export default function App() {
 
   const handlePull = useCallback(() => doPull({}), [doPull])
 
+  // Update a branch that is NOT checked out: `fetch <remote> <branch>:<branch>`
+  // (fast-forward only, working tree untouched). A plain pull here would act
+  // on the CURRENT branch — exactly what the user did not ask for.
+  const handleFastForwardBranch = useCallback(async (branchName: string) => {
+    const t = repo.toast.progress('Updating branch…', branchName)
+    const r = await window.gitApi.fastForwardBranch(branchName)
+    if (r.success) {
+      repo.toast.resolve(t, 'success', 'Branch Updated', `${branchName} fast-forwarded from its remote.`)
+      repo.methods.refresh()
+    } else if (r.kind === 'not-ff') {
+      repo.toast.resolve(t, 'warning', 'Fast-forward not possible',
+        `${branchName} has local commits the remote doesn't. Check it out and pull with merge or rebase.`)
+    } else if (r.kind === 'no-remote-branch') {
+      repo.toast.resolve(t, 'error', 'No remote branch', `The remote has no branch named ${branchName}.`)
+    } else if (r.kind === 'checked-out') {
+      repo.toast.resolve(t, 'warning', 'Branch is checked out',
+        `${branchName} is checked out in a worktree — pull it from there instead.`)
+    } else if (r.kind === 'auth') {
+      repo.toast.resolve(t, 'error', 'Authentication failed', r.error)
+    } else {
+      repo.toast.resolve(t, 'error', 'Update failed', r.error)
+    }
+  }, [repo.toast, repo.methods])
+
   // ── Toolbar stash + pop ────────────────────────────────────────────
   // Quick stash: open input modal to name it, then `git stash push -u -m …`.
   // Quick pop: re-apply the most recent stash with no prompt — symmetric.
@@ -650,7 +674,13 @@ export default function App() {
           { separator: true, label: '', onClick: () => {} },
           { label: 'Push to remote',                  icon: 'arrow-up',  onClick: () => repo.methods.handlePush() },
           { label: 'Force push (--force-with-lease)', icon: 'warning', danger: true, disabled: !isCurrent, onClick: () => repo.methods.handlePush(true) },
-          { label: 'Pull from remote',                icon: 'arrow-down',  onClick: () => handlePull() },
+          // Pulling only makes sense on the checked-out branch; for any other
+          // branch, update it in place with a fast-forward fetch instead.
+          {
+            label: isCurrent ? 'Pull from remote' : 'Update from remote (fast-forward)',
+            icon: 'arrow-down',
+            onClick: () => (isCurrent ? handlePull() : handleFastForwardBranch(branchName)),
+          },
           { separator: true, label: '', onClick: () => {} },
           { label: `Delete "${branchName}"`,          icon: 'trash',  danger: true, disabled: isCurrent, onClick: () => handleDeleteBranch(branchName, false) },
           { separator: true, label: '', onClick: () => {} },
@@ -683,7 +713,7 @@ export default function App() {
         ])
       }
     },
-    [openCtx, repo.status, repo.methods, repo.branches.local, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, copyToClipboard],
+    [openCtx, repo.status, repo.methods, repo.branches.local, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, handleFastForwardBranch, copyToClipboard],
   )
 
   const handleStashContextMenu = useCallback(

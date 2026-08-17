@@ -900,6 +900,12 @@ app.whenReady().then(async () => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
+  ipcMain.handle('git:fast-forward-branch', async (_event, branchName: string) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    try { return await gitService.fastForwardBranch(branchName) }
+    catch (e) { return { success: false, error: String(e) } }
+  })
+
   ipcMain.handle('git:push', async (_event, force?: boolean) => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { return await gitService.push(force ?? false) }

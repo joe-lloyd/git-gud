@@ -302,6 +302,10 @@ const gitApi = {
   fetch: (): Promise<Result> => ipcRenderer.invoke('git:fetch'),
   pull: (opts?: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean }): Promise<PullResult> =>
     ipcRenderer.invoke('git:pull', opts),
+  // Fast-forward a branch that is NOT checked out from its remote, without
+  // touching the working tree (git fetch <remote> <branch>:<branch>).
+  fastForwardBranch: (branchName: string): Promise<PullResult> =>
+    ipcRenderer.invoke('git:fast-forward-branch', branchName),
   push: (force?: boolean): Promise<Result> => ipcRenderer.invoke('git:push', force),
 
   createBranch: (name: string, startPoint?: string): Promise<Result> =>
