@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Icon } from '../Icons/Icon'
+import { RefKind, RefVisibility, refsColumnHidden } from '../../lib/refFilter'
 import './Toolbar.css'
 
 interface ToolbarProps {
@@ -34,6 +35,10 @@ interface ToolbarProps {
   onSettings?: () => void
   onToggleConsole?: () => void
   onCheckUpdates?: () => void
+  /** Ref-pill visibility in the graph — click toggles all, caret opens per-kind. */
+  refVisibility?: RefVisibility
+  onToggleRefs?: () => void
+  onToggleRefKind?: (kind: RefKind) => void
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -61,6 +66,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSettings,
   onToggleConsole,
   onCheckUpdates,
+  refVisibility,
+  onToggleRefs,
+  onToggleRefKind,
 }) => {
   const [fetching, setFetching] = useState(false)
   const [pulling, setPulling] = useState(false)
@@ -205,6 +213,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </div>
 
       <div className="tb-right">
+        {refVisibility && onToggleRefs && onToggleRefKind && (
+          <RefsToggle
+            visibility={refVisibility}
+            onToggleAll={onToggleRefs}
+            onToggleKind={onToggleRefKind}
+          />
+        )}
         <button className="tb-icon-btn" title="GitHub" onClick={onGitHubShow}><Icon name="github" /></button>
         <button className="tb-icon-btn" title="Search commits" onClick={onSearchToggle}><Icon name="search" /></button>
         <button className="tb-icon-btn" title="Toggle console" onClick={onToggleConsole}><Icon name="terminal" /></button>
@@ -226,4 +241,74 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
 function TbIcon({ children, spin }: { children: React.ReactNode; spin?: boolean }) {
   return <span className={`tb-icon ${spin ? 'spin' : ''}`}>{children}</span>
+}
+
+// Ref pills in the graph: click hides/shows them all, the caret opens per-kind
+// checkboxes (local / remote / tags / Gerrit changes).
+const REF_KIND_LABELS: { kind: RefKind; label: string }[] = [
+  { kind: 'local', label: 'Local branches' },
+  { kind: 'remote', label: 'Remote branches' },
+  { kind: 'tags', label: 'Tags' },
+  { kind: 'gerrit', label: 'Gerrit changes' },
+]
+
+function RefsToggle({ visibility, onToggleAll, onToggleKind }: {
+  visibility: RefVisibility
+  onToggleAll: () => void
+  onToggleKind: (kind: RefKind) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const hidden = refsColumnHidden(visibility)
+
+  return (
+    <div className="tb-refs" ref={wrapRef}>
+      <button
+        className={`tb-icon-btn ${hidden ? 'tb-refs-off' : ''}`}
+        title={`${hidden ? 'Show' : 'Hide'} branch/tag labels in the graph (right-click to pick kinds)`}
+        onClick={onToggleAll}
+        onContextMenu={(e) => { e.preventDefault(); setOpen(true) }}
+      >
+        <Icon name="tag" />
+      </button>
+      <button
+        className="tb-refs-caret"
+        title="Choose which refs to show"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Icon name="chevron-down" size={9} />
+      </button>
+
+      {open && (
+        <div className="tb-refs-menu">
+          <label className="tb-refs-item">
+            <input type="checkbox" checked={visibility.enabled} onChange={onToggleAll} />
+            <span>Show refs</span>
+          </label>
+          <div className="tb-refs-sep" />
+          {REF_KIND_LABELS.map(({ kind, label }) => (
+            <label key={kind} className={`tb-refs-item ${visibility.enabled ? '' : 'dim'}`}>
+              <input type="checkbox" checked={visibility[kind]} onChange={() => onToggleKind(kind)} />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }

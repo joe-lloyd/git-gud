@@ -36,6 +36,7 @@ import {
 import { useGitRepo } from './hooks/useGitRepo'
 import { useCommitActions, CommitActionModal } from './hooks/useCommitActions'
 import { useGerrit } from './hooks/useGerrit'
+import { useRefVisibility } from './hooks/useRefVisibility'
 import { GerritBanner, GerritEnableModal, PushForReviewModal } from './components/Gerrit/GerritPanel'
 import { GERRIT_OUTDATED_REF_PREFIX } from './lib/refs'
 import './styles/App.css'
@@ -97,6 +98,8 @@ export default function App() {
   // Gerrit mode — everything renders behind gerrit.enabled; non-Gerrit repos
   // see zero UI difference (see openspec/changes/add-gerrit-mode).
   const gerrit = useGerrit(repo.repoPath, repo.commits, repo.methods.refresh)
+  // Ref pills in the graph — toolbar toggle, persisted across launches.
+  const refs = useRefVisibility()
   // Focus + scroll the graph to a commit (Gerrit jump-to-current etc.).
   const focusCommit = useCallback((sha: string) => {
     setSelectedShas([sha])
@@ -1157,6 +1160,9 @@ export default function App() {
         onSettings={() => setModal('settings')}
         onToggleConsole={() => setConsoleVisible((v) => !v)}
         onCheckUpdates={handleCheckUpdates}
+        refVisibility={refs.visibility}
+        onToggleRefs={refs.toggleEnabled}
+        onToggleRefKind={refs.toggleKind}
       />
 
       {/* Gerrit suggestion — one-time, persists both answers to repo config */}
@@ -1276,6 +1282,7 @@ export default function App() {
                       onRefDrop={handleRefDrop}
                       worktreeBranches={new Set(repo.worktrees.filter(w => !w.isMain).map(w => w.branch))}
                       stashes={repo.stashes}
+                      refVisibility={refs.visibility}
                     />
                   )}
                 </div>

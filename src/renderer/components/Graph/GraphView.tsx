@@ -13,6 +13,12 @@ import { buildGraphLayout, GraphNode } from "./graphLayout";
 import GraphLayoutWorker from "./graphLayout.worker?worker";
 import type { CommitNode, StashInfo } from "../../../preload/index";
 import { RefGroup, groupRefs, pickPrimaryRefGroup } from "../../lib/refs";
+import {
+  DEFAULT_REF_VISIBILITY,
+  RefVisibility,
+  filterRefGroups,
+  refsColumnHidden,
+} from "../../lib/refFilter";
 import { Icon } from "../Icons/Icon";
 import "./GraphView.css";
 
@@ -69,6 +75,8 @@ interface GraphViewProps {
   worktreeBranches?: Set<string>;
   /** Stashes — used to render stash nodes with a distinct icon and dashed parent links */
   stashes?: StashInfo[];
+  /** Which ref pills to show; with everything off the refs column collapses. */
+  refVisibility?: RefVisibility;
   /**
    * Monotonic counter the parent bumps ONLY when the selection should scroll
    * into view (a branch/tag/stash picked in the sidebar). Selecting a commit by
@@ -88,7 +96,11 @@ export const GraphView: React.FC<GraphViewProps> = ({
   onRefDrop,
   worktreeBranches = new Set(),
   stashes = [],
+  refVisibility = DEFAULT_REF_VISIBILITY,
 }) => {
+  // Collapsing the column to 0 shifts the canvas + every row in lockstep,
+  // since both take their left offset from this one value.
+  const refsW = refsColumnHidden(refVisibility) ? 0 : REFS_W;
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -375,7 +387,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
         <div className="graph-h-inner">
           {/* Column headers */}
           <div className="graph-header">
-            <div style={{ width: REFS_W, flexShrink: 0, padding: "0 4px" }}>Branches / Tags</div>
+            <div style={{ width: refsW, flexShrink: 0, padding: refsW ? "0 4px" : 0, overflow: "hidden" }}>
+              {refsW > 0 && "Branches / Tags"}
+            </div>
             <div style={{ width: graphWidth, flexShrink: 0 }} />
             <div className="gh-message">Commit Message</div>
             <div className="gh-author">Author</div>
@@ -389,7 +403,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
             {/* Canvas — overlaid on the graph-gap zone at left: REFS_W, anchored
                 to the virtualized row window so it scrolls in lockstep with the
                 DOM rows (same content coordinate space — no drift possible). */}
-            <div className="graph-canvas-wrap" style={{ left: REFS_W, width: graphWidth, height: totalHeight }}>
+            <div className="graph-canvas-wrap" style={{ left: refsW, width: graphWidth, height: totalHeight }}>
               <canvas
                 ref={canvasRef}
                 className="graph-canvas"
@@ -414,6 +428,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   onRefDrop={onRefDrop}
                   worktreeBranches={worktreeBranches}
                   graphWidth={graphWidth}
+                  refVisibility={refVisibility}
+                  refsWidth={refsW}
                 />
               ))}
 
@@ -439,14 +455,17 @@ interface CommitRowProps {
   onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
   worktreeBranches: Set<string>;
   graphWidth: number;
+  refVisibility: RefVisibility;
+  /** 0 when the refs column is fully hidden. */
+  refsWidth: number;
 }
 
 const CommitRow: React.FC<CommitRowProps> = React.memo(
-  ({ node, isSelected, isStash, isPseudo, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth }) => {
+  ({ node, isSelected, isStash, isPseudo, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth, refVisibility, refsWidth }) => {
     const { commit } = node;
     const groups = useMemo(
-      () => isPseudo ? [] : groupRefs(commit.refs, worktreeBranches),
-      [commit.refs, worktreeBranches, isPseudo],
+      () => isPseudo ? [] : filterRefGroups(groupRefs(commit.refs, worktreeBranches), refVisibility),
+      [commit.refs, worktreeBranches, isPseudo, refVisibility],
     );
 
     // Left edge of this row's node (its left rim) within the graph gap — the
@@ -464,7 +483,7 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
       >
         {/* Refs — LEFTMOST column, left of the tree canvas. Collapsed to one
             pill + a "+N" overflow chip so the fixed-width column never spills. */}
-        <div className="cr-refs">
+        <div className="cr-refs" style={{ width: refsWidth, padding: refsWidth ? undefined : 0 }}>
           {isStash && <span className="cr-stash-badge" title="Stash">◆</span>}
           <RefPillCluster
             groups={groups}
