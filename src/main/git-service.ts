@@ -837,15 +837,15 @@ export class GitService {
         : ["diff", "--unified=5", ...wd, "--", filePath];
       const result = await this.git.raw(args);
       if (!result.trim()) {
-        // Under -w an empty diff usually means "whitespace-only changes",
-        // not "untracked" — the whole-file fallback would be wrong. Let the
-        // viewer explain the empty state instead.
-        if (opts.ignoreWhitespace) return { diff: "" };
-        // Empty diff on a TRACKED file just means no changes on this side
-        // (e.g. everything was staged) — dumping the whole file as +lines
-        // here misread the state. Fallback is for untracked files only.
+        // Empty diff on a TRACKED file means no changes on this side (e.g.
+        // everything was staged), or whitespace-only changes under -w —
+        // dumping the whole file as +lines here would misread the state.
+        // Let the viewer explain the empty state instead.
         const tracked = (await this.git.raw(["ls-files", "--", filePath])).trim();
         if (tracked) return { diff: "" };
+        // Untracked: git diff is ALWAYS empty regardless of view flags, so
+        // -w/word-diff must not suppress the synthetic preview — it's the
+        // only view an untracked file has.
         return this.untrackedPreview(filePath, opts.fullUntracked === true);
       }
       return { diff: result };
