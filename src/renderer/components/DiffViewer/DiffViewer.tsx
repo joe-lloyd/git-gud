@@ -92,6 +92,21 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   // The load-full override is per-file consent — never carry it to the next file.
   useEffect(() => { setFullUntracked(false) }, [filePath, staged, sha])
 
+  // New files (untracked previews, staged adds, commit-mode additions) have no
+  // old side to compare against — side-by-side is a blank left column, word
+  // diff is one all-added run (and the untracked synthetic preview isn't
+  // porcelain at all, so parsing it collapses every line into a single
+  // run-on row), and -w can't hide anything. Hide those toggles and force
+  // the plain unified view.
+  const isNewFile = useMemo(() => /^--- \/dev\/null/m.test(diff), [diff])
+  useEffect(() => {
+    if (isNewFile) {
+      setSplitView(false)
+      setWordDiff(false)
+      setIgnoreWs(false)
+    }
+  }, [isNewFile])
+
   // ── Word-diff porcelain parse ──────────────────────────────────────────────
   // Format spec (`man git-diff`):
   //   ` text`  unchanged run
@@ -432,30 +447,34 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
           )}
           <span className="diff-filename">{filePath}</span>
         </span>
-        <button
-          className={`diff-toggle ${splitView ? 'on' : ''}`}
-          onClick={() => setSplitView((v) => !v)}
-          disabled={wordDiff}
-          title={wordDiff ? 'Turn off Word diff to use split view' : 'Toggle side-by-side view'}
-        >
-          {splitView ? 'Inline' : 'Side-by-side'}
-        </button>
-        <button
-          className={`diff-toggle ${wordDiff ? 'on' : ''}`}
-          onClick={() => setWordDiff((v) => !v)}
-          title="Toggle word-level diff"
-        >
-          Word diff
-        </button>
-        <button
-          className={`diff-toggle ${ignoreWs ? 'on' : ''}`}
-          onClick={() => setIgnoreWs((v) => !v)}
-          title={ignoreWs
-            ? 'Showing diff with whitespace-only changes hidden (git diff -w). Staging a chunk stages its content changes; hidden whitespace-only changes stay unstaged.'
-            : 'Hide whitespace-only changes (git diff -w)'}
-        >
-          Ignore whitespace
-        </button>
+        {!isNewFile && (
+          <>
+            <button
+              className={`diff-toggle ${splitView ? 'on' : ''}`}
+              onClick={() => setSplitView((v) => !v)}
+              disabled={wordDiff}
+              title={wordDiff ? 'Turn off Word diff to use split view' : 'Toggle side-by-side view'}
+            >
+              {splitView ? 'Inline' : 'Side-by-side'}
+            </button>
+            <button
+              className={`diff-toggle ${wordDiff ? 'on' : ''}`}
+              onClick={() => setWordDiff((v) => !v)}
+              title="Toggle word-level diff"
+            >
+              Word diff
+            </button>
+            <button
+              className={`diff-toggle ${ignoreWs ? 'on' : ''}`}
+              onClick={() => setIgnoreWs((v) => !v)}
+              title={ignoreWs
+                ? 'Showing diff with whitespace-only changes hidden (git diff -w). Staging a chunk stages its content changes; hidden whitespace-only changes stay unstaged.'
+                : 'Hide whitespace-only changes (git diff -w)'}
+            >
+              Ignore whitespace
+            </button>
+          </>
+        )}
         {canPatch && (
           <button
             className={`diff-toggle ${showShortcuts ? 'on' : ''}`}
@@ -521,10 +540,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
       ) : diff.trim() === '' ? (
         <div className="diff-loading">
           {ignoreWs
-            ? 'No changes left to show — the differences are whitespace-only (or the file is untracked). Turn off "Ignore whitespace" to see them.'
+            ? 'No changes left to show — the differences are whitespace-only. Turn off "Ignore whitespace" to see them.'
             : 'No diff available for this file.'}
         </div>
-      ) : wordDiff && wordDiffLines ? (
+      ) : wordDiff && wordDiffLines && !isNewFile ? (
         <div className="diff-body">
           <table className="diff-table diff-table-word">
             <tbody>
@@ -558,9 +577,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
             </tbody>
           </table>
         </div>
-      ) : splitView ? (
+      ) : splitView && !isNewFile ? (
         <div className="diff-body">
           <table className="diff-table diff-table-sxs">
+            {/* table-layout:fixed sizes columns from the FIRST row, which here
+                is a colspan-4 header — without an explicit colgroup the four
+                columns split evenly and the gutters balloon to 25% each. */}
+            <colgroup>
+              <col className="diff-col-gutter" />
+              <col />
+              <col className="diff-col-gutter" />
+              <col />
+            </colgroup>
             <tbody>
               {sideBySideRows.map((row, ri) => {
                 if (row.kind === 'full') {

@@ -136,7 +136,10 @@
 
 /* ── Side-by-side (split) view ──────────────────────────────── */
 /* Two old|new columns. Class tints sit on the cells directly (not the row). */
-.diff-table-sxs .diff-content { width: 46%; white-space: pre-wrap; word-break: break-word; }
+/* Gutter columns are pinned via <colgroup>; the two content columns share
+   the remaining width equally. */
+.diff-col-gutter { width: 44px; }
+.diff-table-sxs .diff-content { white-space: pre-wrap; word-break: break-word; }
 .diff-table-sxs .diff-gutter-new { border-left: 2px solid var(--border); }
 .diff-table-sxs td.diff-line-add    { background: rgba(104,211,145,0.10); }
 .diff-table-sxs td.diff-line-remove { background: rgba(252,129,129,0.11); }
@@ -206,7 +209,10 @@
 }
 .diff-line-add    .diff-content { color: #9ae6b4; }
 .diff-line-remove .diff-content { color: #feb2b2; }
-.diff-line-hunk   .diff-content { color: var(--lane-0); font-style: italic; display: flex; justify-content: space-between; align-items: center; }
+/* No display:flex here — a td that isn't table-cell drops its colSpan, which
+   collapses the side-by-side hunk row into the first (gutter) column. The
+   chunk-action buttons float right instead. */
+.diff-line-hunk   .diff-content { color: var(--lane-0); font-style: italic; }
 .diff-line-header .diff-content { color: var(--text-muted); }
 
 /* Highlighted content lives inside <code.hljs.diff-code>. Let the hljs theme
@@ -228,6 +234,7 @@
   display: inline-flex;
   gap: 6px;
   align-items: center;
+  float: right;
 }
 .diff-chunk-btn {
   font-size: 10px;
