@@ -116,6 +116,30 @@ const DEFAULT_LOG_REFS = [
   "--glob=refs/gitgud/changes",
 ];
 
+// Gerrit tooling sometimes fetches refs/changes/* into remote-tracking refs
+// (refs/remotes/<remote>/changes/<nn>/<change>/<ps|meta>). The /meta side is
+// NoteDb bookkeeping — root-parented "Update patch set N" chains that would
+// render as bogus history threaded through the graph, with the real change
+// node stacked under them as if it were part of that chain; the numbered side
+// duplicates our refs/gitgud/changes mirror. In Gerrit mode both are kept out
+// of the walk and the decorations.
+//
+// Pattern spellings differ because git matches --exclude for --remotes
+// against the SHORT name (origin/changes/…) while --decorate-refs-exclude and
+// --exclude for --all match the FULL refname. `*` crosses `/` in both.
+const GERRIT_REMOTE_CHANGE_GLOB_SHORT = "*/changes/*";
+const GERRIT_REMOTE_CHANGE_GLOB_FULL = "refs/remotes/*/changes/*";
+
+// --exclude only applies to the next ref-listing option, so it must sit
+// immediately before --remotes.
+const GERRIT_LOG_REFS = DEFAULT_LOG_REFS.flatMap((arg) =>
+  arg === "--remotes" ? [`--exclude=${GERRIT_REMOTE_CHANGE_GLOB_SHORT}`, arg] : [arg],
+);
+
+// Sidebar counterpart: refs/remotes/<remote>/changes/<nn>/<change>/<ps|meta>
+// short names, matched against the name after the refs/remotes/ prefix.
+const GERRIT_REMOTE_CHANGE_RE = /^[^/]+\/changes\/\d+\/\d+\/(?:\d+|meta)$/;
+
 // Namespaces already covered by DEFAULT_LOG_REFS — anything else is "other".
 const KNOWN_REF_PREFIXES = [
   "refs/heads/",
@@ -376,6 +400,19 @@ export class GitService {
     }
   }
 
+  // Whether this repo has Gerrit mode switched on (repo-local git config,
+  // written by the renderer's Gerrit settings). Gates the refs/remotes
+  // change-ref exclusions so non-Gerrit repos keep today's behavior even if
+  // they happen to have a branch named changes/….
+  private async isGerritEnabled(): Promise<boolean> {
+    try {
+      const v = await this.git.raw(["config", "--get", "gitgud.gerrit.enabled"]);
+      return v.trim() === "true";
+    } catch {
+      return false; // unset key exits non-zero
+    }
+  }
+
   async getLog(limit = 500, opts: { includeOtherRefs?: boolean } = {}): Promise<CommitNode[]> {
     // Use ASCII unit-separator \x1f between fields so empty %D never collapses
     // into the message line (which happens with newline-only separators).
@@ -391,18 +428,32 @@ export class GitService {
       /* no stashes */
     }
 
+    const gerritMode = await this.isGerritEnabled();
+
     // Showing other refs means decorating them too, otherwise their commits
     // arrive as anonymous nodes with no hint of where they came from.
     const decorate = opts.includeOtherRefs
       // "refs/*" (glob, not a bare prefix) is what actually matches every
       // namespace — a bare "refs" decorates nothing.
       ? [...DECORATE_ARGS, "--decorate-refs=refs/*"]
-      : DECORATE_ARGS;
+      : [...DECORATE_ARGS];
+    // A commit excluded from the walk can still be reached another way (the
+    // numbered patchset ref points at the same commit as our gitgud mirror),
+    // so its pill has to be suppressed separately from the walk.
+    if (gerritMode) decorate.push(`--decorate-refs-exclude=${GERRIT_REMOTE_CHANGE_GLOB_FULL}`);
+
+    const walkRefs = opts.includeOtherRefs
+      ? gerritMode
+        ? [`--exclude=${GERRIT_REMOTE_CHANGE_GLOB_FULL}`, "--all"]
+        : ["--all"]
+      : gerritMode
+        ? GERRIT_LOG_REFS
+        : DEFAULT_LOG_REFS;
 
     const rawOutput = await this.git.raw([
       "log",
       `--max-count=${limit}`,
-      ...(opts.includeOtherRefs ? ["--all"] : DEFAULT_LOG_REFS),
+      ...walkRefs,
       "--parents",
       // --date-order still guarantees child-before-parent (the lane
       // algorithm's invariant) but interleaves branches by commit time, so
@@ -445,7 +496,7 @@ export class GitService {
     // simple-git's branch summary returns short SHAs; the graph keys rows by
     // full SHA, so clicks wouldn't scroll-to-commit. Use for-each-ref for full
     // SHAs and read HEAD separately to flag the current branch.
-    const [refsRaw, headRaw] = await Promise.all([
+    const [refsRaw, headRaw, gerritMode] = await Promise.all([
       this.git.raw([
         "for-each-ref",
         "--format=%(refname)\x1f%(objectname)",
@@ -453,6 +504,7 @@ export class GitService {
         "refs/remotes",
       ]),
       this.git.raw(["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => ""),
+      this.isGerritEnabled(),
     ]);
     const currentBranch = headRaw.trim();
 
@@ -467,6 +519,10 @@ export class GitService {
       } else if (refname.startsWith("refs/remotes/")) {
         const name = refname.slice("refs/remotes/".length);
         if (name.endsWith("/HEAD")) continue;
+        // Gerrit patchset/meta refs fetched under refs/remotes aren't
+        // branches; getLog excludes their commits, so a sidebar entry would
+        // point at nothing in the graph.
+        if (gerritMode && GERRIT_REMOTE_CHANGE_RE.test(name)) continue;
         remote.push({ name, current: false, sha });
       }
     }

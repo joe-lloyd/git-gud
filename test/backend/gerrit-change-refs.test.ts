@@ -71,6 +71,42 @@ describe('Gerrit change ref sync', () => {
     expect(log.some((c) => c.refs.includes('refs/gitgud/changes/1'))).toBe(true)
   })
 
+  // External Gerrit tooling sometimes fetches refs/changes/* into
+  // refs/remotes/<remote>/changes/<nn>/<n>/<ps|meta>. The meta side is NoteDb
+  // bookkeeping (root-parented "Update patch set" chains) that must not render
+  // as history; the numbered side duplicates the gitgud mirror's pill.
+  it('gerrit mode hides remote-tracking change/meta refs from log and branches', async () => {
+    const git = simpleGit(repoPath)
+    await service.syncGerritChangeRefs('origin', [
+      { number: 1, currentRef: 'refs/changes/01/1/2' },
+    ])
+    const patchsetSha = (await git.raw(['rev-parse', 'refs/gitgud/changes/1'])).trim()
+
+    // Simulate the pollution: a root NoteDb meta commit + a duplicate
+    // numbered patchset ref, both under refs/remotes.
+    const tree = (await git.raw(['rev-parse', 'HEAD^{tree}'])).trim()
+    const metaSha = (await git.raw(['commit-tree', tree, '-m', 'Update patch set 1'])).trim()
+    await git.raw(['update-ref', 'refs/remotes/origin/changes/01/1/meta', metaSha])
+    await git.raw(['update-ref', 'refs/remotes/origin/changes/01/1/2', patchsetSha])
+
+    // Gerrit mode off: existing behavior — the refs are walked and listed.
+    let log = await service.getLog(50)
+    expect(log.some((c) => c.sha === metaSha)).toBe(true)
+    let branches = await service.getBranches()
+    expect(branches.remote.some((b) => b.name === 'origin/changes/01/1/meta')).toBe(true)
+
+    // Gerrit mode on: meta commit gone, duplicate pill gone, gitgud node kept.
+    await git.addConfig('gitgud.gerrit.enabled', 'true')
+    log = await service.getLog(50)
+    expect(log.some((c) => c.sha === metaSha)).toBe(false)
+    const changeNode = log.find((c) => c.sha === patchsetSha)
+    expect(changeNode).toBeDefined()
+    expect(changeNode!.refs).toContain('refs/gitgud/changes/1')
+    expect(changeNode!.refs.some((r) => r.includes('origin/changes/'))).toBe(false)
+    branches = await service.getBranches()
+    expect(branches.remote.some((b) => b.name.includes('changes/01/1'))).toBe(false)
+  })
+
   it('clearGerritChangeRefs removes the whole namespace', async () => {
     await service.syncGerritChangeRefs('origin', [
       { number: 1, currentRef: 'refs/changes/01/1/2' },
