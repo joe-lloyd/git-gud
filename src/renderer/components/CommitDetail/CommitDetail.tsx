@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import type { CommitNode, FileChange, GerritChange } from '../../../preload/index'
 import { Icon, IconName } from '../Icons/Icon'
 import { groupRefs } from '../../lib/refs'
@@ -20,8 +20,12 @@ interface CommitDetailProps {
   commits: CommitNode[]
   /** Currently-open file diff in the main view (so we can highlight its row) */
   selectedFile?: string | null
-  /** Click a file row to open its diff in the main view */
+  /** Click a file row to open its diff in the main view (toggles: clicking the
+      open file closes it) */
   onSelectFile?: (path: string, sha: string) => void
+  /** Open a file's diff without toggle semantics — used by arrow-key traversal
+      so walking the list never closes the diff. */
+  onOpenFile?: (path: string, sha: string) => void
   /** Gerrit web base URL — makes the Change-Id trailer pill a link. */
   gerritHost?: string | null
   /** Set when the selected commit is a patchset of an open Gerrit change. */
@@ -30,9 +34,14 @@ interface CommitDetailProps {
   onJumpToSha?: (sha: string) => void
 }
 
-export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, selectedFile = null, onSelectFile, gerritHost = null, gerritInfo = null, onJumpToSha }) => {
+export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, selectedFile = null, onSelectFile, onOpenFile, gerritHost = null, gerritInfo = null, onJumpToSha }) => {
   const [files, setFiles] = useState<FileChange[]>([])
   const [loading, setLoading] = useState(false)
+  // Keyboard traversal (same pattern as WorkingTree): armed by clicking a file
+  // row, then arrows walk the list while the diff view follows. Starts null so
+  // stray arrow presses don't hijack anything before the user enters the list.
+  const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
+  const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
   // Full message (subject + body) — fetched on demand because the log payload
   // only carries the subject (`%s`). Empty until loaded; we fall back to the
   // commit's subject if the fetch fails.
@@ -57,7 +66,37 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
   React.useEffect(() => {
     if (sha) loadDetails(sha)
     else { setFiles([]); setFullMessage('') }
+    setFocusedIdx(null)
   }, [sha, loadDetails])
+
+  // Arrow keys traverse the file list and open each file's diff as they go.
+  // Attached to the panel root and driven by bubbling from the focused row
+  // button, so it only ever fires while focus is inside this panel — the main
+  // diff view never loses arrows it owns (it doesn't take focus in commit mode).
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (files.length === 0 || !sha) return
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    if (focusedIdx === null) return
+    const focusRow = (idx: number) => {
+      const clamped = Math.max(0, Math.min(files.length - 1, idx))
+      if (clamped === focusedIdx) return
+      setFocusedIdx(clamped)
+      rowRefs.current[clamped]?.focus()
+      const f = files[clamped]
+      if (f) (onOpenFile ?? onSelectFile)?.(f.path, sha)
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(focusedIdx + 1); return }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); focusRow(focusedIdx - 1); return }
+    if (e.key === 'Home')      { e.preventDefault(); focusRow(0); return }
+    if (e.key === 'End')       { e.preventDefault(); focusRow(files.length - 1); return }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const f = files[focusedIdx]
+      if (f) onSelectFile?.(f.path, sha) // toggle, like a click
+    }
+  }, [files, sha, focusedIdx, onOpenFile, onSelectFile])
+  rowRefs.current.length = files.length
 
   if (!commit) {
     return (
@@ -76,7 +115,7 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
   }
 
   return (
-    <div className="commit-detail fade-in">
+    <div className="commit-detail fade-in" onKeyDown={handleKeyDown}>
       {/* Header */}
       <div className="cd-header">
         <div className="cd-sha mono">{commit.sha.slice(0, 7)}</div>
@@ -214,11 +253,12 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
           <div className="cd-files">
             <div className="cd-section-title">Files Changed ({files.length})</div>
             <div className="cd-file-list">
-              {files.map((f) => (
+              {files.map((f, idx) => (
                 <button
                   key={f.path}
+                  ref={(el) => { rowRefs.current[idx] = el }}
                   className={`cd-file-item ${selectedFile === f.path ? 'active' : ''}`}
-                  onClick={() => sha && onSelectFile?.(f.path, sha)}
+                  onClick={() => { setFocusedIdx(idx); if (sha) onSelectFile?.(f.path, sha) }}
                   title={f.path}
                 >
                   <span

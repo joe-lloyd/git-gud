@@ -58,7 +58,12 @@
 .gh-date    { width: 90px;  flex-shrink: 0; }
 .gh-sha     { width: 70px;  flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
 
-/* Scrollable body — vertical only; X handled by .graph-h-scroll */
+/* Scrollable body — vertical only; X handled by .graph-h-scroll.
+   Focusable (tabIndex=0) so arrow-key node navigation works after a click,
+   but a focus ring around the whole scroller is just noise — the selected
+   row is the visible indicator. */
+.graph-scroll:focus,
+.graph-scroll:focus-visible { outline: none; }
 .graph-scroll {
   flex: 1;
   min-height: 0;

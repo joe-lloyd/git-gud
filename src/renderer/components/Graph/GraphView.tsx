@@ -373,6 +373,35 @@ export const GraphView: React.FC<GraphViewProps> = ({
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
+  // Keyboard: clicking into the graph focuses the scroller (rows themselves
+  // aren't focusable, so Chromium hands focus to the nearest focusable
+  // ancestor), and from then on arrows walk the selection node-to-node — the
+  // detail panel follows selectedSha. Scrolling is driven here (nearest-edge)
+  // rather than via focus()/scrollIntoView because off-window rows don't exist
+  // in the virtualized DOM. Shift extends the range through the same modifier
+  // path as mouse clicks.
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (nodes.length === 0) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    const cur = selectedSha ? shaToRow.get(selectedSha) : undefined;
+    let next: number | null = null;
+    if (e.key === "ArrowDown")    next = cur === undefined ? 0 : cur + 1;
+    else if (e.key === "ArrowUp") next = cur === undefined ? 0 : cur - 1;
+    else if (e.key === "Home")    next = 0;
+    else if (e.key === "End")     next = nodes.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    const clamped = Math.max(0, Math.min(nodes.length - 1, next));
+    if (clamped === cur) return;
+    onSelectCommit(nodes[clamped].commit.sha, { shift: e.shiftKey });
+    const el = scrollRef.current;
+    if (!el) return;
+    const top = clamped * ROW_H;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
+  }, [nodes, selectedSha, shaToRow, onSelectCommit]);
+
   const topSpacerH = startRow * ROW_H;
   const bottomSpacerH = Math.max(0, (nodes.length - 1 - endRow) * ROW_H);
   const visibleNodes = nodes.slice(startRow, endRow + 1);
@@ -399,7 +428,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           <div className="divider" />
 
           {/* Scrollable body — vertical only; horizontal handled by outer wrapper */}
-          <div className="graph-scroll" ref={scrollRef} onScroll={handleScroll}>
+          <div className="graph-scroll" ref={scrollRef} onScroll={handleScroll} tabIndex={0} onKeyDown={handleKeyDown}>
             {/* Canvas — overlaid on the graph-gap zone at left: REFS_W, anchored
                 to the virtualized row window so it scrolls in lockstep with the
                 DOM rows (same content coordinate space — no drift possible). */}

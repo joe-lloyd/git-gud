@@ -1407,6 +1407,7 @@ export default function App() {
                             : { path, sha }
                         )
                       }}
+                      onOpenFile={(path, sha) => setActiveDiff({ path, sha })}
                     />
                   )}
                 </div>
