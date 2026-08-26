@@ -1516,6 +1516,8 @@ export default function App() {
           {...settings}
           onClose={closeModal}
           peers={peers}
+          appVersion={appVersion}
+          onCheckUpdates={handleCheckUpdates}
           gerrit={repo.repoPath && gerrit.mode ? {
             mode: gerrit.mode,
             authenticated: gerrit.authenticated,

@@ -18,9 +18,24 @@ import { spawn, execFile } from "child_process";
 import * as fs from "fs";
 import * as fsp from "fs/promises";
 import { join, resolve, dirname } from "path";
+import { isNewerVersion, pickRelease, type GitHubRelease, type UpdateChannel } from "./update-channel";
+export { isNewerVersion } from "./update-channel";
 
-const FEED_URL =
-  "https://github.com/joe-lloyd/git-gud/releases/latest/download/latest-mac.yml";
+const REPO = "joe-lloyd/git-gud";
+const STABLE_BASE = `https://github.com/${REPO}/releases/latest/download/`;
+const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=30`;
+
+// Where this channel's assets live. Stable rides GitHub's "latest" redirect
+// (never a pre-release); dev asks the API for the newest release including
+// pre-releases and pins to that tag's download folder.
+export async function resolveReleaseBase(channel: UpdateChannel): Promise<string> {
+  if (channel === "stable") return STABLE_BASE;
+  const res = await fetch(RELEASES_API, { headers: { Accept: "application/vnd.github+json", "User-Agent": "git-gud-updater" } });
+  if (!res.ok) throw new Error(`GitHub releases API HTTP ${res.status}`);
+  const picked = pickRelease((await res.json()) as GitHubRelease[], channel);
+  if (!picked) throw new Error("No release found for the dev channel");
+  return `https://github.com/${REPO}/releases/download/${picked.tag_name}/`;
+}
 
 export interface MacUpdateEvents {
   onStatus: (payload: {
@@ -49,17 +64,6 @@ export function parseFeed(yml: string): { version: string; files: FeedFile[] } {
   return { version, files };
 }
 
-// True when b is a strictly newer x.y.z than a. Non-numeric parts compare as 0.
-export function isNewerVersion(a: string, b: string): boolean {
-  const pa = a.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pb[i] ?? 0) - (pa[i] ?? 0);
-    if (d !== 0) return d > 0;
-  }
-  return false;
-}
-
 // Pick the ZIP for this machine's arch: arm64 builds are "…-arm64-mac.zip",
 // x64 builds are plain "…-mac.zip".
 export function pickAsset(files: FeedFile[], arch: string): FeedFile | null {
@@ -70,12 +74,14 @@ export function pickAsset(files: FeedFile[], arch: string): FeedFile | null {
 
 export class MacUpdater {
   private events: MacUpdateEvents;
+  private channel: () => UpdateChannel;
   private downloading = false;
   // Set once a verified .app is unpacked and ready to swap in.
   private readyBundle: { appPath: string; version: string } | null = null;
 
-  constructor(events: MacUpdateEvents) {
+  constructor(events: MacUpdateEvents, channel: () => UpdateChannel = () => "stable") {
     this.events = events;
+    this.channel = channel;
   }
 
   private workDir(): string {
@@ -88,9 +94,10 @@ export class MacUpdater {
   async checkForUpdates(): Promise<{ version?: string }> {
     this.events.onStatus({ state: "checking" });
     try {
-      const res = await fetch(FEED_URL, { redirect: "follow" });
+      const base = await resolveReleaseBase(this.channel());
+      const res = await fetch(base + "latest-mac.yml", { redirect: "follow" });
       if (!res.ok) throw new Error(`Update feed HTTP ${res.status}`);
-      const feed = parseFeed(await res.text());
+      const feed = { ...parseFeed(await res.text()), base };
       if (!feed.version) throw new Error("Update feed missing version");
 
       if (!isNewerVersion(app.getVersion(), feed.version)) {
@@ -115,7 +122,7 @@ export class MacUpdater {
     }
   }
 
-  private async download(feed: { version: string; files: FeedFile[] }): Promise<void> {
+  private async download(feed: { version: string; files: FeedFile[]; base: string }): Promise<void> {
     try {
       const asset = pickAsset(feed.files, process.arch);
       if (!asset) throw new Error(`No mac zip for arch ${process.arch} in update feed`);
@@ -126,7 +133,7 @@ export class MacUpdater {
       const zipPath = join(dir, asset.url);
 
       // Assets sit next to the feed under the same release.
-      const url = FEED_URL.replace(/latest-mac\.yml$/, asset.url);
+      const url = feed.base + asset.url;
       const res = await fetch(url, { redirect: "follow" });
       if (!res.ok || !res.body) throw new Error(`Download HTTP ${res.status}`);
 

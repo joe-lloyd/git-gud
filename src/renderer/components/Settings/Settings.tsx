@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { PeersSection } from '../Peers/PeerModal'
 import type { UsePeers } from '../../hooks/usePeers'
+import type { UpdateChannel } from '../../../preload/index'
 
 // ── Persisted UI settings ──────────────────────────────────────────────────
 // Kept in localStorage and re-applied on every launch. Text scaling uses the
@@ -66,12 +67,16 @@ export interface GerritSettings {
 
 interface SettingsModalProps extends Settings {
   onClose: () => void
+  /** Running app version (empty until loaded). */
+  appVersion?: string
+  /** Toolbar-style manual update check; feedback arrives via toasts. */
+  onCheckUpdates?: () => void
   gerrit?: GerritSettings | null
   /** Peer sharing (other Git Gud instances) — host-side controls. */
   peers?: UsePeers | null
 }
 
-export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, onClose, gerrit, peers }: SettingsModalProps) {
+export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, onClose, gerrit, peers, appVersion, onCheckUpdates }: SettingsModalProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -174,6 +179,9 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
           </>
         )}
 
+        {/* Update channel — app-wide, lives in userData */}
+        <UpdatesSection appVersion={appVersion} onCheckUpdates={onCheckUpdates} row={row} labelWrap={labelWrap} labelText={labelText} hintText={hintText} />
+
         {/* Peer sharing — app-wide, lives in userData */}
         {peers && <PeersSection peers={peers} row={row} labelWrap={labelWrap} labelText={labelText} hintText={hintText} />}
 
@@ -189,6 +197,63 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
           <button className="btn btn-primary" onClick={onClose}>Done</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Stable vs dev update channel. Dev = GitHub pre-releases (v1.11.0-dev.N,
+// cut with `pnpm release:dev`) so test builds can be pushed to every machine
+// through the normal updater instead of by hand. Switching re-checks at once.
+function UpdatesSection({ appVersion, onCheckUpdates, row, labelWrap, labelText, hintText }: {
+  appVersion?: string
+  onCheckUpdates?: () => void
+  row: React.CSSProperties
+  labelWrap: React.CSSProperties
+  labelText: React.CSSProperties
+  hintText: React.CSSProperties
+}) {
+  const [channel, setChannel] = useState<UpdateChannel | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  useEffect(() => {
+    window.gitApi.getUpdateChannel?.().then(setChannel).catch(() => setChannel('stable'))
+  }, [])
+  const change = async (next: UpdateChannel) => {
+    setChannel(next)
+    setNote('Checking…')
+    try {
+      const r = await window.gitApi.setUpdateChannel(next)
+      if (!r.success) setNote(r.error ?? 'Check failed')
+      else if (r.version && appVersion && r.version !== appVersion) setNote(`v${r.version} available — downloading`)
+      else setNote(`Up to date${r.version ? ` (v${r.version})` : ''}`)
+    } catch {
+      setNote('Update checks only work in the installed app.')
+    }
+  }
+  return (
+    <div style={row}>
+      <div style={labelWrap}>
+        <span style={labelText}>Updates{appVersion ? ` · v${appVersion}` : ''}</span>
+        <span style={hintText}>
+          {channel === 'dev'
+            ? 'Dev: also installs pre-release test builds. Never downgrades — pick Stable to stop.'
+            : 'Stable: only released versions. Dev adds pre-release test builds.'}
+          {note && <><br /><span style={{ color: 'var(--text-primary)' }}>{note}</span></>}
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <select
+          aria-label="Update channel"
+          className="input"
+          style={{ height: 28, fontSize: 12 }}
+          value={channel ?? 'stable'}
+          disabled={channel === null}
+          onChange={(e) => change(e.target.value as UpdateChannel)}
+        >
+          <option value="stable">Stable</option>
+          <option value="dev">Dev (pre-release)</option>
+        </select>
+        {onCheckUpdates && <button className="btn btn-ghost" onClick={onCheckUpdates} title="Check for updates now">Check</button>}
       </div>
     </div>
   )

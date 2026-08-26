@@ -10,6 +10,8 @@ if (typeof (globalThis as any).window === 'undefined') (globalThis as any).windo
 Object.defineProperty(window, 'gitApi', {
   value: {
     openDialog: vi.fn(),
+    getUpdateChannel: vi.fn().mockResolvedValue('stable'),
+    setUpdateChannel: vi.fn().mockResolvedValue({ success: true }),
     openPath: vi.fn(),
     activatePath: vi.fn().mockResolvedValue(true),
     addTab: vi.fn().mockResolvedValue(true),

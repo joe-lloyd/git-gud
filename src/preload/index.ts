@@ -117,6 +117,7 @@ export type SavePatchResult =
 // Auto-update lifecycle. Emitted by the main process from electron-updater
 // events. `downloaded` is the actionable state — renderer can prompt "Restart
 // to install".
+export type UpdateChannel = 'stable' | 'dev'
 export type UpdaterStatus =
   | { state: 'checking' }
   | { state: 'available'; version: string }
@@ -417,6 +418,11 @@ const gitApi = {
   updaterCheck: (): Promise<{ success: boolean; version?: string; error?: string }> =>
     ipcRenderer.invoke('updater:check'),
   updaterInstall: (): Promise<void> => ipcRenderer.invoke('updater:install'),
+  // Which GitHub releases the updater follows: stable only, or dev
+  // pre-releases too. Setting it persists the choice and re-checks at once.
+  getUpdateChannel: (): Promise<UpdateChannel> => ipcRenderer.invoke('updater:get-channel'),
+  setUpdateChannel: (channel: UpdateChannel): Promise<{ success: boolean; version?: string; error?: string }> =>
+    ipcRenderer.invoke('updater:set-channel', channel),
   onUpdaterStatus: (cb: (s: UpdaterStatus) => void) => {
     const handler = (_e: unknown, s: UpdaterStatus) => cb(s)
     ipcRenderer.on('updater:status', handler)

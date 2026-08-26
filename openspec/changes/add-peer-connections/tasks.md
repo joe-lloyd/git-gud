@@ -25,7 +25,8 @@
 - [x] 5.3 `PeerModal` (discovered / manual / pair / browse repos) + CSS; "Connect to a peer…" in tab "+" menu and Welcome
 - [x] 5.4 Peers section in `SettingsModal` (toggle, name, port, read-only, pairing code, paired devices)
 - [x] 5.5 Peer glyph in `TabBar`; better error text for unreachable peers in `useGitRepo`; sidebar repo header → `machine : repo` + location menu (replaced the initial top banner after review)
-- [x] 5.7 Dev release channel: `pnpm release:dev`, `EP_PRE_RELEASE` in CI, updater disabled in prerelease builds
+- [x] 5.7 Dev release channel: `pnpm release:dev`, `EP_PRE_RELEASE` in CI
+- [x] 5.8 Update channel setting (Stable / Dev) so dev builds install through the normal updater; semver-aware compare, GitHub API release picking, persisted choice (`update-channel.ts`, `test/backend/update-channel.test.ts`)
 - [x] 5.6 Renderer `lib/peerPath.ts` twin + tests
 
 ## 5b. Secure transport (2026-08-26)

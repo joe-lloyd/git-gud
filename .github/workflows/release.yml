@@ -15,9 +15,9 @@ permissions:
   contents: write  # needed for electron-builder to create the GitHub Release
 
 # Tags with a prerelease suffix (v1.11.0-dev.0, from `pnpm release:dev`) are
-# published as GitHub *pre-releases*: the "latest" feed the updaters read
-# skips them, so stable users never receive a dev build. electron-builder
-# reads EP_PRE_RELEASE to decide.
+# published as GitHub *pre-releases*: the "latest" feed the Stable update
+# channel reads skips them; only installs switched to the Dev channel
+# (Settings → Updates) receive them. electron-builder reads EP_PRE_RELEASE.
 env:
   EP_PRE_RELEASE: ${{ contains(github.ref_name, '-') }}
 
@@ -92,7 +92,7 @@ jobs:
           done
           DEV_NOTE=""
           if [[ "$VERSION" == *-* ]]; then
-            DEV_NOTE="> **Dev build** — a pre-release for testing. It never auto-updates and stable installs never see it. To return to stable, install the latest normal release by hand.
+            DEV_NOTE="> **Dev build** — a pre-release for testing. Installs on the Stable update channel never see it; switch to **Dev** in Settings → Updates to receive dev builds automatically. To return to stable, pick Stable again — you move over at the next stable release (the app never downgrades).
 
           "
           fi

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell, safeStorage } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { MacUpdater } from './mac-updater'
+import { defaultChannelFor, isUpdateChannel, type UpdateChannel } from './update-channel'
 import { basename, join } from 'path'
 import * as fs from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
@@ -257,26 +258,44 @@ function createWindow(): void {
 // macOS uses the custom MacUpdater: the app ships unsigned (identity: null)
 // and electron-updater's Squirrel.Mac path refuses to swap unsigned bundles —
 // its "restart" silently did nothing. Windows/Linux stay on electron-updater.
-// A "dev release" is a packaged build whose version carries a prerelease
-// tag (v1.11.0-dev.0, cut with `pnpm release:dev`). It is published as a
-// GitHub *pre-release*, so stable installs never see it — and it never
-// updates itself either, so a test build stays exactly what you installed
-// until you replace it by hand.
-const IS_DEV_RELEASE = /-/.test(app.getVersion())
+// Update channel: "stable" follows GitHub's latest release, "dev" also
+// accepts pre-releases (v1.11.0-dev.N from `pnpm release:dev`). Persisted in
+// userData so a test machine stays on dev across restarts; a prerelease build
+// with no saved choice defaults to dev (that's where it came from). Neither
+// channel ever downgrades — a dev build switched back to stable just waits for
+// the next stable version that outranks it.
+const updateChannelFile = () => join(app.getPath('userData'), 'update-channel.json')
+function readUpdateChannel(): UpdateChannel {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(updateChannelFile(), 'utf8'))
+    if (isUpdateChannel(parsed?.channel)) return parsed.channel
+  } catch { /* first run / unreadable → default */ }
+  return defaultChannelFor(app.getVersion())
+}
+function writeUpdateChannel(channel: UpdateChannel): void {
+  fs.writeFileSync(updateChannelFile(), JSON.stringify({ channel }, null, 2))
+}
 
 function setupAutoUpdater(): void {
   // Version display works everywhere, including dev.
   ipcMain.handle('app:version', () => app.getVersion())
 
+  let channel = readUpdateChannel()
+  ipcMain.handle('updater:get-channel', () => channel)
+  // Persist + apply, then re-check straight away so the Settings row shows
+  // the outcome. `check` is filled in per platform below; in dev mode
+  // (unpackaged) it stays a no-op and only the choice is saved.
+  let check: () => Promise<{ success: boolean; version?: string; error?: string }> =
+    async () => ({ success: false, error: 'Update checks only work in the installed app.' })
+  ipcMain.handle('updater:set-channel', async (_e, next: unknown) => {
+    if (!isUpdateChannel(next)) return { success: false, error: 'Unknown channel' }
+    channel = next
+    try { writeUpdateChannel(next) } catch (e) { return { success: false, error: String(e) } }
+    autoUpdater.allowPrerelease = next === 'dev'
+    return check()
+  })
+
   if (!app.isPackaged) return  // dev mode
-  if (IS_DEV_RELEASE) {
-    ipcMain.handle('updater:check', async () => ({
-      success: false,
-      error: `v${app.getVersion()} is a dev build — it never auto-updates. Install a stable release from GitHub to go back.`,
-    }))
-    ipcMain.handle('updater:install', () => {})
-    return
-  }
 
   // Mirror updater progress into the frame title so Windows/Linux users see
   // it without any in-app chrome (macOS shows the tab-bar chip instead).
@@ -298,18 +317,22 @@ function setupAutoUpdater(): void {
     const mac = new MacUpdater({
       onStatus: (s) => send('updater:status', s),
       onProgress: (p) => send('updater:progress', p),
-    })
+    }, () => channel)
     setTimeout(() => { mac.checkForUpdates().catch(() => {}) }, 5_000)
-    ipcMain.handle('updater:check', async () => {
+    check = async () => {
       try { const r = await mac.checkForUpdates(); return { success: true, version: r.version } }
       catch (e) { return { success: false, error: String(e) } }
-    })
+    }
+    ipcMain.handle('updater:check', check)
     ipcMain.handle('updater:install', () => { mac.quitAndInstall() })
     return
   }
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
+  // electron-updater defaults allowPrerelease to "current version is a
+  // prerelease" — make it follow the user's channel instead.
+  autoUpdater.allowPrerelease = channel === 'dev'
 
   autoUpdater.on('checking-for-update', () => send('updater:status', { state: 'checking' }))
   autoUpdater.on('update-available', (info) => send('updater:status', { state: 'available', version: info.version }))
@@ -324,10 +347,11 @@ function setupAutoUpdater(): void {
   setTimeout(() => { autoUpdater.checkForUpdates().catch(() => {}) }, 5_000)
 
   // Renderer can also trigger a manual check (via toolbar / settings).
-  ipcMain.handle('updater:check', async () => {
+  check = async () => {
     try { const r = await autoUpdater.checkForUpdates(); return { success: true, version: r?.updateInfo.version } }
     catch (e) { return { success: false, error: String(e) } }
-  })
+  }
+  ipcMain.handle('updater:check', check)
   ipcMain.handle('updater:install', () => {
     // Closes the app and restarts on the new version.
     autoUpdater.quitAndInstall()
