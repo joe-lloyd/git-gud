@@ -73,8 +73,11 @@ export type Beacon = {
 };
 
 // ── Method access ───────────────────────────────────────────────────────
-// Reads are always served. The sync set runs on the host unless the share is
-// read-only. Anything else never reaches git.
+// The peer model is "drive the other machine's Git Gud": every GitService
+// operation the local UI can trigger runs on the host, against the host's
+// working tree. Reads are always served; writes are refused only when the
+// share is read-only. Anything not listed (private helpers, `git` reach-ins,
+// typos) never reaches the service.
 
 export const READ_METHODS: ReadonlySet<string> = new Set([
   "isRepo",
@@ -107,18 +110,29 @@ export const READ_METHODS: ReadonlySet<string> = new Set([
   "isBisecting",
 ]);
 
-export const SYNC_METHODS: ReadonlySet<string> = new Set([
-  "fetch",
-  "pull",
-  "push",
-  "fastForwardBranch",
-  "checkout",
-  "checkoutAutostash",
-  "createBranch",
-  "stashSave",
-  "stashPop",
-  "stashApply",
-  "pushTag",
+// Every mutating GitService method. Kept explicit (rather than "any function
+// on the service") so the host's attack surface is a reviewed list.
+export const WRITE_METHODS: ReadonlySet<string> = new Set([
+  // working tree / index
+  "stage", "unstage", "discardChanges", "discardUntracked", "applyPatch", "clean",
+  "removeIndexLock", "writeFileContent", "markResolved",
+  // commits
+  "commit", "commitStreaming", "amendCommit", "setHeadAuthor",
+  "revert", "revertMany", "cherryPick", "cherryPickMany", "squashCommits", "dropCommits",
+  "reset", "rebaseTo", "restoreFromReflog",
+  // rebase / merge state machine
+  "rebaseContinue", "rebaseAbort", "rebaseSkip", "mergeContinue", "mergeAbort",
+  "merge", "mergeCurrentInto", "runDragAction",
+  // branches / tags / remotes
+  "checkout", "checkoutAutostash", "createBranch", "deleteBranch", "renameBranch", "deleteRemoteBranch",
+  "createTag", "deleteTag", "renameTag", "pushTag", "deleteRemoteTag",
+  "fetch", "pull", "fastForwardBranch", "push", "pushForReview", "syncGerritChangeRefs", "clearGerritChangeRefs",
+  // stashes
+  "stashSave", "stashPop", "stashApply", "stashDrop", "stashBranch",
+  // worktrees / bisect / config
+  "addWorktree", "removeWorktree",
+  "bisectStart", "bisectGood", "bisectBad", "bisectReset",
+  "setConfig", "rerereForget",
 ]);
 
 // GitService methods whose IPC handler returns the promise straight through
@@ -156,19 +170,19 @@ export const RESULT_SHAPED_METHODS: ReadonlySet<string> = new Set([
   "commitStreaming",
 ]);
 
-export type MethodAccess = "read" | "sync" | "denied";
+export type MethodAccess = "read" | "write" | "denied";
 
 export function methodAccess(method: string): MethodAccess {
   if (READ_METHODS.has(method)) return "read";
-  if (SYNC_METHODS.has(method)) return "sync";
+  if (WRITE_METHODS.has(method)) return "write";
   return "denied";
 }
 
 export function refusalMessage(method: string, readOnly: boolean): string {
-  if (readOnly && SYNC_METHODS.has(method)) {
+  if (readOnly && WRITE_METHODS.has(method)) {
     return `"${method}" was refused: this share is read-only on the host.`;
   }
-  return `"${method}" isn't available on a remote repository — run it on the machine that owns the working tree.`;
+  return `"${method}" can't be run on a remote repository.`;
 }
 
 // ── Peer repo URIs ──────────────────────────────────────────────────────

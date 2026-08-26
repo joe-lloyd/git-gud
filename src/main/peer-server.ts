@@ -212,7 +212,7 @@ export class PeerServer {
     }
     const id = String(body.id ?? "");
     const method = body.method;
-    const args = Array.isArray(body.args) ? body.args : [];
+    let args = Array.isArray(body.args) ? body.args : [];
     const reply = (r: RpcResponse, status = 200) => this.json(res, status, r);
 
     // Host-level (non-repo) methods.
@@ -223,7 +223,7 @@ export class PeerServer {
     if (access === "denied") {
       return reply({ id, ok: false, error: refusalMessage(method, false), code: "forbidden-method" }, 403);
     }
-    if (access === "sync" && this.host.readOnly()) {
+    if (access === "write" && this.host.readOnly()) {
       return reply({ id, ok: false, error: refusalMessage(method, true), code: "read-only" }, 403);
     }
 
@@ -236,6 +236,9 @@ export class PeerServer {
     if (typeof fn !== "function") {
       return reply({ id, ok: false, error: `Unknown method "${method}"`, code: "not-found" }, 404);
     }
+    // Callbacks don't survive JSON. commitStreaming's chunk sink is a no-op
+    // over IPC locally too (output lands in the activity log), so mirror that.
+    if (method === "commitStreaming") args = [args[0], () => {}];
 
     try {
       const result = await withTimeout(

@@ -124,7 +124,11 @@ const consoleProcs = new Map<string, ChildProcess>()
 // Watch one repo's .git for HEAD/ref changes (+ .gitignore edits) and report
 // them debounced. Shared by the active-tab watcher and by the peer server,
 // which watches repos other Git Gud instances are viewing. Returns the stop fn.
-function createRepoWatcher(repoPath: string, onEvent: (kind: 'repo' | 'gitignore') => void): () => void {
+// `worktree: true` additionally watches the working tree itself (recursive,
+// .git and node_modules excluded). The local UI doesn't need it — it refreshes
+// on window focus — but a peer looking at this repo from another machine has
+// no focus event to lean on, so its watcher gets the full picture.
+function createRepoWatcher(repoPath: string, onEvent: (kind: 'repo' | 'gitignore') => void, opts: { worktree?: boolean } = {}): () => void {
   const watchers: fs.FSWatcher[] = []
   let timer: NodeJS.Timeout | null = null
 
@@ -179,6 +183,21 @@ function createRepoWatcher(repoPath: string, onEvent: (kind: 'repo' | 'gitignore
       )
     }
   } catch { /* recursive unsupported or transient — fall back to focus-refresh */ }
+
+  // 3) Working tree (peer watchers only) — any file change outside .git.
+  if (opts.worktree) {
+    try {
+      watchers.push(
+        fs.watch(repoPath, { persistent: false, recursive: true }, (_evt, filename) => {
+          if (!filename) return emit()
+          const f = String(filename)
+          if (f === '.git' || f.startsWith('.git/') || f.startsWith('.git\\')) return
+          if (/(^|[\\/])node_modules([\\/]|$)/.test(f)) return
+          emit()
+        }),
+      )
+    } catch { /* recursive unsupported — refs-only watching still applies */ }
+  }
 
   return () => {
     for (const w of watchers) {
@@ -421,7 +440,7 @@ app.whenReady().then(async () => {
     },
     watchLocalRepo: (repoPath: string, onEvent: (ev: PeerEvent) => void) =>
       createRepoWatcher(repoPath, (kind) =>
-        onEvent(kind === 'repo' ? { type: 'repo-changed', repoPath } : { type: 'gitignore-changed', repoPath })),
+        onEvent(kind === 'repo' ? { type: 'repo-changed', repoPath } : { type: 'gitignore-changed', repoPath }), { worktree: true }),
     onRemoteRepoChanged: (peerRepoPath, kind) => {
       if (peerRepoPath === activeRepoPath) {
         mainWindow?.webContents.send(kind === 'repo' ? 'git:repo-changed' : 'git:gitignore-changed')

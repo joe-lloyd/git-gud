@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   methodAccess,
   refusalMessage,
@@ -17,34 +19,43 @@ import {
   safeEqual,
   rpcActivityKind,
   READ_METHODS,
-  SYNC_METHODS,
+  WRITE_METHODS,
   RESULT_SHAPED_METHODS,
 } from '../../src/main/peer-protocol'
 
 describe('peer-protocol: method access', () => {
-  it('serves reads, gates sync ops, denies everything else', () => {
+  it('serves reads, runs writes on the host, denies the unknown', () => {
     expect(methodAccess('getLog')).toBe('read')
     expect(methodAccess('getStatus')).toBe('read')
-    expect(methodAccess('pull')).toBe('sync')
-    expect(methodAccess('push')).toBe('sync')
-    expect(methodAccess('fetch')).toBe('sync')
-    for (const m of ['reset', 'commit', 'commitStreaming', 'stage', 'rebaseTo', 'clean', 'squashCommits', 'writeFileContent', 'setConfig']) {
+    for (const m of ['pull', 'push', 'fetch', 'stage', 'discardChanges', 'applyPatch', 'commit', 'commitStreaming', 'reset', 'rebaseTo', 'clean', 'squashCommits', 'writeFileContent', 'setConfig']) {
+      expect(methodAccess(m), m).toBe('write')
+    }
+    for (const m of ['git', 'constructor', 'getRepoPath', 'resolveLinearRange', 'nope']) {
       expect(methodAccess(m), m).toBe('denied')
     }
   })
 
-  it('never lets a method be both read and sync', () => {
-    for (const m of READ_METHODS) expect(SYNC_METHODS.has(m), m).toBe(false)
+  it('never lets a method be both read and write', () => {
+    for (const m of READ_METHODS) expect(WRITE_METHODS.has(m), m).toBe(false)
   })
 
-  it('result-shaped methods that are denied are never reads', () => {
+  it('covers every public GitService method (except getRepoPath, which the proxy answers locally)', () => {
+    const src = readFileSync(join(__dirname, '../../src/main/git-service.ts'), 'utf8')
+    const publicMethods = [...src.matchAll(/^  (?:async )?([a-zA-Z]\w*)\(/gm)].map((m) => m[1]).filter((m) => m !== 'constructor')
+    const missing = publicMethods.filter((m) => m !== 'getRepoPath' && !READ_METHODS.has(m) && !WRITE_METHODS.has(m))
+    expect(missing).toEqual([])
+    const stale = [...READ_METHODS, ...WRITE_METHODS].filter((m) => !publicMethods.includes(m))
+    expect(stale).toEqual([])
+  })
+
+  it('result-shaped methods are never reads', () => {
     for (const m of RESULT_SHAPED_METHODS) expect(READ_METHODS.has(m), m).toBe(false)
   })
 
   it('explains refusals differently for read-only shares', () => {
     expect(refusalMessage('pull', true)).toMatch(/read-only/)
-    expect(refusalMessage('pull', false)).toMatch(/isn't available on a remote repository/)
-    expect(refusalMessage('reset', true)).toMatch(/isn't available/) // reset is denied regardless
+    expect(refusalMessage('nope', false)).toMatch(/can't be run on a remote repository/)
+    expect(refusalMessage('nope', true)).toMatch(/can't be run/) // unknown is denied regardless
   })
 
   it('classifies console activity for mirrored RPCs', () => {

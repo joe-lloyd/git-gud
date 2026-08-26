@@ -46,16 +46,27 @@ The host SHALL display a 6-digit pairing code, regenerate it after every success
 - **WHEN** the user revokes a paired device
 - **THEN** that device's next request is answered 401 and it is shown as "access revoked" on the client
 
-### Requirement: Method whitelist and read-only mode
-The host SHALL only execute whitelisted `GitService` methods on behalf of a peer: all read methods always; the sync set (`fetch`, `pull`, `push`, `fastForwardBranch`, `checkout`, `checkoutAutostash`, `createBranch`, `stashSave`, `stashPop`, `stashApply`, `pushTag`) unless the share is set to read-only. Any other method SHALL be refused with a descriptive error and never reach git.
+### Requirement: Method allow-list and read-only mode
+The host SHALL execute any listed `GitService` method on behalf of a peer, against the host's own working tree: every read method always; every write method (staging, discarding, committing, rebasing, branches, tags, stashes, worktrees, fetch/pull/push, config…) unless the share is set to read-only. The lists SHALL be explicit and cover every public `GitService` method (guarded by a test); anything not listed — private helpers, the raw `git` handle, unknown names — SHALL be refused and never reach the service. Callback arguments that cannot cross the wire (`commitStreaming`'s chunk sink) SHALL be replaced host-side with a no-op.
 
-#### Scenario: Refused write
-- **WHEN** a peer requests `reset`
-- **THEN** the host returns `ok:false` with `"reset" isn't available on a remote repository` and runs no git command
+#### Scenario: Remote stage
+- **WHEN** a peer requests `stage(["README.md"])`
+- **THEN** the host stages `README.md` in its working tree and the peer's next `getStatus` shows it staged
+
+#### Scenario: Refused unknown method
+- **WHEN** a peer requests `resolveLinearRange`
+- **THEN** the host returns `ok:false` with `"resolveLinearRange" can't be run on a remote repository` and runs no git command
 
 #### Scenario: Read-only share
-- **WHEN** read-only is enabled and a peer requests `pull`
+- **WHEN** read-only is enabled and a peer requests `pull` or `stage`
 - **THEN** the request is refused with a message naming read-only mode
+
+### Requirement: Working-tree change events for peers
+While a peer is subscribed to a repository, the host SHALL watch that repository's working tree (recursively, excluding `.git/` and `node_modules/`) in addition to refs/HEAD, debounce bursts, and emit `repo-changed` so the peer's view updates within about a second of an edit on the host — without any focus event on the peer.
+
+#### Scenario: Edit on host
+- **WHEN** a file in a shared repository is modified on the host while a peer has that repo open
+- **THEN** the peer receives `repo-changed` within ~1 s and refreshes its status
 
 ### Requirement: Repository allow-list
 The host SHALL only serve repositories that are in its open tabs or recent-projects list. `listRepos` returns exactly that set; RPC against any other path is refused.

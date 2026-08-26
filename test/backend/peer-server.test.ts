@@ -13,7 +13,7 @@ import { generateSelfSigned } from '../../src/main/peer-tls'
 
 // Integration: a real PeerServer fronting a real GitService, talked to over
 // loopback by the real PeerConnection + RemoteRepoProxy. Covers pairing,
-// auth, the method whitelist, read-only mode, repo allow-listing, SSE events
+// auth, the method allow-list, read-only mode, repo allow-listing, SSE events
 // and proxy result shaping — the whole path main relies on.
 
 describe('peer server ⇄ client over loopback', () => {
@@ -124,17 +124,32 @@ describe('peer server ⇄ client over loopback', () => {
       expect(branches.local.map((b) => b.name).sort()).toEqual(['feature', 'main'])
     })
 
-    it('denies non-whitelisted methods without running git', async () => {
-      await expect(conn.rpc(repo, 'reset', ['HEAD~1', 'hard'])).rejects.toMatchObject({ code: 'forbidden-method' })
-      await expect(conn.rpc(repo, 'commitStreaming', [{ subject: 'x' }])).rejects.toMatchObject({ code: 'forbidden-method' })
-      const log = await conn.rpc<unknown[]>(repo, 'getLog', [50])
-      expect(log).toHaveLength(1)
+    it('runs working-tree writes on the host (stage / discard / commitStreaming)', async () => {
+      writeFileSync(join(repo, 'a.txt'), 'changed\n')
+      await conn.rpc(repo, 'stage', [['a.txt']])
+      let st = await conn.rpc<{ staged: Array<{ path: string }> }>(repo, 'getStatus', [])
+      expect(st.staged.map((f) => f.path)).toEqual(['a.txt'])
+      // commitStreaming's callback arg can't cross the wire — host substitutes a no-op
+      const r = await conn.rpc<{ success: boolean }>(repo, 'commitStreaming', [{ subject: 'remote commit' }])
+      expect(r.success).toBe(true)
+      const log = await conn.rpc<Array<{ message: string }>>(repo, 'getLog', [50])
+      expect(log[0].message).toBe('remote commit')
+      writeFileSync(join(repo, 'a.txt'), 'scratch\n')
+      await conn.rpc(repo, 'discardChanges', [['a.txt'], { staged: false }])
+      st = await conn.rpc<{ unstaged: unknown[]; staged: unknown[] }>(repo, 'getStatus', [])
+      expect(st.unstaged).toHaveLength(0)
     })
 
-    it('gates sync ops behind read-only', async () => {
+    it('denies unknown / private methods without touching the service', async () => {
+      await expect(conn.rpc(repo, 'resolveLinearRange', [[]])).rejects.toMatchObject({ code: 'forbidden-method' })
+      await expect(conn.rpc(repo, 'git', [])).rejects.toMatchObject({ code: 'forbidden-method' })
+    })
+
+    it('gates all writes behind read-only', async () => {
       readOnly = true
       try {
         await expect(conn.rpc(repo, 'checkout', ['feature'])).rejects.toMatchObject({ code: 'read-only' })
+        await expect(conn.rpc(repo, 'stage', [['a.txt']])).rejects.toMatchObject({ code: 'read-only' })
       } finally { readOnly = false }
       // Allowed again: a real checkout runs on the host.
       const r = await conn.rpc<{ success: boolean }>(repo, 'checkout', ['feature'])
@@ -180,19 +195,21 @@ describe('peer server ⇄ client over loopback', () => {
       expect(wts[0].path).toBe(peerPath)
       expect(wts[0].isMain).toBe(true)
 
-      // Result-shaped handler → object, never a throw.
-      const r = await proxy.rebaseTo('HEAD~1')
-      expect(r).toMatchObject({ success: false })
-      expect(String(r.error)).toMatch(/isn't available on a remote repository/)
-
-      // try/catch-wrapped handler → throw.
-      await expect(proxy.stage(['a.txt'])).rejects.toThrow(/isn't available/)
+      // Refusals (read-only here) are shaped per method: result-shaped
+      // handlers get an object, try/catch-wrapped handlers get a throw.
+      readOnly = true
+      try {
+        const r = await proxy.pull({})
+        expect(r).toMatchObject({ success: false })
+        expect(String(r.error)).toMatch(/read-only/)
+        await expect(proxy.stage(['a.txt'])).rejects.toThrow(/read-only/)
+      } finally { readOnly = false }
 
       // svc['git'] reach-ins don't resolve to a remote call.
       expect(proxy.git).toBeUndefined()
 
       expect(activity.some((a) => a.args[1] === 'getWorktrees' && a.kind === 'read' && !a.failed)).toBe(true)
-      expect(activity.some((a) => a.args[1] === 'rebaseTo' && a.failed)).toBe(true)
+      expect(activity.some((a) => a.args[1] === 'pull' && a.failed)).toBe(true)
     })
 
     it('revocation on the host turns into 401 → revoked status', async () => {
