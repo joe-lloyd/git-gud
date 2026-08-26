@@ -14,6 +14,13 @@ on:
 permissions:
   contents: write  # needed for electron-builder to create the GitHub Release
 
+# Tags with a prerelease suffix (v1.11.0-dev.0, from `pnpm release:dev`) are
+# published as GitHub *pre-releases*: the "latest" feed the updaters read
+# skips them, so stable users never receive a dev build. electron-builder
+# reads EP_PRE_RELEASE to decide.
+env:
+  EP_PRE_RELEASE: ${{ contains(github.ref_name, '-') }}
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
@@ -83,7 +90,13 @@ jobs:
                 ;;
             esac
           done
-          gh release edit "$TAG" --repo "$REPO" --notes "## Downloads
+          DEV_NOTE=""
+          if [[ "$VERSION" == *-* ]]; then
+            DEV_NOTE="> **Dev build** — a pre-release for testing. It never auto-updates and stable installs never see it. To return to stable, install the latest normal release by hand.
+
+          "
+          fi
+          gh release edit "$TAG" --repo "$REPO" --notes "${DEV_NOTE}## Downloads
 
           | Platform | File |
           | --- | --- |

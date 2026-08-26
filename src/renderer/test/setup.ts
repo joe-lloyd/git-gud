@@ -1,6 +1,11 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
 
+// Main-process integration tests opt into `// @vitest-environment node`, where
+// there is no window. The preload mocks below are irrelevant there — give them
+// a harmless target so this shared setup file still loads.
+if (typeof (globalThis as any).window === 'undefined') (globalThis as any).window = globalThis
+
 // Mock the globally injected GitHub and Git API object from Preload layer
 Object.defineProperty(window, 'gitApi', {
   value: {
@@ -102,6 +107,24 @@ Object.defineProperty(window, 'gerritApi', {
     setAuth: vi.fn().mockResolvedValue({ success: true }),
     clearAuth: vi.fn().mockResolvedValue(true),
     authStatus: vi.fn().mockResolvedValue(false),
+  }
+})
+
+Object.defineProperty(window, 'peerApi', {
+  value: {
+    getState: vi.fn().mockResolvedValue(null),
+    onState: vi.fn(() => () => {}),
+    setServer: vi.fn().mockResolvedValue(null),
+    regenerateCode: vi.fn().mockResolvedValue('000000'),
+    revokeDevice: vi.fn().mockResolvedValue(true),
+    probe: vi.fn().mockResolvedValue({ success: false, error: 'n/a' }),
+    pair: vi.fn().mockResolvedValue({ success: false, error: 'n/a' }),
+    connect: vi.fn().mockResolvedValue(true),
+    disconnect: vi.fn().mockResolvedValue(true),
+    forget: vi.fn().mockResolvedValue([]),
+    listRepos: vi.fn().mockResolvedValue({ success: true, repos: [] }),
+    repoPath: vi.fn(async (id: string, p: string) => `gitgud-peer://${id}/${p.replace(/^\/+/, '')}`),
+    statusFor: vi.fn().mockResolvedValue(null),
   }
 })
 

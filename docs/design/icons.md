@@ -102,6 +102,7 @@ marks in the console log (`↳`, `$`), and the graph's `◆` stash badge.
 |---|---|---|
 | `terminal` | console window | Toggle bottom console dock |
 | `settings` | gear | Settings modal |
+| `peer` | two linked nodes | Another Git Gud instance: peer tabs, Peers modal, banner, "Connect to a Peer…" |
 | `github` | octocat (filled) | GitHub panel |
 
 ## Adding an icon

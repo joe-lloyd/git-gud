@@ -181,3 +181,13 @@ details[open] > summary .sb-chevron { transform: rotate(90deg); }
 .sb-remote-icon { font-size: 11px; flex-shrink: 0; }
 .sb-remote-name { font-weight: 600; flex: 1; }
 .sb-remote-body { padding-bottom: 2px; }
+
+/* Repo header as machine picker: "machine : repo" when the repo lives on a peer. */
+.sb-repo-name .sb-repo-caret { margin-left: auto; color: var(--text-muted); display: inline-flex; flex-shrink: 0; }
+.sb-repo-machine { color: var(--accent); font-weight: 600; max-width: 45%; }
+.sb-repo-sep { color: var(--text-muted); font-weight: 400; margin: 0 -2px; }
+.sb-repo-remote .sb-repo-icon { color: var(--accent); }
+.sb-repo-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--text-muted); }
+.sb-repo-dot-connected { background: var(--success); box-shadow: 0 0 5px rgba(104,211,145,.6); }
+.sb-repo-dot-connecting { background: var(--warning); }
+.sb-repo-dot-revoked { background: var(--danger); }

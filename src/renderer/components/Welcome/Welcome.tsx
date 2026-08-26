@@ -4,11 +4,12 @@ interface WelcomeProps {
   onOpen: () => void
   onClone: () => void
   onSelectRecent: (path: string) => void
+  onConnectPeer: () => void
 }
 
 const RECENT_CAP = 10
 
-export function Welcome({ onOpen, onClone, onSelectRecent }: WelcomeProps) {
+export function Welcome({ onOpen, onClone, onSelectRecent, onConnectPeer }: WelcomeProps) {
   const [recent, setRecent] = React.useState<string[]>([])
   React.useEffect(() => { window.gitApi.getRecentProjects().then(setRecent) }, [])
 
@@ -60,6 +61,9 @@ export function Welcome({ onOpen, onClone, onSelectRecent }: WelcomeProps) {
         </button>
         <button className="btn btn-ghost" style={{ fontSize: 14, padding: '10px 24px' }} onClick={onClone}>
           Clone from Remote…
+        </button>
+        <button className="btn btn-ghost" style={{ fontSize: 14, padding: '10px 24px' }} onClick={onConnectPeer} title="Browse repositories on another machine running Git Gud">
+          Connect to a Peer…
         </button>
       </div>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>⌘O to open · ⌘F to search · ⌘R to refresh</p>

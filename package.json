@@ -21,7 +21,8 @@
     "release": "bash scripts/release.sh",
     "release:major": "bash scripts/bump-release.sh major",
     "release:minor": "bash scripts/bump-release.sh minor",
-    "release:patch": "bash scripts/bump-release.sh patch"
+    "release:patch": "bash scripts/bump-release.sh patch",
+    "release:dev": "bash scripts/bump-release.sh dev"
   },
   "dependencies": {
     "@octokit/rest": "^19.0.13",

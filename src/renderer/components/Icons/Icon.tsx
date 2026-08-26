@@ -310,6 +310,15 @@ const defs = {
       <path d="M7 9l3 3-3 3M13 15h4" />
     </>,
   },
+  // Another Git Gud instance (peer machine): two linked nodes.
+  'peer': {
+    paths: <>
+      <rect x="2" y="4" width="8" height="6" rx="1.5" />
+      <rect x="14" y="14" width="8" height="6" rx="1.5" />
+      <path d="M10 7h3a3 3 0 0 1 3 3v4" />
+      <path d="M14 17h-3a3 3 0 0 1-3-3v-4" />
+    </>,
+  },
   'settings': {
     paths: <>
       <circle cx="12" cy="12" r="3" />

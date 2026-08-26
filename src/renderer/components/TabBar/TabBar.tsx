@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Icon } from '../Icons/Icon'
 import './TabBar.css'
 
 // Tabs' own drag payload type — keeps tab drags from ever being read as the
@@ -22,9 +23,11 @@ interface TabBarProps {
   update: { state: 'idle' | 'downloading' | 'ready'; version?: string; percent?: number }
   /** Ready → restart-and-install; otherwise a manual update check. */
   onUpdateAction: () => void
+  /** Name of the peer machine a tab lives on (gitgud-peer:// paths), else null. */
+  peerLabelFor?: (path: string) => string | null
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onReorder, onOpenMenu, onGoHome, appVersion, update, onUpdateAction }) => {
+export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, onClose, onReorder, onOpenMenu, onGoHome, appVersion, update, onUpdateAction, peerLabelFor }) => {
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   // Insertion point while dragging: 0..tabs.length (a gap, not a tab).
   const [dropIdx, setDropIdx] = useState<number | null>(null)
@@ -63,6 +66,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, on
       {tabs.map((path, i) => {
         const name = path.split(/[/\\]/).filter(Boolean).pop() ?? path
         const isActive = path === activePath
+        const peer = peerLabelFor?.(path) ?? null
         // The drop indicator renders on the tab right of the gap; a drop past
         // the last tab renders on the last tab's right edge.
         const indicator = dropIdx === null || dragIdx === null ? ''
@@ -72,8 +76,8 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, on
         return (
           <div
             key={path}
-            className={`tab ${isActive ? 'active' : ''}${dragIdx === i ? ' dragging' : ''}${indicator}`}
-            title={path}
+            className={`tab ${isActive ? 'active' : ''}${dragIdx === i ? ' dragging' : ''}${indicator}${peer ? ' tab-remote' : ''}`}
+            title={peer ? `${name} on ${peer}\n${path}` : path}
             draggable
             onDragStart={(e) => {
               e.dataTransfer.setData(TAB_DRAG_MIME, String(i))
@@ -95,6 +99,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activePath, onActivate, on
               if (e.button === 1) { e.preventDefault(); onClose(path) }
             }}
           >
+            {peer && <span className="tab-peer-icon" aria-label={`on ${peer}`}><Icon name="peer" size={11} /></span>}
             <span className="tab-name truncate">{name}</span>
             <button
               className="tab-close"

@@ -155,3 +155,7 @@
   background: rgba(255,79,195,0.10);
 }
 .tab-version-ready:hover { color: var(--lane-0); background: rgba(255,79,195,0.18); }
+
+/* Remote (peer) tabs — small linked-nodes glyph in the accent color. */
+.tab-peer-icon { display: inline-flex; color: var(--accent); margin-right: 5px; flex-shrink: 0; }
+.tab.tab-remote .tab-name { font-style: italic; }

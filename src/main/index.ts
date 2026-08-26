@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell, safeStorage } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { MacUpdater } from './mac-updater'
 import { basename, join } from 'path'
@@ -10,6 +10,8 @@ import { GitHubService } from './github-service'
 import { ProviderService, type HostedProvider } from './provider-service'
 import { GerritService } from './gerrit-service'
 import { detectGerrit, cookieHeaderForHost, type PushForReviewOptions } from './gerrit-utils'
+import { PeerService } from './peer-service'
+import { isPeerRepoPath, type PeerEvent, type PeerRepoSummary } from './peer-protocol'
 
 // App icon — resources/icon.png is rasterized from icon.svg by scripts/render-icon.cjs.
 // In dev `__dirname` is out/main, in prod it's inside the bundle; both sit one
@@ -26,12 +28,14 @@ const ICON_PATH = join(__dirname, '..', '..', 'resources', 'icon.png')
 const IS_DEV_INSTANCE = !app.isPackaged
 if (IS_DEV_INSTANCE) {
   app.setName('git-gud-dev')
-  app.setPath('userData', join(app.getPath('appData'), 'git-gud-dev'))
+  // GITGUD_USER_DATA lets a second dev instance run with its own state — the
+  // way to exercise peer connections on a single machine.
+  app.setPath('userData', process.env.GITGUD_USER_DATA || join(app.getPath('appData'), 'git-gud-dev'))
 }
 // Version in the frame title: visible in the native title bar on Windows and
 // Linux; macOS runs hiddenInset (no chrome title), so the renderer's tab bar
 // shows a version chip instead.
-const WINDOW_TITLE = `${IS_DEV_INSTANCE ? 'Git Gud (Dev)' : 'Git Gud'} v${app.getVersion()}`
+const WINDOW_TITLE = `${IS_DEV_INSTANCE ? 'Git Gud (Dev)' : /-/.test(app.getVersion()) ? 'Git Gud (Dev build)' : 'Git Gud'} v${app.getVersion()}`
 
 let mainWindow: BrowserWindow | null = null
 // All loaded repos — one GitService per open tab.
@@ -43,6 +47,10 @@ let activeRepoPath: string | null = null
 let githubService: GitHubService | null = null
 let providerService: ProviderService | null = null
 let gerritService: GerritService | null = null
+// Peer connections (other Git Gud instances on the LAN) — see peer-service.ts.
+let peerService: PeerService | null = null
+// Repos served to peers that aren't open as a tab here (lazy, allow-listed).
+const peerServedServices = new Map<string, GitService>()
 
 // Strip ANSI/VT escapes from console + activity output (no terminal emulator).
 // eslint-disable-next-line no-control-regex
@@ -52,6 +60,8 @@ const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
 // background services (e.g. tab validation) don't bleed into the log.
 const emitActivity = (rec: GitActivity) => {
   if (rec.repoPath === activeRepoPath) mainWindow?.webContents.send('git:activity', rec)
+  // Peers viewing this repo see the same command log live.
+  peerService?.broadcastActivity(rec)
 }
 
 // `-c http.<host>.extraheader=…` pairs for every signed-in host — GitHub
@@ -70,8 +80,16 @@ function buildAuthConfigs(): string[] {
 
 // Build a GitService wired for auth + activity logging (one place, all call
 // sites).
-const makeService = (repoPath: string): GitService =>
-  new GitService(repoPath, buildAuthConfigs, emitActivity)
+// A gitgud-peer:// path yields a RemoteRepoProxy instead — a GitService
+// look-alike whose every call runs on the peer (see peer-client.ts).
+const makeService = (repoPath: string): GitService => {
+  if (isPeerRepoPath(repoPath)) {
+    const proxy = peerService?.resolvePeerRepo(repoPath)
+    if (!proxy) throw new Error('Unknown peer — pair with it first.')
+    return proxy as unknown as GitService
+  }
+  return new GitService(repoPath, buildAuthConfigs, emitActivity)
+}
 
 // Derive a default folder name from a clone URL: strip query/fragment and
 // trailing slashes, take the last path segment (handles both https and
@@ -102,33 +120,12 @@ function extractCloneError(out: string): string {
 
 // In-flight command-console children, keyed by run id, so they can be cancelled.
 const consoleProcs = new Map<string, ChildProcess>()
-let repoWatchers: fs.FSWatcher[] = []
-let repoChangeTimer: NodeJS.Timeout | null = null
-
-function stopRepoWatchers() {
-  for (const w of repoWatchers) {
-    try { w.close() } catch { /* ignore */ }
-  }
-  repoWatchers = []
-  if (repoChangeTimer) { clearTimeout(repoChangeTimer); repoChangeTimer = null }
-}
-
-// Activate (or create) the GitService for a repo path. Flips the watcher to
-// follow this path. Used by tab-switching and by initial open.
-function activateRepo(repoPath: string): GitService {
-  let svc = services.get(repoPath)
-  if (!svc) {
-    svc = makeService(repoPath)
-    services.set(repoPath, svc)
-  }
-  gitService = svc
-  activeRepoPath = repoPath
-  startRepoWatchers(repoPath)
-  return svc
-}
-
-function startRepoWatchers(repoPath: string) {
-  stopRepoWatchers()
+// Watch one repo's .git for HEAD/ref changes (+ .gitignore edits) and report
+// them debounced. Shared by the active-tab watcher and by the peer server,
+// which watches repos other Git Gud instances are viewing. Returns the stop fn.
+function createRepoWatcher(repoPath: string, onEvent: (kind: 'repo' | 'gitignore') => void): () => void {
+  const watchers: fs.FSWatcher[] = []
+  let timer: NodeJS.Timeout | null = null
 
   // Coalesce bursts (e.g. checkout fires many ref writes) and ignore events that
   // arrive while a refresh is in flight — those are echoes of our own reads.
@@ -137,21 +134,19 @@ function startRepoWatchers(repoPath: string) {
   let busyUntil = 0
   const emit = () => {
     if (Date.now() < busyUntil) return
-    if (repoChangeTimer) clearTimeout(repoChangeTimer)
-    repoChangeTimer = setTimeout(() => {
-      repoChangeTimer = null
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
       busyUntil = Date.now() + 1500  // suppress echoes from the refresh that follows
-      mainWindow?.webContents.send('git:repo-changed')
+      onEvent('repo')
     }, 500)
   }
 
   // 1) Repo root — .gitignore changes (kept for back-compat)
   try {
-    repoWatchers.push(
+    watchers.push(
       fs.watch(repoPath, { persistent: false }, (_evt, filename) => {
-        if (filename && filename.endsWith('.gitignore')) {
-          mainWindow?.webContents.send('git:gitignore-changed')
-        }
+        if (filename && filename.endsWith('.gitignore')) onEvent('gitignore')
       }),
     )
   } catch { /* repo root unwatchable — ignore */ }
@@ -168,7 +163,7 @@ function startRepoWatchers(repoPath: string) {
   const SENTINELS = new Set(['HEAD', 'packed-refs', 'MERGE_HEAD', 'ORIG_HEAD'])
   try {
     if (fs.existsSync(gitDir) && fs.statSync(gitDir).isDirectory()) {
-      repoWatchers.push(
+      watchers.push(
         fs.watch(gitDir, { persistent: false }, (_evt, filename) => {
           if (filename && SENTINELS.has(filename.replace(/\.lock$/, ''))) emit()
         }),
@@ -178,11 +173,48 @@ function startRepoWatchers(repoPath: string) {
   const refsDir = join(gitDir, 'refs')
   try {
     if (fs.existsSync(refsDir)) {
-      repoWatchers.push(
+      watchers.push(
         fs.watch(refsDir, { persistent: false, recursive: true }, () => emit()),
       )
     }
   } catch { /* recursive unsupported or transient — fall back to focus-refresh */ }
+
+  return () => {
+    for (const w of watchers) {
+      try { w.close() } catch { /* ignore */ }
+    }
+    if (timer) { clearTimeout(timer); timer = null }
+  }
+}
+
+let stopActiveWatcher: (() => void) | null = null
+
+function stopRepoWatchers() {
+  stopActiveWatcher?.()
+  stopActiveWatcher = null
+}
+
+function startRepoWatchers(repoPath: string) {
+  stopRepoWatchers()
+  // Remote repos: change events arrive over the peer stream instead.
+  if (isPeerRepoPath(repoPath)) return
+  stopActiveWatcher = createRepoWatcher(repoPath, (kind) => {
+    mainWindow?.webContents.send(kind === 'repo' ? 'git:repo-changed' : 'git:gitignore-changed')
+  })
+}
+
+// Activate (or create) the GitService for a repo path. Flips the watcher to
+// follow this path. Used by tab-switching and by initial open.
+function activateRepo(repoPath: string): GitService {
+  let svc = services.get(repoPath)
+  if (!svc) {
+    svc = makeService(repoPath)
+    services.set(repoPath, svc)
+  }
+  gitService = svc
+  activeRepoPath = repoPath
+  startRepoWatchers(repoPath)
+  return svc
 }
 
 function createWindow(): void {
@@ -225,11 +257,26 @@ function createWindow(): void {
 // macOS uses the custom MacUpdater: the app ships unsigned (identity: null)
 // and electron-updater's Squirrel.Mac path refuses to swap unsigned bundles —
 // its "restart" silently did nothing. Windows/Linux stay on electron-updater.
+// A "dev release" is a packaged build whose version carries a prerelease
+// tag (v1.11.0-dev.0, cut with `pnpm release:dev`). It is published as a
+// GitHub *pre-release*, so stable installs never see it — and it never
+// updates itself either, so a test build stays exactly what you installed
+// until you replace it by hand.
+const IS_DEV_RELEASE = /-/.test(app.getVersion())
+
 function setupAutoUpdater(): void {
   // Version display works everywhere, including dev.
   ipcMain.handle('app:version', () => app.getVersion())
 
   if (!app.isPackaged) return  // dev mode
+  if (IS_DEV_RELEASE) {
+    ipcMain.handle('updater:check', async () => ({
+      success: false,
+      error: `v${app.getVersion()} is a dev build — it never auto-updates. Install a stable release from GitHub to go back.`,
+    }))
+    ipcMain.handle('updater:install', () => {})
+    return
+  }
 
   // Mirror updater progress into the frame title so Windows/Linux users see
   // it without any in-app chrome (macOS shows the tab-bar chip instead).
@@ -303,6 +350,102 @@ app.whenReady().then(async () => {
   providerService = new ProviderService()
   gerritService = new GerritService()
   createWindow()
+
+  // ── Peer connections ───────────────────────────────────────────────
+  // Repos this instance will serve to paired peers: open tabs + saved tabs +
+  // recent projects — never an arbitrary path.
+  // Keyed by canonical path so /tmp/x and /private/tmp/x (macOS symlink) or
+  // differently-cased Windows drives don't show up as two repos.
+  const canonicalPath = (p: string): string => { try { return fs.realpathSync.native(p) } catch { return p } }
+  const localRepoAllowList = (): Map<string, boolean> => {
+    const out = new Map<string, boolean>()
+    for (const p of services.keys()) if (!isPeerRepoPath(p)) out.set(canonicalPath(p), true)
+    for (const t of getSavedTabs().tabs) {
+      if (isPeerRepoPath(t.main)) continue
+      const c = canonicalPath(t.main)
+      if (!out.has(c)) out.set(c, false)
+    }
+    for (const p of getRecentProjects()) {
+      if (isPeerRepoPath(p)) continue
+      const c = canonicalPath(p)
+      if (!out.has(c)) out.set(c, false)
+    }
+    return out
+  }
+  const safeCrypter = {
+    encrypt: (plain: string) => safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(plain) : Buffer.from(plain, 'utf8'),
+    decrypt: (data: Buffer) => safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(data) : data.toString('utf8'),
+  }
+  peerService = new PeerService({
+    userDataDir: app.getPath('userData'),
+    crypter: safeCrypter,
+    appVersion: app.getVersion(),
+    listLocalRepos: (): PeerRepoSummary[] =>
+      [...localRepoAllowList()].map(([path, open]) => ({ path, name: basename(path) || path, open })),
+    resolveLocalRepo: async (requested: string) => {
+      const repoPath = canonicalPath(requested)
+      if (!localRepoAllowList().has(repoPath)) return null
+      // Reuse an open tab's service (its watcher + activity already flow).
+      for (const [p, svc] of services) if (!isPeerRepoPath(p) && canonicalPath(p) === repoPath) return svc
+      let svc = peerServedServices.get(repoPath)
+      if (!svc) {
+        svc = new GitService(repoPath, buildAuthConfigs, emitActivity)
+        if (!(await svc.isRepo())) return null
+        peerServedServices.set(repoPath, svc)
+      }
+      return svc
+    },
+    watchLocalRepo: (repoPath: string, onEvent: (ev: PeerEvent) => void) =>
+      createRepoWatcher(repoPath, (kind) =>
+        onEvent(kind === 'repo' ? { type: 'repo-changed', repoPath } : { type: 'gitignore-changed', repoPath })),
+    onRemoteRepoChanged: (peerRepoPath, kind) => {
+      if (peerRepoPath === activeRepoPath) {
+        mainWindow?.webContents.send(kind === 'repo' ? 'git:repo-changed' : 'git:gitignore-changed')
+      }
+    },
+    onActivity: emitActivity,
+    publish: (state) => mainWindow?.webContents.send('peer:state', state),
+    log: (msg) => console.log(msg),
+  })
+  peerService.init().catch((e) => console.error('peer init failed', e))
+
+  ipcMain.handle('peer:get-state', async () => peerService?.getState() ?? null)
+  ipcMain.handle('peer:set-server', async (_event, patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean }) => {
+    if (!peerService) return null
+    return peerService.setServer(patch ?? {})
+  })
+  ipcMain.handle('peer:regenerate-code', async () => peerService?.regenerateCode() ?? '')
+  ipcMain.handle('peer:revoke-device', async (_event, peerId: string) => peerService?.revokeDevice(peerId) ?? false)
+  ipcMain.handle('peer:probe', async (_event, host: string, port: number) => {
+    if (!peerService) return { success: false, error: 'Not available' }
+    try { return { success: true, info: await peerService.probe(host, port) } }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+  ipcMain.handle('peer:pair', async (_event, host: string, port: number, code: string) => {
+    if (!peerService) return { success: false, error: 'Not available' }
+    try { return { success: true, peer: await peerService.pair(host, port, code) } }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+  ipcMain.handle('peer:connect', async (_event, peerId: string) => peerService?.connect(peerId) ?? false)
+  ipcMain.handle('peer:disconnect', async (_event, peerId: string) => { peerService?.disconnect(peerId); return true })
+  // Forget a peer: drops its credentials and every service for its tabs. The
+  // renderer gets the orphaned tab paths back so it can close them.
+  ipcMain.handle('peer:forget', async (_event, peerId: string) => {
+    const dropped = peerService?.forget(peerId) ?? []
+    for (const p of dropped) {
+      services.delete(p)
+      if (activeRepoPath === p) { stopRepoWatchers(); gitService = null; activeRepoPath = null }
+    }
+    return dropped
+  })
+  ipcMain.handle('peer:list-repos', async (_event, peerId: string) => {
+    if (!peerService) return { success: false, error: 'Not available' }
+    try { return { success: true, repos: await peerService.listRepos(peerId) } }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+  ipcMain.handle('peer:repo-path', async (_event, peerId: string, remotePath: string) =>
+    peerService?.makePeerRepoPath(peerId, remotePath) ?? '')
+  ipcMain.handle('peer:status-for', async (_event, peerRepoPath: string) => peerService?.peerStatusFor(peerRepoPath) ?? null)
 
   setupAutoUpdater()
 
@@ -447,7 +590,10 @@ app.whenReady().then(async () => {
   // The renderer passes every path that belonged to the tab (main worktree +
   // any linked worktrees it activated) so their cached services go too.
   ipcMain.handle('git:close-tab', async (_event, repoPath: string, extraPaths: string[] = []) => {
-    for (const p of [repoPath, ...extraPaths]) services.delete(p)
+    for (const p of [repoPath, ...extraPaths]) {
+      services.delete(p)
+      if (isPeerRepoPath(p)) peerService?.dropPeerRepo(p)
+    }
     if (activeRepoPath === repoPath || extraPaths.includes(activeRepoPath ?? '')) {
       stopRepoWatchers()
       gitService = null
@@ -508,6 +654,9 @@ app.whenReady().then(async () => {
     try {
       if (services.has(repoPath)) return true
       const candidate = makeService(repoPath)
+      // A remote tab is restored as long as the peer is *known*; reachability
+      // is checked when it's activated (the tab shows an error state + retry).
+      if (isPeerRepoPath(repoPath)) { services.set(repoPath, candidate); return true }
       const isRepo = await candidate.isRepo()
       if (!isRepo) return false
       services.set(repoPath, candidate)
@@ -560,7 +709,7 @@ app.whenReady().then(async () => {
   // Reveal a folder in the OS file manager (Explorer/Finder). Used by the
   // sidebar repo-name button to open the current project's folder.
   ipcMain.handle('app:show-in-folder', async (_event, path: string) => {
-    if (!path) return false
+    if (!path || isPeerRepoPath(path)) return false
     const err = await shell.openPath(path)
     return err === ''
   })
@@ -995,6 +1144,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('console:run', async (_event, runId: string, cmd: string) => {
     if (!activeRepoPath) return { success: false, error: 'No repository open' }
+    if (isPeerRepoPath(activeRepoPath)) {
+      const msg = 'The command console runs locally — it is not available for a repository on another machine.'
+      mainWindow?.webContents.send('console:output', { runId, stream: 'stderr', chunk: msg + '\n' })
+      mainWindow?.webContents.send('console:output', { runId, done: true, exitCode: null })
+      return { success: false, error: msg }
+    }
     // Windows has no /bin/sh — use cmd.exe (or ComSpec) with /d /s /c there.
     const isWin = process.platform === 'win32'
     const shellBin = isWin
@@ -1249,6 +1404,8 @@ app.whenReady().then(async () => {
   })
 
 })
+
+app.on('before-quit', () => { peerService?.shutdown() })
 
 app.on('window-all-closed', () => {
   stopRepoWatchers()

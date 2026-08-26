@@ -36,6 +36,9 @@ import {
 import { useGitRepo } from './hooks/useGitRepo'
 import { useCommitActions, CommitActionModal } from './hooks/useCommitActions'
 import { useGerrit } from './hooks/useGerrit'
+import { usePeers } from './hooks/usePeers'
+import { PeerModal } from './components/Peers/PeerModal'
+import { isPeerPath, parsePeerPath, peerRepoName } from './lib/peerPath'
 import { useRefVisibility } from './hooks/useRefVisibility'
 import { GerritBanner, GerritEnableModal, PushForReviewModal } from './components/Gerrit/GerritPanel'
 import { GERRIT_OUTDATED_REF_PREFIX } from './lib/refs'
@@ -63,6 +66,7 @@ type AppModal =
   | 'clean'
   | 'gerrit-enable'
   | 'push-for-review'
+  | 'peers'
   | 'confirm-remove-worktree'
   | 'confirm-drop-commits'
   | CommitActionModal['type']  // 'branch-here' | 'tag-here' | 'confirm-reset-hard' | 'interactive-rebase'
@@ -101,6 +105,9 @@ export default function App() {
   // Gerrit mode — everything renders behind gerrit.enabled; non-Gerrit repos
   // see zero UI difference (see openspec/changes/add-gerrit-mode).
   const gerrit = useGerrit(repo.repoPath, repo.commits, repo.methods.refresh)
+  // Other Git Gud instances — sharing state + connections (see peer-service).
+  const peers = usePeers()
+  const activePeer = repo.repoPath && isPeerPath(repo.repoPath) ? peers.peerForPath(repo.repoPath) : null
   // Focus + scroll the graph to a commit (Gerrit jump-to-current etc.).
   const focusCommit = useCallback((sha: string) => {
     setSelectedShas([sha])
@@ -293,8 +300,81 @@ export default function App() {
     openCtx(e, [
       { label: 'Open Local Repository…', icon: 'folder', onClick: () => repo.methods.handleOpenRepo() },
       { label: 'Clone Remote Repository…', icon: 'download', onClick: () => setModal('clone') },
+      { label: 'Connect to a Peer…', icon: 'peer', onClick: () => setModal('peers') },
     ])
   }, [openCtx, repo.methods])
+
+  // ── Repo location menu (sidebar repo header) ────────────────────────
+  // "Where does this repo live?" — every machine that has a repo with this
+  // folder name: this machine (recent projects / the open tab) and each
+  // connected peer's shared repos. Picking one opens that copy; the current
+  // location is marked. Local copies can be revealed in the file manager;
+  // a remote copy can't be opened here, so the entry says where it is.
+  const openRepoLocationMenu = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault()
+    const path = repo.repoPath
+    if (!path) return
+    const name = peerRepoName(path)
+    const here = isPeerPath(path) ? null : path
+    const sameName = (p: string) => peerRepoName(p).toLowerCase() === name.toLowerCase()
+
+    // Local copies: the open tab itself, or a recent project with this name.
+    const recents = await window.gitApi.getRecentProjects().catch(() => [] as string[])
+    const localCopies = here
+      ? [here]
+      : recents.filter((p) => !isPeerPath(p) && sameName(p))
+
+    // Peer copies: ask every connected peer (fast on a LAN; 1.5 s cap so the
+    // menu never hangs on a stalled peer).
+    const connected = (peers.state?.peers ?? []).filter((p) => p.status === 'connected')
+    const peerCopies = (await Promise.all(connected.map(async (p) => {
+      const r = await Promise.race([
+        peers.actions.listRepos(p.peerId),
+        new Promise<{ success: false }>((res) => setTimeout(() => res({ success: false }), 1500)),
+      ])
+      const repos = r.success && 'repos' in r && r.repos ? r.repos.filter((x) => sameName(x.path)) : []
+      return repos.map((x) => ({ peer: p, remotePath: x.path }))
+    }))).flat()
+
+    const current = parsePeerPath(path)
+    const actions: Parameters<typeof openCtx>[1] = []
+    for (const p of localCopies) {
+      const isCurrent = p === path
+      actions.push({
+        label: `This machine : ${name}${isCurrent ? '  ✓' : ''}`,
+        icon: 'branch',
+        disabled: isCurrent,
+        onClick: () => { repo.methods.loadRepo(p) },
+      })
+    }
+    for (const c of peerCopies) {
+      const isCurrent = !!current && current.peerId === c.peer.peerId && current.remotePath === c.remotePath
+      actions.push({
+        label: `${c.peer.name} : ${name}${isCurrent ? '  ✓' : ''}`,
+        icon: 'peer',
+        disabled: isCurrent,
+        onClick: async () => { repo.methods.loadRepo(await window.peerApi.repoPath(c.peer.peerId, c.remotePath)) },
+      })
+    }
+    if (activePeer && !peerCopies.some((c) => c.peer.peerId === activePeer.peerId)) {
+      // Current peer is not connected (offline/revoked) — still show where it is.
+      actions.push({ label: `${activePeer.name} : ${name}  ✓ (${activePeer.status})`, icon: 'peer', disabled: true, onClick: () => {} })
+    }
+    actions.push({ label: '', separator: true, onClick: () => {} })
+    if (here) {
+      actions.push({ label: 'Reveal in file manager', icon: 'folder', onClick: () => { window.uiApi.showInFolder(here) } })
+    } else {
+      actions.push({
+        label: `Lives on ${activePeer?.name ?? 'another machine'} — can't open the folder here`,
+        icon: 'folder', disabled: true, onClick: () => {},
+      })
+      if (activePeer && activePeer.status !== 'connected') {
+        actions.push({ label: 'Retry connection', icon: 'refresh', onClick: () => { peers.actions.connect(activePeer.peerId); repo.methods.refresh() } })
+      }
+    }
+    actions.push({ label: 'Peers…', icon: 'peer', onClick: () => setModal('peers') })
+    openCtx(e, actions)
+  }, [repo.repoPath, repo.methods, peers, activePeer, openCtx])
 
   // ── Smart pull ──────────────────────────────────────────────────────
   // Pulls and reacts to common failure modes:
@@ -1141,6 +1221,7 @@ export default function App() {
         appVersion={appVersion}
         update={updateInfo}
         onUpdateAction={() => { updateInfo.state === 'ready' ? window.gitApi.updaterInstall() : handleCheckUpdates() }}
+        peerLabelFor={peers.peerNameForPath}
       />
 
       <Toolbar
@@ -1245,7 +1326,8 @@ export default function App() {
           onApplyStash={handleApplyStash}
           onCreateBranchFromTag={handleCreateBranchFromTag}
           onOpenRepo={repo.methods.handleOpenRepo}
-          onRevealRepo={() => { if (repo.repoPath) window.uiApi.showInFolder(repo.repoPath) }}
+          onRepoMenu={openRepoLocationMenu}
+          repoMachine={activePeer ? { name: activePeer.name, status: activePeer.status } : null}
           onGoHome={repo.methods.handleGoHome}
           onBranchContextMenu={handleBranchContextMenu}
           onStashContextMenu={handleStashContextMenu}
@@ -1279,7 +1361,7 @@ export default function App() {
 
         <main className="main-content">
           {!repo.repoPath ? (
-            <Welcome onOpen={repo.methods.handleOpenRepo} onClone={() => setModal('clone')} onSelectRecent={repo.methods.loadRepo} />
+            <Welcome onOpen={repo.methods.handleOpenRepo} onClone={() => setModal('clone')} onSelectRecent={repo.methods.loadRepo} onConnectPeer={() => setModal('peers')} />
           ) : repo.loading ? (
             <LoadingState />
           ) : repo.error ? (
@@ -1433,6 +1515,7 @@ export default function App() {
         <SettingsModal
           {...settings}
           onClose={closeModal}
+          peers={peers}
           gerrit={repo.repoPath && gerrit.mode ? {
             mode: gerrit.mode,
             authenticated: gerrit.authenticated,
@@ -1493,6 +1576,18 @@ export default function App() {
             if (r.success) { repo.toast.success('Worktree Removed', wt.name); repo.methods.refresh() }
             else repo.toast.error('Remove Failed', r.error)
           }}
+        />
+      )}
+      {modal === 'peers' && (
+        <PeerModal
+          peers={peers}
+          onClose={() => setModal(null)}
+          onOpenRepo={async (peerId, remotePath) => {
+            const p = await window.peerApi.repoPath(peerId, remotePath)
+            setModal(null)
+            await repo.methods.loadRepo(p)
+          }}
+          onForgotten={(paths) => { for (const p of paths) repo.methods.closeTab(p) }}
         />
       )}
       {modal === 'clone' && (

@@ -565,7 +565,60 @@ const uiApi = {
   showInFolder: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-in-folder', path),
 }
 
+// ── Peers ──────────────────────────────────────────────────────────────────
+// Other Git Gud instances on the LAN. Sharing (host side) is opt-in; a paired
+// peer's repos open as normal tabs whose path is gitgud-peer://<peerId>/<path>
+// and whose reads + sync ops run on that machine. Tokens never reach the
+// renderer — only status.
+
+export type PeerStatus = 'connected' | 'connecting' | 'offline' | 'revoked'
+export type PeerInfo = { peerId: string; name: string; version: string; platform: string; protocol: number }
+export type PeerRepoSummary = { path: string; name: string; open: boolean }
+export type PeerState = {
+  self: { peerId: string; name: string }
+  server: {
+    enabled: boolean
+    running: boolean
+    port: number
+    readOnly: boolean
+    pairingCode: string
+    error: string
+    paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean }>
+  }
+  discovered: Array<{ peerId: string; name: string; address: string; port: number; version: string; known: boolean }>
+  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string }>
+}
+
+const peerApi = {
+  getState: (): Promise<PeerState | null> => ipcRenderer.invoke('peer:get-state'),
+  onState: (cb: (s: PeerState) => void) => {
+    const handler = (_e: unknown, s: PeerState) => cb(s)
+    ipcRenderer.on('peer:state', handler)
+    return () => { ipcRenderer.removeListener('peer:state', handler) }
+  },
+  // Host side
+  setServer: (patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean }): Promise<PeerState | null> =>
+    ipcRenderer.invoke('peer:set-server', patch),
+  regenerateCode: (): Promise<string> => ipcRenderer.invoke('peer:regenerate-code'),
+  revokeDevice: (peerId: string): Promise<boolean> => ipcRenderer.invoke('peer:revoke-device', peerId),
+  // Client side
+  probe: (host: string, port: number): Promise<{ success: boolean; info?: PeerInfo; error?: string }> =>
+    ipcRenderer.invoke('peer:probe', host, port),
+  pair: (host: string, port: number, code: string): Promise<{ success: boolean; peer?: { peerId: string; name: string }; error?: string }> =>
+    ipcRenderer.invoke('peer:pair', host, port, code),
+  connect: (peerId: string): Promise<boolean> => ipcRenderer.invoke('peer:connect', peerId),
+  disconnect: (peerId: string): Promise<boolean> => ipcRenderer.invoke('peer:disconnect', peerId),
+  // Returns the tab paths that belonged to the forgotten peer (close them).
+  forget: (peerId: string): Promise<string[]> => ipcRenderer.invoke('peer:forget', peerId),
+  listRepos: (peerId: string): Promise<{ success: boolean; repos?: PeerRepoSummary[]; error?: string }> =>
+    ipcRenderer.invoke('peer:list-repos', peerId),
+  repoPath: (peerId: string, remotePath: string): Promise<string> => ipcRenderer.invoke('peer:repo-path', peerId, remotePath),
+  statusFor: (peerRepoPath: string): Promise<{ name: string; status: PeerStatus; error: string } | null> =>
+    ipcRenderer.invoke('peer:status-for', peerRepoPath),
+}
+
 contextBridge.exposeInMainWorld('gitApi', gitApi)
+contextBridge.exposeInMainWorld('peerApi', peerApi)
 contextBridge.exposeInMainWorld('githubApi', githubApi)
 contextBridge.exposeInMainWorld('providerApi', providerApi)
 contextBridge.exposeInMainWorld('gerritApi', gerritApi)
@@ -577,3 +630,4 @@ export type GitHubApi = typeof githubApi
 export type ProviderApi = typeof providerApi
 export type GerritApi = typeof gerritApi
 export type UiApi = typeof uiApi
+export type PeerApi = typeof peerApi

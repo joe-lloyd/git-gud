@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { CommitNode, BranchData, StashInfo, RepoStatus, WorktreeInfo, RemoteInfo, TagInfo, SavedTab, OtherRefNamespace } from '../../preload/index'
 import { useToasts } from '../components/Toast/Toast'
+import { isPeerPath } from '../lib/peerPath'
 
 const EMPTY_BRANCHES: BranchData = { local: [], remote: [] }
 
@@ -38,6 +39,9 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
   const [refreshing, setRefreshing]   = useState(false)
   const refreshCount = useRef(0)
   const logOptionsRef = useRef(logOptions)
+  // The path fetchAll is currently reading — set before the fetch (repoPath
+  // state lags behind) so failures can name the right repo / peer.
+  const fetchPathRef = useRef<string | null>(null)
 
   const toast = useToasts()
 
@@ -112,6 +116,17 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
         ? prev
         : log,
     )
+    // For a peer repo a null status means the peer didn't answer — surface
+    // that instead of quietly rendering an empty graph. Local repos keep the
+    // pre-existing behaviour (null status is tolerated).
+    const p = fetchPathRef.current
+    if (st === null && p && isPeerPath(p)) {
+      const ps = await window.peerApi?.statusFor(p).catch(() => null)
+      const who = ps?.name ?? 'The peer'
+      throw new Error(ps?.status === 'revoked'
+        ? `${who} revoked this machine's access. Pair with it again to reopen the repository.`
+        : `${who} is unreachable — this repository lives on that machine. Retry when it's back online.`)
+    }
     setBranches(branchData)
     setStashes(stashData)
     setTags(tagData)
@@ -129,7 +144,12 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
     setLoading(true); setError(null); setSelectedSha(null)
     try {
       const ok = await window.gitApi.openPath(path)
-      if (!ok) throw new Error('Not a valid Git repository or path does not exist.')
+      if (!ok) {
+        throw new Error(isPeerPath(path)
+          ? 'Could not reach the peer that hosts this repository.'
+          : 'Not a valid Git repository or path does not exist.')
+      }
+      fetchPathRef.current = path
       const main = await resolveMainPath(path)
       await fetchAll()
       window.gitApi.addRecentProject(main)
@@ -162,6 +182,7 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
         ok = await window.gitApi.openPath(target)
       }
       if (!ok) throw new Error(`Tab "${main}" is not loadable.`)
+      fetchPathRef.current = target
       await fetchAll()
       setRepoPath(target)
       setMainPath(main)
@@ -182,6 +203,7 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
     if (!ok) { toast.error('Worktree unavailable', path); return }
     setSelectedSha(null)
     setRepoPath(path)
+    fetchPathRef.current = path
     setOpenTabs((prev) => {
       const next = prev.map((t) => (t.main === mainPath ? { ...t, worktree: path } : t))
       persistTabs(next, mainPath)
@@ -205,6 +227,7 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
             if (!ok) window.gitApi.openPath(fallback.main).catch(() => {})
             setRepoPath(target)
             setMainPath(fallback.main)
+            fetchPathRef.current = target
             fetchAll().catch(() => {})
           })
           persistTabs(next, fallback.main)
@@ -305,7 +328,10 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
         if (!ok) return
         setRepoPath(target.worktree)
         setMainPath(target.main)
-        await fetchAll().catch(() => {})
+        fetchPathRef.current = target.worktree
+        // Surface an unreachable peer as the tab's error state (with Retry)
+        // instead of a silently empty graph; local failures stay quiet as before.
+        await fetchAll().catch((e) => { if (isPeerPath(target.worktree)) setError(String(e)) })
       } finally {
         setLoading(false)
       }

@@ -1,5 +1,5 @@
 // Global type declarations for the preload-exposed gitApi
-import type { GitApi, GitHubApi, ProviderApi, GerritApi, UiApi } from '../preload/index'
+import type { GitApi, GitHubApi, ProviderApi, GerritApi, UiApi, PeerApi } from '../preload/index'
 
 declare global {
   interface Window {
@@ -8,5 +8,6 @@ declare global {
     providerApi: ProviderApi
     gerritApi: GerritApi
     uiApi: UiApi
+    peerApi: PeerApi
   }
 }

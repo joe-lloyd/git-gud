@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { PeersSection } from '../Peers/PeerModal'
+import type { UsePeers } from '../../hooks/usePeers'
 
 // ── Persisted UI settings ──────────────────────────────────────────────────
 // Kept in localStorage and re-applied on every launch. Text scaling uses the
@@ -65,9 +67,11 @@ export interface GerritSettings {
 interface SettingsModalProps extends Settings {
   onClose: () => void
   gerrit?: GerritSettings | null
+  /** Peer sharing (other Git Gud instances) — host-side controls. */
+  peers?: UsePeers | null
 }
 
-export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, onClose, gerrit }: SettingsModalProps) {
+export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, onClose, gerrit, peers }: SettingsModalProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -100,7 +104,7 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
     >
       <div
         className="modal-panel fade-in"
-        style={{ width: 420, padding: 24, background: 'var(--bg-elevated)', borderRadius: 10, border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.5)' }}
+        style={{ width: 460, maxHeight: '86vh', overflowY: 'auto', padding: 24, background: 'var(--bg-elevated)', borderRadius: 10, border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.5)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Settings</h3>
@@ -169,6 +173,9 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
             {gerrit.mode.enabled === true && <GerritSection gerrit={gerrit} row={row} hintText={hintText} />}
           </>
         )}
+
+        {/* Peer sharing — app-wide, lives in userData */}
+        {peers && <PeersSection peers={peers} row={row} labelWrap={labelWrap} labelText={labelText} hintText={hintText} />}
 
         {/* Accent (informational) */}
         <div style={{ ...row, borderBottom: 'none' }}>

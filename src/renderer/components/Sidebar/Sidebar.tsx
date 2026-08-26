@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import type { BranchData, StashInfo, RemoteInfo, TagInfo, BranchInfo, WorktreeInfo } from '../../../preload/index'
+import type { BranchData, StashInfo, RemoteInfo, TagInfo, BranchInfo, WorktreeInfo, PeerStatus } from '../../../preload/index'
 import { REF_DRAG_MIME } from '../Graph/GraphView'
 import { Icon, IconName } from '../Icons/Icon'
 import './Sidebar.css'
@@ -26,7 +26,11 @@ interface SidebarProps {
   onApplyStash: (index: number) => void
   onCreateBranchFromTag: (tagName: string) => void
   onOpenRepo: () => void
-  onRevealRepo: () => void
+  /** The repo header button — opens the "where does this repo live" menu
+   *  (this machine → reveal folder; peers → switch to their copy). */
+  onRepoMenu: (e: React.MouseEvent) => void
+  /** Set when the active repo lives on another Git Gud instance. */
+  repoMachine?: { name: string; status: PeerStatus } | null
   onBranchContextMenu: (e: React.MouseEvent, branchName: string, kind: 'local' | 'remote') => void
   onStashContextMenu: (e: React.MouseEvent, index: number) => void
   onTagContextMenu: (e: React.MouseEvent, tagName: string) => void
@@ -52,7 +56,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onApplyStash,
   onCreateBranchFromTag,
   onOpenRepo,
-  onRevealRepo,
+  onRepoMenu,
+  repoMachine = null,
   onBranchContextMenu,
   onStashContextMenu,
   onTagContextMenu,
@@ -88,9 +93,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="sb-repo">
         {repoName ? (
           <>
-            <button className="sb-repo-name" onClick={onRevealRepo} title={`${repoPath!}\n(click to open folder)`}>
-              <span className="sb-repo-icon"><Icon name="branch" size={13} /></span>
+            <button
+              className={`sb-repo-name ${repoMachine ? 'sb-repo-remote' : ''}`}
+              onClick={onRepoMenu}
+              onContextMenu={onRepoMenu}
+              title={repoMachine
+                ? `${repoName} lives on ${repoMachine.name} (${repoMachine.status})\n${repoPath!}\nClick to pick a machine`
+                : `${repoPath!}\nClick to pick a machine or open the folder`}
+            >
+              <span className="sb-repo-icon"><Icon name={repoMachine ? 'peer' : 'branch'} size={13} /></span>
+              {repoMachine && (
+                <>
+                  <span className={`sb-repo-dot sb-repo-dot-${repoMachine.status}`} aria-label={repoMachine.status} />
+                  <span className="sb-repo-machine truncate">{repoMachine.name}</span>
+                  <span className="sb-repo-sep">:</span>
+                </>
+              )}
               <span className="truncate">{repoName}</span>
+              <span className="sb-repo-caret"><Icon name="chevron-down" size={12} /></span>
             </button>
           </>
         ) : (

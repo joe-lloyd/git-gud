@@ -1,0 +1,35 @@
+# peer-discovery-pairing Specification (delta)
+
+## ADDED Requirements
+
+### Requirement: LAN discovery
+Every instance SHALL listen for discovery beacons on UDP 47832 (with address reuse so several instances on one machine coexist) and present discovered hosts (name, address, port, version, already-paired flag) in the connect modal. Hosts not heard from for 10 s SHALL disappear.
+
+#### Scenario: Host appears
+- **WHEN** a sharing host is on the same broadcast domain
+- **THEN** it is listed in "Connect to a peer…" within 10 s with its device name
+
+#### Scenario: Host leaves
+- **WHEN** the host disables sharing or goes offline
+- **THEN** it is removed from the discovered list within 10 s
+
+### Requirement: Manual connection
+The connect modal SHALL accept `host[:port]` for peers that are not discoverable (other subnet, VPN, broadcast filtered) and probe `/gitgud/info` before asking for the pairing code.
+
+#### Scenario: Unreachable host
+- **WHEN** the probe fails
+- **THEN** the modal shows the connection error inline and does not ask for a code
+
+### Requirement: Pairing handshake
+Pairing SHALL send `{ code, peerId, name }` to `POST /gitgud/pair`; on success the client stores `{ peerId, name, host, port, token }` encrypted with `safeStorage` and the peer becomes "connected". Tokens SHALL never be sent to the renderer.
+
+#### Scenario: Successful pairing
+- **WHEN** the user enters the code shown on the host
+- **THEN** the peer moves to the connected list, the host's code rotates, and the peer's repos are listed
+
+### Requirement: Connection lifecycle
+Known peers SHALL reconnect automatically on launch and after network loss with exponential backoff (1 s → 30 s), expose a status (`connected` / `connecting` / `offline` / `revoked`), and support Disconnect (keep credentials) and Forget (delete credentials and close that peer's tabs).
+
+#### Scenario: Host restarts
+- **WHEN** a connected host goes away and comes back
+- **THEN** the client shows `offline`, then `connected` again without user action, and remote tabs refresh
