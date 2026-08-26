@@ -42,11 +42,19 @@ export type PeerInfo = {
   // SHA-256 fingerprint of the host's TLS certificate (AA:BB:…). Shown to
   // the user on both sides during pairing.
   fingerprint: string;
+  // Host-wide read-only switch (additive; absent on v1.12 hosts).
+  readOnly?: boolean;
 };
 
+// What kind of device is pairing. Hosts default `companion` (phone) devices
+// to read-only; `headless` is the Linux daemon acting as a client (M5 relay).
+export type PeerDeviceKind = "desktop" | "companion" | "headless";
+
 // `proof` = pairingProof(code, hostFingerprint) — see below.
-export type PairRequest = { proof: string; peerId: string; name: string };
-export type PairResponse = { ok: true; token: string; peer: PeerInfo } | { ok: false; error: string };
+export type PairRequest = { proof: string; peerId: string; name: string; kind?: PeerDeviceKind };
+// `readOnly` tells the new device up front whether writes will be refused
+// (per-device flag OR host-wide switch) so UIs can grey out instead of 403.
+export type PairResponse = { ok: true; token: string; peer: PeerInfo; readOnly?: boolean } | { ok: false; error: string };
 
 export type RpcRequest = { id: string; repoPath: string; method: string; args: unknown[] };
 export type RpcResponse =
@@ -178,9 +186,11 @@ export function methodAccess(method: string): MethodAccess {
   return "denied";
 }
 
-export function refusalMessage(method: string, readOnly: boolean): string {
+export function refusalMessage(method: string, readOnly: boolean, scope: "host" | "device" = "host"): string {
   if (readOnly && WRITE_METHODS.has(method)) {
-    return `"${method}" was refused: this share is read-only on the host.`;
+    return scope === "device"
+      ? `"${method}" was refused: this device is read-only on the host.`
+      : `"${method}" was refused: this share is read-only on the host.`;
   }
   return `"${method}" can't be run on a remote repository.`;
 }
@@ -373,4 +383,31 @@ function validPort(p: number): boolean {
 // Activity classification for RPC calls the client mirrors into its console.
 export function rpcActivityKind(method: string): "read" | "write" {
   return READ_METHODS.has(method) ? "read" : "write";
+}
+
+// ── QR pairing payload ──────────────────────────────────────────────────
+// gitgud-peer://pair?v=1&h=<host>&p=<port>&fp=<fingerprint>&c=<code>&alt=<host2,host3>&r=<relay url>
+// Carries everything a new device needs in one scan: where to connect, which
+// certificate to pin BEFORE the first request (no TOFU window) and the code.
+export type PairingQrPayload = { host: string; port: number; fingerprint: string; code: string; alts?: string[]; relay?: string; name?: string };
+
+export function pairingQrPayload(p: PairingQrPayload): string {
+  const q = new URLSearchParams();
+  q.set("v", "1"); q.set("h", p.host); q.set("p", String(p.port));
+  q.set("fp", p.fingerprint.replace(/:/g, "").toUpperCase()); q.set("c", p.code);
+  if (p.alts?.length) q.set("alt", p.alts.join(","));
+  if (p.relay) q.set("r", p.relay);
+  if (p.name) q.set("n", p.name);
+  return `gitgud-peer://pair?${q.toString()}`;
+}
+
+export function parsePairingQr(text: string): PairingQrPayload | null {
+  const m = /^gitgud-peer:\/\/pair\?(.*)$/.exec(text.trim());
+  if (!m) return null;
+  const q = new URLSearchParams(m[1]);
+  const host = q.get("h") ?? "", port = Number(q.get("p") ?? DEFAULT_SERVER_PORT), fpHex = (q.get("fp") ?? "").toUpperCase(), code = q.get("c") ?? "";
+  if (!host || !validPort(port) || !/^[0-9A-F]{64}$/.test(fpHex) || !/^\d{6}$/.test(code)) return null;
+  const fingerprint = fpHex.match(/.{2}/g)!.join(":");
+  const alts = (q.get("alt") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return { host, port, fingerprint, code, alts: alts.length ? alts : undefined, relay: q.get("r") ?? undefined, name: q.get("n") ?? undefined };
 }

@@ -1,0 +1,187 @@
+// The daemon proper: config → PeerStore → PeerServer (+ discovery, control
+// socket). Exported as a function so tests can run it in-process.
+import * as fs from "fs";
+import * as os from "os";
+import { join } from "path";
+import type { Server as NetServer } from "net";
+import { GitService } from "../main/git-service";
+import { PeerDiscovery } from "../main/peer-discovery";
+import { createPeerServerHost, createRepoHost } from "../main/peer-host-core";
+import { PeerServer } from "../main/peer-server";
+import { PeerStore, plainCrypter } from "../main/peer-store";
+import { shortFingerprint } from "../main/peer-tls";
+import { configPath, ensureDirs, loadConfig, resolveBindAddress, type HeadlessConfig, type HeadlessPaths } from "./config";
+import { startControlServer, type ControlRequest } from "./control";
+import type { Logger } from "./log";
+import { ConfigRepoAllowList } from "./repos";
+import { AuditLog } from "./audit";
+
+export interface DaemonOptions {
+  paths: HeadlessPaths;
+  version: string;
+  log: Logger;
+  // Override the file-based config (tests).
+  config?: HeadlessConfig;
+}
+
+export interface RunningDaemon {
+  port: number;
+  bindAddress: string;
+  fingerprint: string;
+  peerId: string;
+  socketPath: string;
+  server: PeerServer;
+  store: PeerStore;
+  requestPairingCode(): { code: string; fingerprint: string; expiresAt: number; addresses: string[] };
+  reload(): void;
+  stop(): Promise<void>;
+}
+
+export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
+  const { paths, log } = opts;
+  ensureDirs(paths);
+  let cfg = opts.config ?? loadConfig(paths);
+
+  const store = new PeerStore(paths.dataDir, plainCrypter);
+  store.updateSettings({ name: cfg.name, port: cfg.port, readOnly: cfg.readOnly, enabled: true });
+  const tls = store.getTls();
+  assertPrivateKeyPerms(join(paths.dataDir, "peer-tls-key.pem"), log);
+
+  const audit = new AuditLog(join(paths.stateDir, "audit.log"));
+  const allow = new ConfigRepoAllowList(() => cfg.repos, () => cfg.scanRoots, (m) => log.level("warn", m));
+  allow.refresh();
+
+  const repos = createRepoHost<GitService>({
+    allowList: () => allow.current(),
+    // No provider tokens on a daemon: the box's own SSH agent / credential
+    // helper authenticates remotes, exactly as `git` in a shell would.
+    factory: (canonical) => new GitService(canonical, () => [], (rec) => {
+      if (rec.kind === "write") audit.write("git-write", { repo: rec.repoPath, args: rec.args.slice(0, 3), failed: rec.failed });
+    }),
+    log: (m) => log(m),
+  });
+
+  // Pairing is closed until the CLI asks for a code; the code then lives for
+  // `pairingWindowMinutes` or one use.
+  let pairingUntil = 0;
+  const pairingOpen = () => Date.now() < pairingUntil;
+
+  const host = createPeerServerHost({
+    store,
+    repos,
+    version: opts.version,
+    platform: "linux-headless",
+    readOnly: () => cfg.readOnly,
+    denyMethods: () => new Set(cfg.denyMethods),
+    pairingOpen,
+    onPaired: (peerId, name) => {
+      pairingUntil = 0; // one code, one pairing
+      audit.write("paired", { peerId: peerId.slice(0, 8), name });
+      log("paired", { peer: name, peerId8: peerId.slice(0, 8) });
+    },
+    log: (m) => log(m),
+  });
+  // Optional peer-id allow-list on top of the code.
+  const baseRegister = host.registerPaired;
+  host.registerPaired = (peerId, name, token, o) => {
+    if (cfg.allowPeerIds.length && !cfg.allowPeerIds.includes(peerId)) {
+      audit.write("pair-refused-allowlist", { peerId: peerId.slice(0, 8), name });
+      throw new Error("This peer id is not on the host's allowPeerIds list");
+    }
+    baseRegister(peerId, name, token, o);
+  };
+
+  const server = new PeerServer(host);
+  const bindAddress = resolveBindAddress(cfg.bind);
+  const port = await server.start(cfg.port, bindAddress, 0);
+  log("serving", { bind: `${bindAddress}:${port}`, readOnly: cfg.readOnly, repos: allow.current().size, fingerprint: shortFingerprint(tls.fingerprint) });
+
+  let discovery: PeerDiscovery | null = null;
+  const applyDiscovery = () => {
+    if (cfg.discovery && !discovery) {
+      discovery = new PeerDiscovery(store.getIdentity().peerId);
+      discovery.on("error", (e) => log.level("warn", `discovery: ${String(e)}`));
+      discovery.start();
+      discovery.setBeacon({ peerId: store.getIdentity().peerId, name: cfg.name, port, version: opts.version });
+    } else if (!cfg.discovery && discovery) {
+      discovery.stop();
+      discovery = null;
+    }
+  };
+  applyDiscovery();
+
+  const addresses = () => {
+    const out: string[] = [];
+    if (bindAddress !== "0.0.0.0" && bindAddress !== "::") out.push(`${bindAddress}:${port}`);
+    else for (const list of Object.values(os.networkInterfaces())) for (const a of list ?? []) if ((a.family === "IPv4" || (a.family as unknown) === 4) && !a.internal) out.push(`${a.address}:${port}`);
+    out.push(`${os.hostname()}:${port}`);
+    return out;
+  };
+
+  const requestPairingCode = () => {
+    const code = server.regenerateCode();
+    pairingUntil = Date.now() + cfg.pairingWindowMinutes * 60_000;
+    audit.write("pairing-code-issued", {});
+    log("pairing window opened", { minutes: cfg.pairingWindowMinutes });
+    return { code, fingerprint: tls.fingerprint, expiresAt: pairingUntil, addresses: addresses() };
+  };
+
+  const reload = () => {
+    try {
+      if (!opts.config) cfg = loadConfig(paths);
+      store.updateSettings({ name: cfg.name, readOnly: cfg.readOnly });
+      allow.refresh();
+      repos.prune();
+      applyDiscovery();
+      log("reloaded", { repos: allow.current().size, readOnly: cfg.readOnly });
+    } catch (e) {
+      log.level("error", `reload failed: ${String(e)} — keeping previous config`);
+    }
+  };
+
+  const socketPath = join(paths.runtimeDir, "control.sock");
+  let control: NetServer | null = null;
+  const stop = async () => {
+    discovery?.stop();
+    server.stop();
+    await new Promise<void>((r) => (control ? control.close(() => r()) : r()));
+    try { fs.unlinkSync(socketPath); } catch { /* gone */ }
+    log("stopped");
+  };
+  control = await startControlServer(socketPath, async (req: ControlRequest) => {
+    switch (req.cmd) {
+      case "status":
+        return {
+          version: opts.version, peerId: store.getIdentity().peerId, name: cfg.name, bind: `${bindAddress}:${port}`,
+          readOnly: cfg.readOnly, fingerprint: tls.fingerprint, repos: [...allow.current().keys()],
+          paired: store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, kind: d.kind, readOnly: d.readOnly === true, connected: server.connectedDevices().some((c) => c.peerId === d.peerId) })),
+          pairingOpen: pairingOpen(), pairingExpiresAt: pairingUntil || null, configFile: configPath(paths), pid: process.pid,
+        };
+      case "pair": return requestPairingCode();
+      case "devices": return store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, kind: d.kind ?? "desktop", readOnly: d.readOnly === true, createdAt: d.createdAt, lastSeenAt: d.lastSeenAt ?? null }));
+      case "revoke": {
+        const ok = store.revokePaired(req.peerId);
+        if (ok) audit.write("revoked", { peerId: req.peerId.slice(0, 8) });
+        return { revoked: ok };
+      }
+      case "reload": reload(); return { reloaded: true };
+      case "stop": setTimeout(() => { stop().then(() => process.exit(0)); }, 50); return { stopping: true };
+      default: throw new Error(`unknown command`);
+    }
+  });
+
+  return { port, bindAddress, fingerprint: tls.fingerprint, peerId: store.getIdentity().peerId, socketPath, server, store, requestPairingCode, reload, stop };
+}
+
+// Refuse to serve with a group/world-readable private key: the key IS the
+// host's identity for every paired device.
+function assertPrivateKeyPerms(keyFile: string, log: Logger): void {
+  if (process.platform === "win32") return;
+  try {
+    const mode = fs.statSync(keyFile).mode & 0o777;
+    if (mode & 0o077) {
+      fs.chmodSync(keyFile, 0o600);
+      log.level("warn", `tightened permissions on ${keyFile} (was ${mode.toString(8)})`);
+    }
+  } catch { /* store creates it 0600 */ }
+}

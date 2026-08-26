@@ -8,7 +8,9 @@ import {
   makePeerRepoPath,
   pairingProof,
   rpcActivityKind,
+  type PairRequest,
   type PairResponse,
+  type PeerDeviceKind,
   type PeerEvent,
   type PeerInfo,
   type PeerRepoSummary,
@@ -143,12 +145,13 @@ export class PeerConnection extends EventEmitter {
   // to it and the proof binds the code to its fingerprint.
   static async pair(
     host: string, port: number, code: string, self: { peerId: string; name: string }, certPem: string,
-  ): Promise<{ token: string; peer: PeerInfo }> {
+    kind: PeerDeviceKind = "desktop",
+  ): Promise<{ token: string; peer: PeerInfo; readOnly: boolean }> {
     const fingerprint = certFingerprint(certPem);
     const r = await request({
       host, port, path: "/gitgud/pair", method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ proof: pairingProof(code, fingerprint), peerId: self.peerId, name: self.name }),
+      body: JSON.stringify({ proof: pairingProof(code, fingerprint), peerId: self.peerId, name: self.name, kind } satisfies PairRequest),
       ...pinOptions(certPem),
       timeoutMs: PROBE_TIMEOUT_MS,
     });
@@ -156,7 +159,7 @@ export class PeerConnection extends EventEmitter {
     try { body = JSON.parse(r.body) as PairResponse; } catch { /* below */ }
     if (!body) throw new Error(`Pairing failed (${r.status})`);
     if (!body.ok) throw new Error(body.error);
-    return { token: body.token, peer: body.peer };
+    return { token: body.token, peer: body.peer, readOnly: body.readOnly === true };
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────

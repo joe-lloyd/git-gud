@@ -457,7 +457,17 @@ export const PeersSection: React.FC<{
             {s.server.paired.map((d) => (
               <div key={d.peerId} className="peer-paired-row">
                 <StatusDot status={d.connected ? 'connected' : 'offline'} title={d.connected ? 'Connected now' : 'Not connected'} />
-                <span className="truncate" style={{ flex: 1, fontSize: 12 }}>{d.name}</span>
+                <span className="truncate" style={{ flex: 1, fontSize: 12 }}>
+                  {d.name}
+                  {d.kind === 'companion' && <span className="peer-kind-badge" title="Phone / companion app"> phone</span>}
+                  {d.kind === 'headless' && <span className="peer-kind-badge" title="Headless daemon"> daemon</span>}
+                </span>
+                <label
+                  className="peer-ro-toggle"
+                  title={d.readOnly ? 'This device can only read. Untick to let it run writes here.' : 'This device may run writes here (stage, commit, push…). Tick to make it read-only.'}
+                >
+                  <input type="checkbox" checked={d.readOnly} onChange={(e) => peers.actions.setDeviceReadOnly(d.peerId, e.target.checked)} /> read-only
+                </label>
                 <span style={{ ...hintText, whiteSpace: 'nowrap' }}>paired {new Date(d.createdAt).toLocaleDateString()}</span>
                 {confirmRevoke === d.peerId
                   ? <>

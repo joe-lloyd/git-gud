@@ -14,6 +14,7 @@ import {
   refusalMessage,
   safeEqual,
   type PairResponse,
+  type PeerDeviceKind,
   type PeerEvent,
   type PeerInfo,
   type PeerRepoSummary,
@@ -41,7 +42,12 @@ export interface PeerServerHost {
   // Start watching a repo's .git for a subscriber; returns the stop function.
   watchRepo(repoPath: string, onEvent: (ev: PeerEvent) => void): () => void;
   verifyToken(token: string): PairedDevice | null;
-  registerPaired(peerId: string, name: string, token: string): void;
+  registerPaired(peerId: string, name: string, token: string, opts: { kind: PeerDeviceKind; readOnly: boolean }): void;
+  // Methods refused even for writable devices (host policy, e.g. setConfig).
+  denyMethods?(): ReadonlySet<string>;
+  // When present and false, /pair answers 403: the host only accepts pairing
+  // while someone asked for a code (headless daemon: `gitgud-headless pair`).
+  pairingOpen?(): boolean;
   log?(msg: string): void;
 }
 
@@ -53,6 +59,7 @@ export class PeerServer {
   private pairingCode = generatePairingCode();
   private limiter = new PairRateLimiter();
   private clients = new Set<SseClient>();
+  private bind = "0.0.0.0";
 
   constructor(private host: PeerServerHost) {}
 
@@ -80,12 +87,18 @@ export class PeerServer {
     return [...seen.values()];
   }
 
+  get boundAddress(): string {
+    return this.bind;
+  }
+
   // Bind `preferred`, falling back to the next PORT_SEARCH_SPAN ports when
   // busy (a second instance on the same machine is the common case).
-  async start(preferred: number): Promise<number> {
+  // `bind` narrows the listening interface (daemon: loopback / tailscale0).
+  async start(preferred: number, bind = "0.0.0.0", span = PORT_SEARCH_SPAN): Promise<number> {
     if (this.server) return this.port;
+    this.bind = bind;
     let lastErr: unknown = null;
-    for (let p = preferred; p <= preferred + PORT_SEARCH_SPAN; p++) {
+    for (let p = preferred; p <= preferred + span; p++) {
       try {
         this.port = await this.listen(p);
         return this.port;
@@ -108,7 +121,7 @@ export class PeerServer {
       });
       srv.keepAliveTimeout = 65_000;
       srv.on("error", (e) => reject(e));
-      srv.listen(port, "0.0.0.0", () => {
+      srv.listen(port, this.bind, () => {
         srv.removeAllListeners("error");
         srv.on("error", (e) => this.host.log?.(`peer-server: ${String(e)}`));
         this.server = srv;
@@ -162,7 +175,7 @@ export class PeerServer {
     }
 
     if (req.method === "POST" && path === "/gitgud/rpc") {
-      return this.handleRpc(req, res);
+      return this.handleRpc(req, res, device);
     }
     if (req.method === "GET" && path === "/gitgud/events") {
       return this.handleEvents(url, res, device);
@@ -178,6 +191,9 @@ export class PeerServer {
   }
 
   private async handlePair(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (this.host.pairingOpen && !this.host.pairingOpen()) {
+      return this.json(res, 403, { ok: false, error: "Pairing is closed on this host — request a pairing code there first." } satisfies PairResponse);
+    }
     if (this.limiter.isLocked()) {
       return this.json(res, 429, { ok: false, error: "Too many attempts — pairing is locked for a minute." } satisfies PairResponse);
     }
@@ -186,6 +202,8 @@ export class PeerServer {
     const proof = String((body as { proof?: unknown }).proof ?? "");
     const peerId = String((body as { peerId?: unknown }).peerId ?? "");
     const name = String((body as { name?: unknown }).name ?? "").trim() || "Unnamed device";
+    const kindRaw = String((body as { kind?: unknown }).kind ?? "desktop");
+    const kind: PeerDeviceKind = kindRaw === "companion" || kindRaw === "headless" ? kindRaw : "desktop";
     if (!/^[0-9a-f]{8,64}$/.test(peerId)) {
       return this.json(res, 400, { ok: false, error: "Invalid peer id" } satisfies PairResponse);
     }
@@ -198,14 +216,17 @@ export class PeerServer {
       return this.json(res, 401, { ok: false, error: "Wrong pairing code" } satisfies PairResponse);
     }
     const token = generateToken();
-    this.host.registerPaired(peerId, name, token);
+    // Phones are viewers by default; the host's owner can flip it later.
+    const readOnly = kind === "companion";
+    this.host.registerPaired(peerId, name, token, { kind, readOnly });
     // One code, one pairing — rotate so a shoulder-surfed code is useless.
     this.regenerateCode();
-    this.host.log?.(`peer-server: paired with ${name}`);
-    this.json(res, 200, { ok: true, token, peer: this.host.info() } satisfies PairResponse);
+    this.host.log?.(`peer-server: paired with ${name} (${kind})`);
+    const device = this.host.verifyToken(token);
+    this.json(res, 200, { ok: true, token, peer: this.host.info(), readOnly: this.host.readOnly() || device?.readOnly === true } satisfies PairResponse);
   }
 
-  private async handleRpc(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  private async handleRpc(req: http.IncomingMessage, res: http.ServerResponse, device: PairedDevice): Promise<void> {
     const body = (await this.readJson(req)) as Partial<RpcRequest> | null;
     if (!body || typeof body.method !== "string") {
       return this.json(res, 400, { id: String(body?.id ?? ""), ok: false, error: "Bad request", code: "failed" } satisfies RpcResponse);
@@ -223,8 +244,11 @@ export class PeerServer {
     if (access === "denied") {
       return reply({ id, ok: false, error: refusalMessage(method, false), code: "forbidden-method" }, 403);
     }
-    if (access === "write" && this.host.readOnly()) {
-      return reply({ id, ok: false, error: refusalMessage(method, true), code: "read-only" }, 403);
+    if (access === "write" && (this.host.readOnly() || device.readOnly)) {
+      return reply({ id, ok: false, error: refusalMessage(method, true, device.readOnly && !this.host.readOnly() ? "device" : "host"), code: "read-only" }, 403);
+    }
+    if (access === "write" && this.host.denyMethods?.().has(method)) {
+      return reply({ id, ok: false, error: `"${method}" is disabled by policy on this host.`, code: "forbidden-method" }, 403);
     }
 
     const repoPath = typeof body.repoPath === "string" ? body.repoPath : "";

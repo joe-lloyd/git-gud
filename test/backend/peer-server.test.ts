@@ -23,6 +23,8 @@ describe('peer server ⇄ client over loopback', () => {
   let server: PeerServer
   let port: number
   let readOnly = false
+  let denied: string[] = []
+  let pairingOpen = true
   const watchers: Array<(ev: PeerEvent) => void> = []
   const self = { peerId: 'c11e47c11e47c11e', name: 'Client' }
   const tlsId = generateSelfSigned('Host')
@@ -50,7 +52,9 @@ describe('peer server ⇄ client over loopback', () => {
       resolveRepo: async (p) => (p === repo ? svc : null),
       watchRepo: (_p, cb) => { watchers.push(cb); return () => { const i = watchers.indexOf(cb); if (i >= 0) watchers.splice(i, 1) } },
       verifyToken: (t) => store.findByToken(t),
-      registerPaired: (peerId, name, token) => { store.addPaired(peerId, name, token) },
+      registerPaired: (peerId, name, token, opts) => { store.addPaired(peerId, name, token, opts) },
+      denyMethods: () => new Set(denied),
+      pairingOpen: () => pairingOpen,
     }
     server = new PeerServer(host)
     port = await server.start(47900)
@@ -112,6 +116,28 @@ describe('peer server ⇄ client over loopback', () => {
     store.revokePaired('aa3eaa3eaa3eaa3e')
   })
 
+  it('pairing gate: hosts can close /pair until a code is requested', async () => {
+    pairingOpen = false
+    try {
+      await expect(PeerConnection.pair('127.0.0.1', port, server.code, self, tlsId.certPem)).rejects.toThrow(/Pairing is closed/)
+    } finally { pairingOpen = true }
+  })
+
+  it('companion devices pair read-only by default and the pair response says so', async () => {
+    const phone = { peerId: 'c0c0c0c0c0c0c0c0', name: 'Phone' }
+    const r = await PeerConnection.pair('127.0.0.1', port, server.code, phone, tlsId.certPem, 'companion')
+    expect(r.readOnly).toBe(true)
+    expect(store.listPaired().find((d) => d.peerId === phone.peerId)).toMatchObject({ kind: 'companion', readOnly: true })
+    const conn = new PeerConnection(endpoint(r.token), phone)
+    await expect(conn.rpc(repo, 'stage', [['a.txt']])).rejects.toMatchObject({ code: 'read-only' })
+    await expect(conn.rpc(repo, 'stage', [['a.txt']])).rejects.toThrow(/this device is read-only/)
+    expect(await conn.rpc(repo, 'getLog', [5])).toBeTruthy()
+    // owner flips it → writes allowed (no re-pair needed)
+    store.setPairedReadOnly(phone.peerId, false)
+    await expect(conn.rpc(repo, 'unstage', [['a.txt']])).resolves.toBeNull()
+    store.revokePaired(phone.peerId)
+  })
+
   it('rejects RPC without a valid token', async () => {
     const conn = new PeerConnection(endpoint('f'.repeat(64)), self)
     await expect(conn.rpc(repo, 'getLog', [10])).rejects.toMatchObject({ code: 'unauthorized' })
@@ -148,6 +174,14 @@ describe('peer server ⇄ client over loopback', () => {
       await conn.rpc(repo, 'discardChanges', [['a.txt'], { staged: false }])
       st = await conn.rpc<{ unstaged: unknown[]; staged: unknown[] }>(repo, 'getStatus', [])
       expect(st.unstaged).toHaveLength(0)
+    })
+
+    it('policy deny-list refuses listed writes even for writable devices', async () => {
+      denied = ['setConfig']
+      try {
+        await expect(conn.rpc(repo, 'setConfig', ['core.hooksPath', '/tmp/x'])).rejects.toMatchObject({ code: 'forbidden-method' })
+        await expect(conn.rpc(repo, 'setConfig', ['core.hooksPath', '/tmp/x'])).rejects.toThrow(/disabled by policy/)
+      } finally { denied = [] }
     })
 
     it('denies unknown / private methods without touching the service', async () => {

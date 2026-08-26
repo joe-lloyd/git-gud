@@ -1,5 +1,6 @@
 import { PeerStore, type Crypter, type KnownPeer } from "./peer-store";
 import { PeerServer, type PeerServerHost } from "./peer-server";
+import { createPeerServerHost } from "./peer-host-core";
 import { PeerDiscovery } from "./peer-discovery";
 import { PeerConnection, createRemoteRepoProxy, type PeerStatus } from "./peer-client";
 import {
@@ -29,7 +30,7 @@ export type PeerStateSnapshot = {
     pairingCode: string;
     fingerprint: string;
     error: string;
-    paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean }>;
+    paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string }>;
   };
   discovered: Array<{ peerId: string; name: string; address: string; port: number; version: string; known: boolean }>;
   peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string }>;
@@ -63,17 +64,20 @@ export class PeerService {
   constructor(private deps: PeerServiceDeps) {
     this.store = new PeerStore(deps.userDataDir, deps.crypter);
     const identity = () => this.store.getIdentity();
-    const host: PeerServerHost = {
-      info: (): PeerInfo => ({ ...identity(), version: deps.appVersion, platform: process.platform, protocol: PROTOCOL_VERSION, fingerprint: this.store.getTls().fingerprint }),
-      tls: () => this.store.getTls(),
+    const host: PeerServerHost = createPeerServerHost({
+      store: this.store,
+      repos: {
+        listRepos: () => deps.listLocalRepos(),
+        resolveRepo: (p) => deps.resolveLocalRepo(p),
+        watchRepo: (p, cb) => deps.watchLocalRepo(p, cb),
+        prune: () => {},
+      },
+      version: deps.appVersion,
+      platform: process.platform,
       readOnly: () => this.store.getSettings().readOnly,
-      listRepos: () => deps.listLocalRepos(),
-      resolveRepo: (p) => deps.resolveLocalRepo(p),
-      watchRepo: (p, cb) => deps.watchLocalRepo(p, cb),
-      verifyToken: (t) => this.store.findByToken(t),
-      registerPaired: (peerId, name, token) => { this.store.addPaired(peerId, name, token); this.schedulePublish(); },
+      onPaired: () => this.schedulePublish(),
       log: deps.log,
-    };
+    });
     this.server = new PeerServer(host);
     this.discovery = new PeerDiscovery(identity().peerId);
     this.discovery.on("change", () => {
@@ -130,7 +134,7 @@ export class PeerService {
         pairingCode: this.server.isListening ? this.server.code : "",
         fingerprint: this.server.isListening ? this.store.getTls().fingerprint : "",
         error: this.serverError,
-        paired: this.store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, createdAt: d.createdAt, connected: connectedIds.has(d.peerId) })),
+        paired: this.store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, createdAt: d.createdAt, connected: connectedIds.has(d.peerId), readOnly: d.readOnly === true, kind: d.kind ?? "desktop" })),
       },
       discovered: this.discovery.list().map((d) => ({ peerId: d.peerId, name: d.name, address: d.address, port: d.port, version: d.version, known: knownIds.has(d.peerId) })),
       peers: this.store.listKnown().map((k) => {
@@ -162,6 +166,12 @@ export class PeerService {
     const c = this.server.regenerateCode();
     this.schedulePublish();
     return c;
+  }
+
+  setDeviceReadOnly(peerId: string, readOnly: boolean): boolean {
+    const ok = this.store.setPairedReadOnly(peerId, readOnly);
+    if (ok) this.schedulePublish();
+    return ok;
   }
 
   revokeDevice(peerId: string): boolean {

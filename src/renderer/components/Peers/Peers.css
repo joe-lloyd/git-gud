@@ -171,3 +171,6 @@
 .peer-recipe summary:hover { color: var(--text-primary); }
 .peer-recipe ol { margin: 6px 0 6px 18px; padding: 0; }
 .peer-recipe li { margin: 2px 0; }
+
+.peer-kind-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin-left: 6px; }
+.peer-ro-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted); white-space: nowrap; cursor: pointer; }

@@ -12,7 +12,17 @@ import { generateSelfSigned, validateIdentity, certFingerprint, type TlsIdentity
 export type PeerIdentity = { peerId: string; name: string };
 export type PeerSettings = { enabled: boolean; port: number; name: string; readOnly: boolean };
 // A device allowed to connect TO me. Only the SHA-256 of its token is kept.
-export type PairedDevice = { peerId: string; name: string; tokenHash: string; createdAt: number };
+export type PairedDevice = {
+  peerId: string;
+  name: string;
+  tokenHash: string;
+  createdAt: number;
+  // Per-device read-only (companion phones default to true). Host-wide
+  // read-only still applies on top.
+  readOnly?: boolean;
+  kind?: "desktop" | "companion" | "headless";
+  lastSeenAt?: number;
+};
 // A peer I connect TO. `token` is the raw bearer token (encrypted on disk);
 // `certPem` is the host's pinned TLS certificate.
 export type KnownPeer = { peerId: string; name: string; host: string; port: number; token: string; certPem: string; pairedAt: number };
@@ -123,13 +133,39 @@ export class PeerStore {
     return this.paired.map((d) => ({ ...d }));
   }
 
-  addPaired(peerId: string, name: string, token: string): PairedDevice {
-    // Re-pairing the same device replaces its old token.
+  addPaired(peerId: string, name: string, token: string, opts: { readOnly?: boolean; kind?: PairedDevice["kind"] } = {}): PairedDevice {
+    // Re-pairing the same device replaces its old token but keeps an explicit
+    // read-only choice the user made for it earlier.
+    const prev = this.paired.find((d) => d.peerId === peerId);
     this.paired = this.paired.filter((d) => d.peerId !== peerId);
-    const dev: PairedDevice = { peerId, name: name.slice(0, 64), tokenHash: hashToken(token), createdAt: Date.now() };
+    const dev: PairedDevice = {
+      peerId,
+      name: name.slice(0, 64),
+      tokenHash: hashToken(token),
+      createdAt: Date.now(),
+      kind: opts.kind ?? prev?.kind ?? "desktop",
+      readOnly: prev?.readOnly ?? opts.readOnly ?? false,
+    };
     this.paired.push(dev);
     this.writeJson(this.pairedFile, this.paired);
     return { ...dev };
+  }
+
+  setPairedReadOnly(peerId: string, readOnly: boolean): boolean {
+    const d = this.paired.find((x) => x.peerId === peerId);
+    if (!d) return false;
+    d.readOnly = readOnly;
+    this.writeJson(this.pairedFile, this.paired);
+    return true;
+  }
+
+  touchPaired(peerId: string): void {
+    const d = this.paired.find((x) => x.peerId === peerId);
+    if (!d) return;
+    // Throttle disk writes: once a minute is plenty for "last seen".
+    if (d.lastSeenAt && Date.now() - d.lastSeenAt < 60_000) { d.lastSeenAt = Date.now(); return; }
+    d.lastSeenAt = Date.now();
+    this.writeJson(this.pairedFile, this.paired);
   }
 
   revokePaired(peerId: string): boolean {

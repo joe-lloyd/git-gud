@@ -1,0 +1,30 @@
+# systemd user unit for gitgud-headless.
+#   install: cp gitgud-headless.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+#            systemctl --user enable --now gitgud-headless && loginctl enable-linger $USER
+#   reload config: systemctl --user reload gitgud-headless
+[Unit]
+Description=Git Gud headless peer host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/gitgud-headless serve
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=3
+# Hardening — runs as you (never root); needs your repos + ~/.config, ~/.local.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/gitgud-headless %h/.local/state/gitgud-headless %h/.config/gitgud-headless
+# Writable working trees must be listed here when readOnly=false, e.g.:
+# ReadWritePaths=%h/src
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=default.target

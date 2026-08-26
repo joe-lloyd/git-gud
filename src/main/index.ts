@@ -12,6 +12,7 @@ import { ProviderService, type HostedProvider } from './provider-service'
 import { GerritService } from './gerrit-service'
 import { detectGerrit, cookieHeaderForHost, type PushForReviewOptions } from './gerrit-utils'
 import { PeerService } from './peer-service'
+import { canonicalPath, createRepoHost, createRepoWatcher } from './peer-host-core'
 import { isPeerRepoPath, type PeerEvent, type PeerRepoSummary } from './peer-protocol'
 
 // App icon — resources/icon.png is rasterized from icon.svg by scripts/render-icon.cjs.
@@ -51,7 +52,6 @@ let gerritService: GerritService | null = null
 // Peer connections (other Git Gud instances on the LAN) — see peer-service.ts.
 let peerService: PeerService | null = null
 // Repos served to peers that aren't open as a tab here (lazy, allow-listed).
-const peerServedServices = new Map<string, GitService>()
 
 // Strip ANSI/VT escapes from console + activity output (no terminal emulator).
 // eslint-disable-next-line no-control-regex
@@ -124,89 +124,6 @@ const consoleProcs = new Map<string, ChildProcess>()
 // Watch one repo's .git for HEAD/ref changes (+ .gitignore edits) and report
 // them debounced. Shared by the active-tab watcher and by the peer server,
 // which watches repos other Git Gud instances are viewing. Returns the stop fn.
-// `worktree: true` additionally watches the working tree itself (recursive,
-// .git and node_modules excluded). The local UI doesn't need it — it refreshes
-// on window focus — but a peer looking at this repo from another machine has
-// no focus event to lean on, so its watcher gets the full picture.
-function createRepoWatcher(repoPath: string, onEvent: (kind: 'repo' | 'gitignore') => void, opts: { worktree?: boolean } = {}): () => void {
-  const watchers: fs.FSWatcher[] = []
-  let timer: NodeJS.Timeout | null = null
-
-  // Coalesce bursts (e.g. checkout fires many ref writes) and ignore events that
-  // arrive while a refresh is in flight — those are echoes of our own reads.
-  // (`git status` reads can touch .git/index even though we don't watch it; the
-  // ref dir gets bumped on `git log --all` packed-refs reads on some setups.)
-  let busyUntil = 0
-  const emit = () => {
-    if (Date.now() < busyUntil) return
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = null
-      busyUntil = Date.now() + 1500  // suppress echoes from the refresh that follows
-      onEvent('repo')
-    }, 500)
-  }
-
-  // 1) Repo root — .gitignore changes (kept for back-compat)
-  try {
-    watchers.push(
-      fs.watch(repoPath, { persistent: false }, (_evt, filename) => {
-        if (filename && filename.endsWith('.gitignore')) onEvent('gitignore')
-      }),
-    )
-  } catch { /* repo root unwatchable — ignore */ }
-
-  // 2) .git internals — HEAD + refs/ + packed-refs (+ merge/rebase sentinels).
-  // Do NOT watch .git/index or .git/logs — both are touched by read-only ops
-  // (status, log) and would cause infinite refresh loops.
-  //
-  // HEAD and packed-refs are watched via their PARENT directory, not as files:
-  // git updates them by write-to-lock-then-rename, and a file watch dies
-  // silently after the first rename on Windows (and sometimes macOS). A
-  // non-recursive directory watch survives renames.
-  const gitDir = join(repoPath, '.git')
-  const SENTINELS = new Set(['HEAD', 'packed-refs', 'MERGE_HEAD', 'ORIG_HEAD'])
-  try {
-    if (fs.existsSync(gitDir) && fs.statSync(gitDir).isDirectory()) {
-      watchers.push(
-        fs.watch(gitDir, { persistent: false }, (_evt, filename) => {
-          if (filename && SENTINELS.has(filename.replace(/\.lock$/, ''))) emit()
-        }),
-      )
-    }
-  } catch { /* unwatchable — fall back to focus-refresh */ }
-  const refsDir = join(gitDir, 'refs')
-  try {
-    if (fs.existsSync(refsDir)) {
-      watchers.push(
-        fs.watch(refsDir, { persistent: false, recursive: true }, () => emit()),
-      )
-    }
-  } catch { /* recursive unsupported or transient — fall back to focus-refresh */ }
-
-  // 3) Working tree (peer watchers only) — any file change outside .git.
-  if (opts.worktree) {
-    try {
-      watchers.push(
-        fs.watch(repoPath, { persistent: false, recursive: true }, (_evt, filename) => {
-          if (!filename) return emit()
-          const f = String(filename)
-          if (f === '.git' || f.startsWith('.git/') || f.startsWith('.git\\')) return
-          if (/(^|[\\/])node_modules([\\/]|$)/.test(f)) return
-          emit()
-        }),
-      )
-    } catch { /* recursive unsupported — refs-only watching still applies */ }
-  }
-
-  return () => {
-    for (const w of watchers) {
-      try { w.close() } catch { /* ignore */ }
-    }
-    if (timer) { clearTimeout(timer); timer = null }
-  }
-}
-
 let stopActiveWatcher: (() => void) | null = null
 
 function stopRepoWatchers() {
@@ -399,7 +316,6 @@ app.whenReady().then(async () => {
   // recent projects — never an arbitrary path.
   // Keyed by canonical path so /tmp/x and /private/tmp/x (macOS symlink) or
   // differently-cased Windows drives don't show up as two repos.
-  const canonicalPath = (p: string): string => { try { return fs.realpathSync.native(p) } catch { return p } }
   const localRepoAllowList = (): Map<string, boolean> => {
     const out = new Map<string, boolean>()
     for (const p of services.keys()) if (!isPeerRepoPath(p)) out.set(canonicalPath(p), true)
@@ -419,28 +335,24 @@ app.whenReady().then(async () => {
     encrypt: (plain: string) => safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(plain) : Buffer.from(plain, 'utf8'),
     decrypt: (data: Buffer) => safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(data) : data.toString('utf8'),
   }
+  // Shared with the headless daemon (peer-host-core.ts): allow-list →
+  // GitService cache → watchers. The GUI additionally reuses open tabs'
+  // services so their watcher + activity keep flowing.
+  const repoHost = createRepoHost<GitService>({
+    allowList: localRepoAllowList,
+    reuseService: (canonical) => {
+      for (const [p, svc] of services) if (!isPeerRepoPath(p) && canonicalPath(p) === canonical) return svc as GitService
+      return null
+    },
+    factory: (canonical) => new GitService(canonical, buildAuthConfigs, emitActivity),
+  })
   peerService = new PeerService({
     userDataDir: app.getPath('userData'),
     crypter: safeCrypter,
     appVersion: app.getVersion(),
-    listLocalRepos: (): PeerRepoSummary[] =>
-      [...localRepoAllowList()].map(([path, open]) => ({ path, name: basename(path) || path, open })),
-    resolveLocalRepo: async (requested: string) => {
-      const repoPath = canonicalPath(requested)
-      if (!localRepoAllowList().has(repoPath)) return null
-      // Reuse an open tab's service (its watcher + activity already flow).
-      for (const [p, svc] of services) if (!isPeerRepoPath(p) && canonicalPath(p) === repoPath) return svc
-      let svc = peerServedServices.get(repoPath)
-      if (!svc) {
-        svc = new GitService(repoPath, buildAuthConfigs, emitActivity)
-        if (!(await svc.isRepo())) return null
-        peerServedServices.set(repoPath, svc)
-      }
-      return svc
-    },
-    watchLocalRepo: (repoPath: string, onEvent: (ev: PeerEvent) => void) =>
-      createRepoWatcher(repoPath, (kind) =>
-        onEvent(kind === 'repo' ? { type: 'repo-changed', repoPath } : { type: 'gitignore-changed', repoPath }), { worktree: true }),
+    listLocalRepos: () => repoHost.listRepos(),
+    resolveLocalRepo: (requested) => repoHost.resolveRepo(requested),
+    watchLocalRepo: (repoPath, onEvent) => repoHost.watchRepo(repoPath, onEvent),
     onRemoteRepoChanged: (peerRepoPath, kind) => {
       if (peerRepoPath === activeRepoPath) {
         mainWindow?.webContents.send(kind === 'repo' ? 'git:repo-changed' : 'git:gitignore-changed')
@@ -453,6 +365,7 @@ app.whenReady().then(async () => {
   peerService.init().catch((e) => console.error('peer init failed', e))
 
   ipcMain.handle('peer:get-state', async () => peerService?.getState() ?? null)
+  ipcMain.handle('peer:set-device-read-only', async (_event, peerId: string, readOnly: boolean) => peerService?.setDeviceReadOnly(peerId, readOnly) ?? false)
   ipcMain.handle('peer:set-server', async (_event, patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean }) => {
     if (!peerService) return null
     return peerService.setServer(patch ?? {})

@@ -22,7 +22,9 @@
     "release:major": "bash scripts/bump-release.sh major",
     "release:minor": "bash scripts/bump-release.sh minor",
     "release:patch": "bash scripts/bump-release.sh patch",
-    "release:dev": "bash scripts/bump-release.sh dev"
+    "release:dev": "bash scripts/bump-release.sh dev",
+    "build:headless": "vite build --config vite.headless.config.ts && chmod +x out/headless/main.js",
+    "headless": "node out/headless/main.js"
   },
   "dependencies": {
     "@octokit/rest": "^19.0.13",

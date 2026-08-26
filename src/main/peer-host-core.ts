@@ -1,0 +1,200 @@
+// Host-side glue shared by the Electron app and the headless daemon.
+// Electron-free on purpose: everything that actually serves peers lives here
+// or below (peer-server / peer-store / peer-tls / peer-protocol / git-service).
+//
+//   Electron main  ─┐
+//                   ├─► createRepoHost()  ─► PeerServerHost ─► PeerServer
+//   gitgud-headless ┘      (allow-list, GitService cache, watchers)
+import * as fs from "fs";
+import { basename, join } from "path";
+import type { PeerEvent, PeerInfo, PeerRepoSummary } from "./peer-protocol";
+import type { PeerServerHost } from "./peer-server";
+import type { PeerStore } from "./peer-store";
+
+// ── Paths ───────────────────────────────────────────────────────────────
+
+// Canonical form so /tmp/x and /private/tmp/x (macOS) or differently-cased
+// Windows drives never show up as two repos.
+export function canonicalPath(p: string): string {
+  try { return fs.realpathSync.native(p); } catch { return p; }
+}
+
+// ── Repo watcher ────────────────────────────────────────────────────────
+
+export type RepoWatchKind = "repo" | "gitignore";
+
+// Watches a repo's refs/HEAD (+ .gitignore) and, with `worktree: true`, the
+// working tree itself (recursive, .git and node_modules excluded). The local
+// GUI doesn't need the working tree — it refreshes on window focus — but a
+// peer looking at this repo from another machine has no focus event to lean
+// on, so its watcher gets the full picture.
+export function createRepoWatcher(
+  repoPath: string,
+  onEvent: (kind: RepoWatchKind) => void,
+  opts: { worktree?: boolean } = {},
+): () => void {
+  const watchers: fs.FSWatcher[] = [];
+  let timer: NodeJS.Timeout | null = null;
+
+  // Coalesce bursts (a checkout fires many ref writes) and ignore events that
+  // arrive while a refresh is in flight — those are echoes of our own reads.
+  let busyUntil = 0;
+  const emit = () => {
+    if (Date.now() < busyUntil) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      busyUntil = Date.now() + 1500;
+      onEvent("repo");
+    }, 500);
+  };
+
+  // 1) Repo root — .gitignore changes.
+  try {
+    watchers.push(
+      fs.watch(repoPath, { persistent: false }, (_evt, filename) => {
+        if (filename && String(filename).endsWith(".gitignore")) onEvent("gitignore");
+      }),
+    );
+  } catch { /* repo root unwatchable — ignore */ }
+
+  // 2) .git internals — HEAD + refs/ + packed-refs (+ merge/rebase sentinels).
+  // NOT .git/index or .git/logs: read-only ops touch those → refresh loops.
+  // HEAD/packed-refs are watched via their parent dir: git writes them by
+  // lock-then-rename and a file watch dies after the first rename on Windows.
+  const gitDir = join(repoPath, ".git");
+  const SENTINELS = new Set(["HEAD", "packed-refs", "MERGE_HEAD", "ORIG_HEAD"]);
+  try {
+    if (fs.existsSync(gitDir) && fs.statSync(gitDir).isDirectory()) {
+      watchers.push(
+        fs.watch(gitDir, { persistent: false }, (_evt, filename) => {
+          if (filename && SENTINELS.has(String(filename).replace(/\.lock$/, ""))) emit();
+        }),
+      );
+    }
+  } catch { /* unwatchable — fall back to focus-refresh */ }
+  const refsDir = join(gitDir, "refs");
+  try {
+    if (fs.existsSync(refsDir)) {
+      watchers.push(fs.watch(refsDir, { persistent: false, recursive: true }, () => emit()));
+    }
+  } catch { /* recursive unsupported or transient */ }
+
+  // 3) Working tree (peer watchers only).
+  if (opts.worktree) {
+    try {
+      watchers.push(
+        fs.watch(repoPath, { persistent: false, recursive: true }, (_evt, filename) => {
+          if (!filename) return emit();
+          const f = String(filename);
+          if (f === ".git" || f.startsWith(".git/") || f.startsWith(".git\\")) return;
+          if (/(^|[\\/])node_modules([\\/]|$)/.test(f)) return;
+          emit();
+        }),
+      );
+    } catch { /* recursive unsupported — refs-only watching still applies */ }
+  }
+
+  return () => {
+    for (const w of watchers) { try { w.close(); } catch { /* ignore */ } }
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
+}
+
+// ── Repo host: allow-list + GitService cache + watchers ─────────────────
+
+// Anything that quacks like GitService (the server only needs `isRepo`).
+export interface RepoService { isRepo(): Promise<boolean> }
+
+export interface RepoHostDeps<S extends RepoService> {
+  // Canonical path → "open in a tab" flag. Recomputed on every call so the
+  // list follows tabs/recents (GUI) or config/scan (daemon) without wiring.
+  allowList(): Map<string, boolean>;
+  // Reuse an existing service for a canonical path (the GUI's open tabs), or
+  // null to fall through to the factory.
+  reuseService?(canonical: string): S | null;
+  factory(canonical: string): S;
+  log?(msg: string): void;
+}
+
+export interface RepoHost {
+  listRepos(): PeerRepoSummary[];
+  resolveRepo(requested: string): Promise<object | null>;
+  watchRepo(repoPath: string, onEvent: (ev: PeerEvent) => void): () => void;
+  // Drop cached services whose path left the allow-list (daemon reload).
+  prune(): void;
+}
+
+export function createRepoHost<S extends RepoService>(deps: RepoHostDeps<S>): RepoHost {
+  const served = new Map<string, S>();
+  return {
+    listRepos: () => [...deps.allowList()].map(([path, open]) => ({ path, name: basename(path) || path, open })),
+    resolveRepo: async (requested) => {
+      const repoPath = canonicalPath(requested);
+      if (!deps.allowList().has(repoPath)) return null;
+      const reused = deps.reuseService?.(repoPath);
+      if (reused) return reused;
+      let svc = served.get(repoPath);
+      if (!svc) {
+        svc = deps.factory(repoPath);
+        if (!(await svc.isRepo())) return null;
+        served.set(repoPath, svc);
+      }
+      return svc;
+    },
+    watchRepo: (repoPath, onEvent) =>
+      createRepoWatcher(
+        repoPath,
+        (kind) => onEvent(kind === "repo" ? { type: "repo-changed", repoPath } : { type: "gitignore-changed", repoPath }),
+        { worktree: true },
+      ),
+    prune: () => {
+      const allowed = deps.allowList();
+      for (const p of [...served.keys()]) if (!allowed.has(p)) served.delete(p);
+    },
+  };
+}
+
+// ── PeerServerHost from a RepoHost + PeerStore ──────────────────────────
+
+export interface PeerServerHostDeps {
+  store: PeerStore;
+  repos: RepoHost;
+  version: string;
+  platform: string; // "darwin" | "win32" | "linux" | "linux-headless"
+  readOnly(): boolean;
+  // Methods refused even when writable (daemon default: setConfig,
+  // writeFileContent — both can lead to arbitrary exec on the host).
+  denyMethods?(): ReadonlySet<string>;
+  // Daemon: pairing only while a code was requested via the CLI.
+  pairingOpen?(): boolean;
+  onPaired?(peerId: string, name: string): void;
+  log?(msg: string): void;
+}
+
+export function createPeerServerHost(d: PeerServerHostDeps): PeerServerHost {
+  return {
+    info: (): PeerInfo => ({
+      peerId: d.store.getIdentity().peerId,
+      name: d.store.getSettings().name,
+      version: d.version,
+      platform: d.platform,
+      protocol: 1,
+      fingerprint: d.store.getTls().fingerprint,
+      readOnly: d.readOnly(),
+    }),
+    tls: () => d.store.getTls(),
+    readOnly: () => d.readOnly(),
+    denyMethods: d.denyMethods,
+    pairingOpen: d.pairingOpen,
+    listRepos: () => d.repos.listRepos(),
+    resolveRepo: (p) => d.repos.resolveRepo(p),
+    watchRepo: (p, cb) => d.repos.watchRepo(p, cb),
+    verifyToken: (t) => d.store.findByToken(t),
+    registerPaired: (peerId, name, token, opts) => {
+      d.store.addPaired(peerId, name, token, opts);
+      d.onPaired?.(peerId, name);
+    },
+    log: d.log,
+  };
+}

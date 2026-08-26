@@ -67,9 +67,50 @@ jobs:
   # can tell the four real installers from updater plumbing. The Windows
   # Setup-*.exe.blockmap stays: electron-updater uses it for differential
   # updates on Windows.
+  # Single-file Linux daemon (src/headless). Built once on ubuntu, smoke-run,
+  # uploaded next to the installers with a sha256 the install script checks.
+  headless:
+    name: Build headless daemon
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm build:headless
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          test "$(node out/headless/main.js --version)" = "$VERSION"
+          export GITGUD_HEADLESS_HOME=$(mktemp -d)
+          node out/headless/main.js init --repo "$PWD"
+          node out/headless/main.js serve & PID=$!
+          sleep 3
+          curl -sk https://127.0.0.1:47831/gitgud/info | grep -q '"platform":"linux-headless"'
+          node out/headless/main.js status | grep -q '"readOnly": true'
+          node out/headless/main.js pair | grep -q 'Pairing code'
+          kill $PID
+      - name: Upload asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp out/headless/main.js "gitgud-headless-${VERSION}.js"
+          sha256sum "gitgud-headless-${VERSION}.js" > "gitgud-headless-${VERSION}.js.sha256"
+          # The release is created by the electron-builder jobs; wait for it.
+          for i in $(seq 1 30); do gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break; sleep 20; done
+          gh release upload "$GITHUB_REF_NAME" "gitgud-headless-${VERSION}.js" "gitgud-headless-${VERSION}.js.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+
   tidy-release:
     name: Tidy release assets
-    needs: build
+    needs: [build, headless]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,6 +145,7 @@ jobs:
           | macOS — Intel | \`Git-Gud-${VERSION}.dmg\` |
           | Windows | \`Git-Gud-Setup-${VERSION}.exe\` |
           | Linux | \`Git-Gud-${VERSION}.AppImage\` |
+          | Linux headless daemon | \`gitgud-headless-${VERSION}.js\` (+ \`.sha256\`) — \`curl -fsSL https://raw.githubusercontent.com/joe-lloyd/git-gud/main/scripts/install-headless.sh | bash\` |
 
           ### macOS first launch
 
