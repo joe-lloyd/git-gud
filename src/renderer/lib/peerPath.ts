@@ -1,24 +1,10 @@
-// Renderer twin of main/peer-protocol's peer URI helpers (the renderer can't
-// import from main). A repo that lives on another Git Gud instance has a tab
-// path of the form gitgud-peer://<peerId>/<absolute path on that machine>.
+// Peer repo URI helpers for the renderer — the same code the main process
+// and the daemon use, via the shared protocol package (no drift possible).
+import { PEER_URI_SCHEME, isPeerRepoPath, parsePeerRepoPath } from '@gitgud/peer-protocol'
 
-export const PEER_URI_SCHEME = 'gitgud-peer://'
-
-export function isPeerPath(path: string | null | undefined): boolean {
-  return typeof path === 'string' && path.startsWith(PEER_URI_SCHEME)
-}
-
-export function parsePeerPath(path: string): { peerId: string; remotePath: string } | null {
-  if (!isPeerPath(path)) return null
-  const rest = path.slice(PEER_URI_SCHEME.length)
-  const slash = rest.indexOf('/')
-  if (slash <= 0) return null
-  const peerId = rest.slice(0, slash)
-  let remotePath = rest.slice(slash + 1)
-  if (!remotePath) return null
-  if (!/^[A-Za-z]:\//.test(remotePath)) remotePath = '/' + remotePath
-  return { peerId, remotePath }
-}
+export { PEER_URI_SCHEME }
+export const isPeerPath = isPeerRepoPath
+export const parsePeerPath = parsePeerRepoPath
 
 // The folder name shown in tabs / sidebar — same rule as local paths.
 export function peerRepoName(path: string): string {

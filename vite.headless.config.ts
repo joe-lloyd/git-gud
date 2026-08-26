@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import { builtinModules } from 'module'
 import { readFileSync } from 'fs'
+import { resolve } from 'path'
 
 // Bundles src/headless/main.ts → out/headless/main.js: one file, every npm
 // dependency inlined (simple-git and friends), Node built-ins external.
@@ -17,6 +18,7 @@ const noElectron = (): Plugin => ({
 
 export default defineConfig({
   plugins: [noElectron()],
+  resolve: { alias: { '@gitgud/peer-protocol': resolve(__dirname, 'packages/peer-protocol/src/index.ts') } },
   define: { __HEADLESS_VERSION__: JSON.stringify(pkg.version) },
   build: {
     ssr: 'src/headless/main.ts',

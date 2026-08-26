@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PeerRepoSummary, PeerState, PeerStatus } from '../../../preload/index'
+import { parseHostPort } from '@gitgud/peer-protocol'
 import type { UsePeers } from '../../hooks/usePeers'
 import { Icon } from '../Icons/Icon'
 import './Peers.css'
@@ -275,17 +276,6 @@ const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
       {found && <PairForm peers={peers} host={found.host} port={found.port} name={found.name} version={found.version} fingerprint={found.fingerprint} />}
     </div>
   )
-}
-
-function parseHostPort(input: string): { host: string; port: number } | null {
-  const s = input.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '')
-  if (!s) return null
-  const v6 = s.match(/^\[([^\]]+)\](?::(\d+))?$/)
-  if (v6) return { host: v6[1], port: v6[2] ? Number(v6[2]) : 47831 }
-  const parts = s.split(':')
-  if (parts.length === 1) return { host: parts[0], port: 47831 }
-  if (parts.length === 2 && /^\d+$/.test(parts[1])) return { host: parts[0], port: Number(parts[1]) }
-  return null
 }
 
 // ── Paired peer detail: status + repo browser ────────────────────────────────

@@ -1,0 +1,11 @@
+{
+  "name": "@gitgud/peer-protocol",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Git Gud peer wire protocol — pure TypeScript shared by desktop, headless daemon and companion app",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "sideEffects": false
+}

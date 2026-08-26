@@ -1,5 +1,5 @@
 {
-  "include": ["electron.vite.config.*", "vite.headless.config.ts", "src/main/**/*", "src/preload/**/*", "src/headless/**/*", "src/relay/**/*"],
+  "include": ["electron.vite.config.*", "vite.headless.config.ts", "src/main/**/*", "src/preload/**/*", "src/headless/**/*", "src/relay/**/*", "packages/peer-protocol/src/**/*"],
   "compilerOptions": {
     "composite": true,
     "lib": ["ES2022"],
@@ -9,6 +9,7 @@
     "strict": true,
     "skipLibCheck": true,
     "outDir": "out",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": { "@gitgud/peer-protocol": ["./packages/peer-protocol/src/index.ts"] }
   }
 }

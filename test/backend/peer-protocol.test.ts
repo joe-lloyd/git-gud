@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import * as shared from '@gitgud/peer-protocol'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import {
@@ -189,5 +190,15 @@ describe('peer-protocol: isIpLiteral', () => {
   it('tells IP literals from names', () => {
     for (const ip of ['192.168.1.20', '100.101.102.103', '::1', 'fe80::1%en0', '[fe80::1]', '2001:db8::5']) expect(isIpLiteral(ip), ip).toBe(true)
     for (const name of ['studio-pc.tail1234.ts.net', 'my-pc.local', 'localhost', 'box', 'git.example.com']) expect(isIpLiteral(name), name).toBe(false)
+  })
+})
+
+describe('shared package parity', () => {
+  it('main re-exports the pure package unchanged (desktop, daemon and phone agree)', () => {
+    expect([...READ_METHODS].sort()).toEqual([...shared.READ_METHODS].sort())
+    expect([...WRITE_METHODS].sort()).toEqual([...shared.WRITE_METHODS].sort())
+    expect(shared.PROTOCOL_VERSION).toBe(1)
+    expect(shared.parseHostPort('nas.tail1234.ts.net')).toEqual({ host: 'nas.tail1234.ts.net', port: 47831 })
+    expect(Object.keys(shared)).not.toContain('pairingProof') // node-only, deliberately not in the pure package
   })
 })

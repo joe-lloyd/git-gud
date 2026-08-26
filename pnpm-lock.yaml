@@ -76,6 +76,8 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@24.13.3)(jsdom@29.0.1)
 
+  packages/peer-protocol: {}
+
 packages:
 
   7zip-bin@5.2.0:
