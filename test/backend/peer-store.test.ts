@@ -58,7 +58,7 @@ describe('PeerStore', () => {
 
   it('encrypts known peers at rest and round-trips them', () => {
     const s = new PeerStore(dir, xorCrypter)
-    s.upsertKnown({ peerId: 'cccc3333', name: 'Win box', host: '192.168.1.9', port: 47831, token: 'secret-token' })
+    s.upsertKnown({ peerId: 'cccc3333', name: 'Win box', host: '192.168.1.9', port: 47831, token: 'secret-token', certPem: '-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n' })
     const file = join(dir, 'peer-known.json')
     expect(existsSync(file)).toBe(true)
     expect(readFileSync(file).toString('utf8')).not.toContain('secret-token')
@@ -70,9 +70,19 @@ describe('PeerStore', () => {
     expect(again.listKnown()).toEqual([])
   })
 
+  it('generates a TLS identity once and reuses it', () => {
+    const a = new PeerStore(dir)
+    const t1 = a.getTls()
+    expect(t1.certPem).toContain('BEGIN CERTIFICATE')
+    expect(t1.keyPem).toContain('PRIVATE KEY')
+    expect(t1.fingerprint).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)
+    expect(new PeerStore(dir).getTls().fingerprint).toBe(t1.fingerprint)
+    expect(existsSync(join(dir, 'peer-tls-key.pem'))).toBe(true)
+  })
+
   it('survives a corrupt known-peers file', () => {
     const s = new PeerStore(dir, xorCrypter)
-    s.upsertKnown({ peerId: 'cccc3333', name: 'x', host: 'h', port: 1, token: 't' })
+    s.upsertKnown({ peerId: 'cccc3333', name: 'x', host: 'h', port: 1, token: 't', certPem: '-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n' })
     // Read with the wrong crypter → garbage → empty list, no throw.
     expect(new PeerStore(dir).listKnown()).toEqual([])
   })

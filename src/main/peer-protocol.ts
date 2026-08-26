@@ -1,9 +1,16 @@
-import { createHash, randomBytes, randomInt, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "crypto";
 
 // Wire protocol + pure helpers for Git Gud peer connections. Electron-free so
 // it unit-tests without a display and can be reasoned about in one place.
 //
-// Transport is HTTP/1.1 JSON over the LAN:
+// Transport is HTTP/1.1 JSON over TLS on the LAN. Every host has a
+// self-signed certificate (peer-tls.ts); clients learn it on first contact
+// and pin it at pairing — afterwards the pinned cert is the only trusted CA
+// for that peer and its SHA-256 fingerprint must match on every connection.
+// The pairing proof is an HMAC of the host's fingerprint keyed by the code,
+// so the code never travels and a man-in-the-middle presenting its own cert
+// cannot complete a pairing.
+//
 //   GET  /gitgud/info            → PeerInfo                     (no auth)
 //   POST /gitgud/pair            → { token }                    (pairing code)
 //   POST /gitgud/rpc             → RpcResponse                  (bearer token)
@@ -32,9 +39,13 @@ export type PeerInfo = {
   version: string;
   platform: string;
   protocol: number;
+  // SHA-256 fingerprint of the host's TLS certificate (AA:BB:…). Shown to
+  // the user on both sides during pairing.
+  fingerprint: string;
 };
 
-export type PairRequest = { code: string; peerId: string; name: string };
+// `proof` = pairingProof(code, hostFingerprint) — see below.
+export type PairRequest = { proof: string; peerId: string; name: string };
 export type PairResponse = { ok: true; token: string; peer: PeerInfo } | { ok: false; error: string };
 
 export type RpcRequest = { id: string; repoPath: string; method: string; args: unknown[] };
@@ -204,6 +215,14 @@ export function generatePeerId(): string {
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+// Binds a pairing attempt to the certificate the client actually connected
+// to: HMAC-SHA256(key = pairing code, message = cert fingerprint). The host
+// recomputes it with its own code + fingerprint; a MITM with a different
+// cert cannot produce a matching proof even if it captured the code.
+export function pairingProof(code: string, fingerprint: string): string {
+  return createHmac("sha256", code).update(fingerprint.toUpperCase(), "utf8").digest("hex");
 }
 
 // Constant-time string compare — pairing codes and token hashes.

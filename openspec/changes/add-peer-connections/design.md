@@ -21,7 +21,7 @@ Git Gud is Electron: one main process owns a `Map<repoPath, GitService>` and the
 
 ## Decisions
 
-### 1. Transport: HTTP/1.1 JSON-RPC + Server-Sent Events, Node `http` only
+### 1. Transport: HTTPS JSON-RPC + Server-Sent Events, Node `https`/`tls` only
 - `POST /gitgud/rpc` `{ id, repoPath, method, args }` → `{ id, ok, result | error }`.
 - `GET /gitgud/events?repos=a,b` → SSE stream of `repo-changed`, `activity`, `ping`.
 - `GET /gitgud/info`, `POST /gitgud/pair`.
@@ -32,11 +32,12 @@ Git Gud is Electron: one main process owns a `Map<repoPath, GitService>` and the
 - Every enabled host broadcasts `{ t:'gitgud-peer', v:1, peerId, name, port, version }` to `255.255.255.255:47832` every 3 s; every instance listens on 47832 with `reuseAddr` so dev + installed builds coexist on one machine. Entries expire after 10 s.
 - Manual `host:port` always works (different subnets, VPN, broadcast blocked).
 
-### 3. Pairing + auth
-- Host shows a 6-digit code (random, regenerated after each successful pair and on demand). Client `POST /pair { code, peerId, name }` → host verifies (constant-time), issues a 32-byte random token, stores **only its SHA-256** with the client's id/name; client stores the raw token **encrypted with `safeStorage`** (same pattern as `gerrit-auth.json`).
-- 5 failed attempts / minute locks pairing for 60 s.
-- Every RPC/SSE carries `Authorization: Bearer <token>`; the host looks up the hash. Revoking a device deletes the hash → instant 401 on the client, which surfaces as "access revoked".
-- Trade-off: plaintext HTTP means a LAN sniffer can read tokens and repo data. Acceptable for a home network PoC; documented, and the wire format is versioned so TLS can be added without changing the protocol.
+### 3. TLS, pairing + auth (revised 2026-08-26 — secure by default)
+- Every host generates an **EC P-256 key + self-signed X.509 cert** once (`peer-tls.ts`, in-process DER encoder, no openssl, no dependency; key stored 0600 in userData). The server is `https` with `minVersion: TLSv1.2` (TLS 1.3 in practice). Plain HTTP is refused.
+- **Trust on first use + pinning (SSH known_hosts model):** `GET /gitgud/info` is fetched with `rejectUnauthorized:false`, the presented cert is captured and its SHA-256 fingerprint shown to the user; the host also self-reports its fingerprint in the response and a mismatch aborts (something is terminating TLS in between). At pairing the client stores the cert; from then on that cert is the **only CA** for the peer and `checkServerIdentity` additionally requires the exact fingerprint. Session resumption is disabled (`agent:false`) because Node skips the identity check on resumed sessions. A changed cert = hard failure surfaced as "certificate check failed — forget and re-pair".
+- **Pairing proof bound to the certificate:** the client never sends the 6-digit code. It sends `HMAC-SHA256(key=code, msg=hostFingerprint)`; the host recomputes with its own code + fingerprint. A MITM relaying pairing with its own cert makes the client compute the proof over the wrong fingerprint, so the host rejects it even though the code was right. Constant-time compare, 5 failures/min → 60 s lockout, code rotates after every pairing.
+- Tokens: 32 random bytes; host stores only the SHA-256, client stores raw token + pinned cert with `safeStorage`. Revoke = instant 401.
+- Residual exposure: the UDP beacon (name, port, version) is plaintext by design; the very first `/info` is TOFU — an active attacker present *at that exact moment* could present their own cert, which is why the fingerprint is shown on both screens for comparison.
 
 ### 4. Remote repos as a `GitService` look-alike (`RemoteRepoProxy`)
 - A JS `Proxy` whose every property access returns `(...args) => connection.rpc(repoPath, method, args)`. `getRepoPath()` is local. It is stored in the same `services` map and assigned to `gitService`, so **no IPC handler changes** for reads.
@@ -67,7 +68,7 @@ Git Gud is Electron: one main process owns a `Map<repoPath, GitService>` and the
 - A packaged build whose version has a prerelease tag disables its own updater entirely (title "Git Gud (Dev build)", manual check explains). Going back to stable = reinstall by hand.
 
 ## Risks / Trade-offs
-- **Plaintext LAN transport** — see §3. Mitigations: off by default, pairing, hashed tokens at rest, allow-lists.
+- **TOFU window at first contact** — see §3; mitigated by the on-screen fingerprint and the cert-bound pairing proof. Everything after pairing is pinned TLS.
 - **Windows firewall** prompts on first listen — documented in the summary.
 - **Long pulls** hit the 60 s RPC timeout — the operation still completes on the host; the client shows a timeout toast and the next `repo-changed` refreshes the view.
 - **Beacon noise** — one 150-byte datagram every 3 s per host; negligible.

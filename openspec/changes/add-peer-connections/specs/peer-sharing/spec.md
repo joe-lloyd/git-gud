@@ -13,6 +13,21 @@ The system SHALL NOT open any network listener until the user enables "Share wit
 - **WHEN** the user turns sharing on
 - **THEN** the server listens, the settings surface shows the actual port and a 6-digit pairing code, and other instances on the LAN discover the host within 10 s
 
+### Requirement: Encrypted, pinned transport
+All peer traffic SHALL be TLS 1.2+ using a per-host self-signed certificate generated once in-process. Clients SHALL learn the certificate on first contact, display its SHA-256 fingerprint before pairing, pin it at pairing, and thereafter trust only that certificate (with an explicit fingerprint check on every connection). The pairing request SHALL carry an HMAC of the host fingerprint keyed by the pairing code instead of the code itself. Plain HTTP SHALL be refused.
+
+#### Scenario: Fingerprint comparison
+- **WHEN** a client prepares to pair
+- **THEN** it shows the certificate fingerprint it received, which equals the fingerprint the host shows beside its pairing code
+
+#### Scenario: Man-in-the-middle during pairing
+- **WHEN** a relay with a different certificate forwards a pairing attempt with the correct code
+- **THEN** the host rejects it (proof mismatch) and issues no token
+
+#### Scenario: Certificate changes after pairing
+- **WHEN** the pinned peer presents a different certificate
+- **THEN** every connection fails with a certificate error until the user forgets and re-pairs the peer
+
 ### Requirement: Stable identity and device name
 Each instance SHALL generate a random `peerId` once and persist it; the display name defaults to the OS hostname and is editable. Both are advertised in the beacon and `/gitgud/info`.
 

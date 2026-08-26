@@ -1,4 +1,5 @@
 import * as http from "http";
+import * as https from "https";
 import { URL } from "url";
 import {
   MAX_BODY_BYTES,
@@ -9,6 +10,7 @@ import {
   generatePairingCode,
   generateToken,
   methodAccess,
+  pairingProof,
   refusalMessage,
   safeEqual,
   type PairResponse,
@@ -21,13 +23,16 @@ import {
 } from "./peer-protocol";
 import type { PairedDevice } from "./peer-store";
 
-// Host side of a peer connection: a plain Node http server that lets paired
+// Host side of a peer connection: a Node https server (self-signed cert from
+// peer-tls.ts, pinned by clients at pairing) that lets paired
 // Git Gud instances read (and, unless read-only, sync) the repos this instance
 // already knows about. Everything git-related is delegated back to the app
 // through `PeerServerHost` so this file stays free of Electron and GitService.
 
 export interface PeerServerHost {
   info(): PeerInfo;
+  // Key + self-signed cert this host serves (see peer-tls.ts).
+  tls(): { keyPem: string; certPem: string; fingerprint: string };
   readOnly(): boolean;
   listRepos(): PeerRepoSummary[];
   // The GitService for an allowed repo, or null when the path is not on the
@@ -43,7 +48,7 @@ export interface PeerServerHost {
 type SseClient = { res: http.ServerResponse; repos: Set<string>; device: PairedDevice };
 
 export class PeerServer {
-  private server: http.Server | null = null;
+  private server: https.Server | null = null;
   private port = 0;
   private pairingCode = generatePairingCode();
   private limiter = new PairRateLimiter();
@@ -93,7 +98,8 @@ export class PeerServer {
 
   private listen(port: number): Promise<number> {
     return new Promise((resolve, reject) => {
-      const srv = http.createServer((req, res) => {
+      const tls = this.host.tls();
+      const srv = https.createServer({ key: tls.keyPem, cert: tls.certPem, minVersion: "TLSv1.2" }, (req, res) => {
         this.handle(req, res).catch((e) => {
           this.host.log?.(`peer-server: unhandled ${String(e)}`);
           if (!res.headersSent) this.json(res, 500, { ok: false, error: "Internal error" });
@@ -123,7 +129,7 @@ export class PeerServer {
       srv.close();
       // Node keeps idle keep-alive sockets open until they time out —
       // closeAllConnections exists since Node 18.2.
-      (srv as http.Server & { closeAllConnections?: () => void }).closeAllConnections?.();
+      (srv as https.Server & { closeAllConnections?: () => void }).closeAllConnections?.();
     }
   }
 
@@ -177,13 +183,16 @@ export class PeerServer {
     }
     const body = await this.readJson(req);
     if (!body) return this.json(res, 400, { ok: false, error: "Bad request" } satisfies PairResponse);
-    const code = String((body as { code?: unknown }).code ?? "");
+    const proof = String((body as { proof?: unknown }).proof ?? "");
     const peerId = String((body as { peerId?: unknown }).peerId ?? "");
     const name = String((body as { name?: unknown }).name ?? "").trim() || "Unnamed device";
     if (!/^[0-9a-f]{8,64}$/.test(peerId)) {
       return this.json(res, 400, { ok: false, error: "Invalid peer id" } satisfies PairResponse);
     }
-    if (!/^\d{6}$/.test(code) || !safeEqual(code, this.pairingCode)) {
+    // The proof binds the code to OUR certificate: a relay with its own cert
+    // yields a different fingerprint on the client and the HMAC won't match.
+    const expected = pairingProof(this.pairingCode, this.host.tls().fingerprint);
+    if (!/^[0-9a-f]{64}$/.test(proof) || !safeEqual(proof, expected)) {
       this.limiter.recordFailure();
       this.host.log?.(`peer-server: pairing refused for ${name} (${peerId.slice(0, 8)})`);
       return this.json(res, 401, { ok: false, error: "Wrong pairing code" } satisfies PairResponse);

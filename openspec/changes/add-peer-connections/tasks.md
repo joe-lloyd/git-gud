@@ -28,6 +28,12 @@
 - [x] 5.7 Dev release channel: `pnpm release:dev`, `EP_PRE_RELEASE` in CI, updater disabled in prerelease builds
 - [x] 5.6 Renderer `lib/peerPath.ts` twin + tests
 
+## 5b. Secure transport (2026-08-26)
+- [x] 5b.1 `peer-tls.ts`: in-process EC P-256 self-signed X.509 generator + fingerprint helpers; tests prove Node/OpenSSL accept it as a trust anchor and that pinning rejects other certs
+- [x] 5b.2 Server → `https` (TLS 1.2+), pairing verifies `HMAC(code, fingerprint)`; client → pinned `https.request` (cert as sole CA + fingerprint check, no session resumption), TOFU probe returns the cert, fingerprint shown in Pair form and Settings
+- [x] 5b.3 Store: TLS identity files (key 0600), `KnownPeer.certPem`; tests for identity reuse, proof binding, pin mismatch, MITM pairing rejection
+- [x] 5b.4 Live: two instances — TLSv1.3 on the wire, plaintext refused, fingerprints match on both screens, fetch/activity over TLS (15/15 checks)
+
 ## 6. Verification
 - [x] 6.1 `pnpm typecheck` + `pnpm test` green
 - [x] 6.2 Two instances on this machine (dev + second dev userData) pair, browse, open remote tab, fetch — end-to-end

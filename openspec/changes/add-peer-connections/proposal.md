@@ -30,4 +30,4 @@ Git Gud runs against the repositories on the machine it is installed on. A devel
 - **Preload**: new `peerApi` namespace + types.
 - **Renderer**: `usePeers` hook, `PeerModal` (connect / pair / browse repos), Peers section in Settings, `PeerBanner` over remote tabs, peer glyph on tabs, "Connect to a peer…" in the tab "+" menu.
 - **Dependencies**: none added — `http`, `dgram`, `crypto`, `fetch` from Node/Electron.
-- **Grade**: production-grade intent for the git side (same handlers, same GitService); the *transport* is PoC-grade — plaintext HTTP on the LAN with bearer tokens. TLS / Noise, mDNS and WAN relays are explicitly out of scope and flagged in design.md.
+- **Grade**: production-grade intent for the git side (same handlers, same GitService); the transport is TLS (self-signed cert per host, pinned at pairing, pairing proof bound to the cert). mDNS and WAN relays are out of scope.

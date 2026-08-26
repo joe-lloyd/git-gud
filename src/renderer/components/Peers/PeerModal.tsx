@@ -172,11 +172,24 @@ const EmptyHint: React.FC<{ sharing: boolean }> = ({ sharing }) => (
 
 // ── Pairing ──────────────────────────────────────────────────────────────────
 
-const PairForm: React.FC<{ peers: UsePeers; host: string; port: number; name: string; version?: string }> =
-  ({ peers, host, port, name, version }) => {
+// First 8 bytes of a SHA-256 fingerprint as "AB12 CD34 EF56 7890" — enough to
+// compare by eye against the host's Settings.
+const shortFp = (fp: string) => fp.replace(/:/g, '').slice(0, 16).match(/.{4}/g)?.join(' ') ?? ''
+
+const PairForm: React.FC<{ peers: UsePeers; host: string; port: number; name: string; version?: string; fingerprint?: string }> =
+  ({ peers, host, port, name, version, fingerprint }) => {
     const [code, setCode] = useState('')
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    // Learn the host's certificate fingerprint (trust-on-first-use) so the
+    // user can compare it with the one shown on the host before pairing.
+    const [fp, setFp] = useState(fingerprint ?? '')
+    useEffect(() => {
+      if (fingerprint) { setFp(fingerprint); return }
+      let live = true
+      peers.actions.probe(host, port).then((r) => { if (live && r.success && r.info) setFp(r.info.fingerprint) })
+      return () => { live = false }
+    }, [host, port, fingerprint, peers.actions])
 
     const submit = useCallback(async () => {
       if (code.length !== 6) return
@@ -195,6 +208,11 @@ const PairForm: React.FC<{ peers: UsePeers; host: string; port: number; name: st
           Enter the 6-digit code shown on <strong>{name}</strong> under Settings → Share with other Git Gud instances.
           The code changes after every pairing.
         </p>
+        <div className="peer-fp">
+          <span className="peer-fp-label">Certificate</span>
+          <span className="mono">{fp ? shortFp(fp) : 'reading…'}</span>
+          <span className="peer-fp-hint">should match the fingerprint shown next to the code on {name}. Connections are encrypted (TLS) and pinned to this certificate.</span>
+        </div>
         <div className="peer-pair-row">
           <CodeInput value={code} onChange={setCode} onSubmit={submit} disabled={busy} autoFocus />
           <button className="btn btn-primary" disabled={busy || code.length !== 6} onClick={submit}>
@@ -210,7 +228,7 @@ const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
   const [addr, setAddr] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [found, setFound] = useState<{ host: string; port: number; name: string; version: string } | null>(null)
+  const [found, setFound] = useState<{ host: string; port: number; name: string; version: string; fingerprint: string } | null>(null)
 
   const lookup = useCallback(async () => {
     const parsed = parseHostPort(addr)
@@ -219,7 +237,7 @@ const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
     const r = await peers.actions.probe(parsed.host, parsed.port)
     setBusy(false)
     if (!r.success || !r.info) { setError(r.error ?? 'No Git Gud peer answered at that address'); return }
-    setFound({ host: parsed.host, port: parsed.port, name: r.info.name, version: r.info.version })
+    setFound({ host: parsed.host, port: parsed.port, name: r.info.name, version: r.info.version, fingerprint: r.info.fingerprint })
   }, [addr, peers.actions])
 
   return (
@@ -242,7 +260,7 @@ const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
         <button className="btn btn-ghost" disabled={busy || !addr.trim()} onClick={lookup}>{busy ? 'Looking…' : 'Look up'}</button>
       </div>
       {error && <div className="peer-error">{error}</div>}
-      {found && <PairForm peers={peers} host={found.host} port={found.port} name={found.name} version={found.version} />}
+      {found && <PairForm peers={peers} host={found.host} port={found.port} name={found.name} version={found.version} fingerprint={found.fingerprint} />}
     </div>
   )
 }
@@ -399,9 +417,14 @@ export const PeersSection: React.FC<{
               <div className="peer-code mono">{s.server.running ? s.server.pairingCode.replace(/(\d{3})(\d{3})/, '$1 $2') : '— — —'}</div>
               <div style={hintText}>
                 {s.server.running
-                  ? `Enter this on the other machine. Listening on port ${s.server.port}; the code rotates after each pairing.`
+                  ? `Enter this on the other machine. Listening on port ${s.server.port} (TLS); the code rotates after each pairing.`
                   : 'Starting…'}
               </div>
+              {s.server.running && s.server.fingerprint && (
+                <div style={{ ...hintText, marginTop: 4 }}>
+                  Certificate <span className="mono" style={{ color: 'var(--text-primary)' }}>{shortFp(s.server.fingerprint)}</span> — the other machine shows the same before pairing.
+                </div>
+              )}
             </div>
             <button className="btn btn-ghost" disabled={!s.server.running} onClick={() => peers.actions.regenerateCode()} title="Generate a new code">
               <Icon name="refresh" size={12} /> New code

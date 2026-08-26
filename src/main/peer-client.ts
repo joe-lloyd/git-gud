@@ -1,10 +1,12 @@
-import * as http from "http";
+import * as https from "https";
+import * as tls from "tls";
 import { EventEmitter } from "events";
 import {
   RESULT_SHAPED_METHODS,
   RPC_TIMEOUT_MS,
   SseParser,
   makePeerRepoPath,
+  pairingProof,
   rpcActivityKind,
   type PairResponse,
   type PeerEvent,
@@ -13,19 +15,25 @@ import {
   type RpcErrorCode,
   type RpcResponse,
 } from "./peer-protocol";
+import { certFingerprint } from "./peer-tls";
 import type { GitActivity } from "./git-service";
 
-// Client side of a peer connection. `PeerConnection` speaks the HTTP/SSE
+// Client side of a peer connection. `PeerConnection` speaks the HTTPS/SSE
 // protocol to one host; `createRemoteRepoProxy` wraps a connection + remote
 // path in an object that quacks like GitService so main's IPC handlers work on
 // remote repos without knowing.
+//
+// TLS model: the host's self-signed certificate is learned on first contact
+// (probe), pinned at pairing, and from then on is the ONLY CA we trust for
+// that peer — plus an explicit fingerprint check on every handshake. Nothing
+// here ever trusts the system CA store.
 
 export type PeerStatus = "connected" | "connecting" | "offline" | "revoked";
 
-export type PeerEndpoint = { peerId: string; name: string; host: string; port: number; token: string };
+export type PeerEndpoint = { peerId: string; name: string; host: string; port: number; token: string; certPem: string };
 
 export class PeerRpcError extends Error {
-  constructor(message: string, public code: RpcErrorCode | "network" | "timeout") {
+  constructor(message: string, public code: RpcErrorCode | "network" | "timeout" | "tls") {
     super(message);
     this.name = "PeerRpcError";
   }
@@ -35,12 +43,74 @@ const PROBE_TIMEOUT_MS = 4_000;
 const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 
+// ── Transport ───────────────────────────────────────────────────────────
+
+type HttpResult = { status: number; body: string; certPem: string; fingerprint: string };
+
+// Pin options: the pinned cert is the sole CA and its fingerprint must match.
+function pinOptions(certPem: string): Pick<https.RequestOptions, "ca" | "checkServerIdentity" | "rejectUnauthorized"> {
+  const expected = certFingerprint(certPem);
+  return {
+    ca: certPem,
+    rejectUnauthorized: true,
+    checkServerIdentity: (_host: string, cert: tls.PeerCertificate) =>
+      cert.fingerprint256 === expected ? undefined : new Error(`Peer certificate changed (expected ${expected.slice(0, 23)}…)`),
+  };
+}
+
+// First-contact options: accept any cert, but report it so the caller can
+// pin it. Only ever used for /info and the pairing request itself.
+const TOFU_OPTIONS: Pick<https.RequestOptions, "rejectUnauthorized"> = { rejectUnauthorized: false };
+
+function request(
+  opts: https.RequestOptions & { body?: string; timeoutMs: number },
+): Promise<HttpResult> {
+  return new Promise((resolve, reject) => {
+    const { body, timeoutMs, ...rest } = opts;
+    const req = https.request(
+      {
+        ...rest,
+        // agent: false → no TLS session resumption. Node skips
+        // checkServerIdentity on resumed sessions; we want the pin checked on
+        // every connection.
+        agent: false,
+        minVersion: "TLSv1.2",
+        headers: { ...(rest.headers ?? {}), ...(body ? { "Content-Length": Buffer.byteLength(body) } : {}) },
+      },
+      (res) => {
+        const sock = res.socket as tls.TLSSocket;
+        const cert = sock.getPeerCertificate?.();
+        const certPem = cert?.raw ? derToPem(cert.raw) : "";
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (d: string) => { data += d; });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: data, certPem, fingerprint: cert?.fingerprint256 ?? "" }));
+        res.on("error", reject);
+      },
+    );
+    const t = setTimeout(() => req.destroy(Object.assign(new Error("timeout"), { name: "AbortError" })), timeoutMs);
+    req.on("error", (e) => { clearTimeout(t); reject(e); });
+    req.on("close", () => clearTimeout(t));
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function derToPem(der: Buffer): string {
+  return `-----BEGIN CERTIFICATE-----\n${der.toString("base64").replace(/(.{64})/g, "$1\n").trimEnd()}\n-----END CERTIFICATE-----\n`;
+}
+
+function isTlsError(e: unknown): boolean {
+  const code = (e as { code?: string })?.code ?? "";
+  return /CERT|TLS|SSL|EPROTO|certificate/i.test(code) || /certificate|pin|TLS|SSL/i.test(String((e as Error)?.message ?? ""));
+}
+
 export class PeerConnection extends EventEmitter {
   status: PeerStatus = "offline";
   lastError = "";
   info: PeerInfo | null = null;
 
-  private stream: http.ClientRequest | null = null;
+  private stream: https.ClientRequest | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
   private backoff = BACKOFF_MIN_MS;
   private subscriptions: string[] = [];
@@ -53,26 +123,38 @@ export class PeerConnection extends EventEmitter {
 
   // ── Static: pre-pairing calls ───────────────────────────────────────
 
-  static async probe(host: string, port: number): Promise<PeerInfo> {
-    const res = await fetchWithTimeout(`http://${fmtHost(host)}:${port}/gitgud/info`, {}, PROBE_TIMEOUT_MS);
-    if (!res.ok) throw new Error(`Peer answered ${res.status}`);
-    const info = (await res.json()) as PeerInfo;
+  // Trust-on-first-use: returns the host's info AND the certificate it
+  // presented, so the UI can show the fingerprint and pairing can pin it.
+  static async probe(host: string, port: number): Promise<{ info: PeerInfo; certPem: string }> {
+    const r = await request({ host, port, path: "/gitgud/info", method: "GET", ...TOFU_OPTIONS, timeoutMs: PROBE_TIMEOUT_MS });
+    if (r.status !== 200) throw new Error(`Peer answered ${r.status}`);
+    const info = JSON.parse(r.body) as PeerInfo;
     if (!info || typeof info.peerId !== "string") throw new Error("Not a Git Gud peer");
-    return info;
+    if (!r.certPem) throw new Error("Peer did not present a certificate");
+    // The host's self-reported fingerprint must be the cert we actually saw —
+    // otherwise something between us is terminating TLS.
+    if (info.fingerprint && info.fingerprint !== r.fingerprint) {
+      throw new Error("Certificate mismatch: the connection is not going directly to that peer.");
+    }
+    return { info, certPem: r.certPem };
   }
 
-  static async pair(host: string, port: number, code: string, self: { peerId: string; name: string }): Promise<{ token: string; peer: PeerInfo }> {
-    const res = await fetchWithTimeout(
-      `http://${fmtHost(host)}:${port}/gitgud/pair`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, peerId: self.peerId, name: self.name }),
-      },
-      PROBE_TIMEOUT_MS,
-    );
-    const body = (await res.json().catch(() => null)) as PairResponse | null;
-    if (!body) throw new Error(`Pairing failed (${res.status})`);
+  // Pair against the certificate learned by probe(): the connection is pinned
+  // to it and the proof binds the code to its fingerprint.
+  static async pair(
+    host: string, port: number, code: string, self: { peerId: string; name: string }, certPem: string,
+  ): Promise<{ token: string; peer: PeerInfo }> {
+    const fingerprint = certFingerprint(certPem);
+    const r = await request({
+      host, port, path: "/gitgud/pair", method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proof: pairingProof(code, fingerprint), peerId: self.peerId, name: self.name }),
+      ...pinOptions(certPem),
+      timeoutMs: PROBE_TIMEOUT_MS,
+    });
+    let body: PairResponse | null = null;
+    try { body = JSON.parse(r.body) as PairResponse; } catch { /* below */ }
+    if (!body) throw new Error(`Pairing failed (${r.status})`);
     if (!body.ok) throw new Error(body.error);
     return { token: body.token, peer: body.peer };
   }
@@ -120,30 +202,33 @@ export class PeerConnection extends EventEmitter {
 
   async rpc<T = unknown>(repoPath: string, method: string, args: unknown[] = []): Promise<T> {
     const id = `${Date.now()}-${++this.seq}`;
-    let res: Response;
+    let r: HttpResult;
     try {
-      res = await fetchWithTimeout(
-        this.url("/gitgud/rpc"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.endpoint.token}` },
-          body: JSON.stringify({ id, repoPath, method, args }),
-        },
-        RPC_TIMEOUT_MS + 5_000,
-      );
+      r = await request({
+        host: this.endpoint.host, port: this.endpoint.port, path: "/gitgud/rpc", method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.endpoint.token}` },
+        body: JSON.stringify({ id, repoPath, method, args }),
+        ...pinOptions(this.endpoint.certPem),
+        timeoutMs: RPC_TIMEOUT_MS + 5_000,
+      });
     } catch (e) {
       const timeout = e instanceof Error && e.name === "AbortError";
+      if (!timeout && isTlsError(e)) {
+        this.setStatus("offline", "TLS certificate check failed — the peer's identity changed.");
+        throw new PeerRpcError(`${this.endpoint.name}: certificate check failed. If you reinstalled Git Gud there, forget this peer and pair again.`, "tls");
+      }
       throw new PeerRpcError(
         timeout ? `${this.endpoint.name} did not answer "${method}" in time` : `${this.endpoint.name} is unreachable`,
         timeout ? "timeout" : "network",
       );
     }
-    const body = (await res.json().catch(() => null)) as RpcResponse | null;
-    if (res.status === 401) {
+    let body: RpcResponse | null = null;
+    try { body = JSON.parse(r.body) as RpcResponse; } catch { /* below */ }
+    if (r.status === 401) {
       this.setStatus("revoked", "Access revoked on the host — pair again.");
       throw new PeerRpcError("Access to this peer was revoked. Pair again from the host.", "unauthorized");
     }
-    if (!body) throw new PeerRpcError(`Bad response from ${this.endpoint.name} (${res.status})`, "failed");
+    if (!body) throw new PeerRpcError(`Bad response from ${this.endpoint.name} (${r.status})`, "failed");
     if (!body.ok) throw new PeerRpcError(body.error, body.code ?? "failed");
     return body.result as T;
   }
@@ -158,7 +243,7 @@ export class PeerConnection extends EventEmitter {
     if (!this.wantConnected) return;
     this.setStatus(this.status === "connected" ? "connected" : "connecting", "");
     const repos = this.subscriptions.map(encodeURIComponent).join(",");
-    const req = http.request(
+    const req = https.request(
       {
         host: this.endpoint.host,
         port: this.endpoint.port,
@@ -166,6 +251,9 @@ export class PeerConnection extends EventEmitter {
         method: "GET",
         headers: { Authorization: `Bearer ${this.endpoint.token}`, Accept: "text/event-stream" },
         timeout: PROBE_TIMEOUT_MS,
+        agent: false,
+        minVersion: "TLSv1.2",
+        ...pinOptions(this.endpoint.certPem),
       },
       (res) => {
         req.setTimeout(0);
@@ -198,12 +286,12 @@ export class PeerConnection extends EventEmitter {
       },
     );
     req.on("timeout", () => { req.destroy(new Error("timeout")); });
-    req.on("error", (e) => this.streamFailed(e.message));
+    req.on("error", (e) => this.streamFailed(isTlsError(e) ? "TLS certificate check failed — the peer's identity changed" : e.message));
     req.end();
     this.stream = req;
   }
 
-  private armIdle(res: http.IncomingMessage): NodeJS.Timeout {
+  private armIdle(res: NodeJS.ReadableStream & { destroy: (e?: Error) => void }): NodeJS.Timeout {
     return setTimeout(() => res.destroy(new Error("Peer stopped responding")), 40_000);
   }
 
@@ -230,10 +318,6 @@ export class PeerConnection extends EventEmitter {
     this.status = s;
     this.lastError = err;
     this.emit("status", s);
-  }
-
-  private url(path: string): string {
-    return `http://${fmtHost(this.endpoint.host)}:${this.endpoint.port}${path}`;
   }
 }
 
@@ -336,18 +420,4 @@ function argLabel(a: unknown): string {
   if (typeof a === "number" || typeof a === "boolean") return String(a);
   if (a === null || a === undefined) return "";
   try { return JSON.stringify(a).slice(0, 80); } catch { return "[object]"; }
-}
-
-function fmtHost(h: string): string {
-  return h.includes(":") && !h.startsWith("[") ? `[${h}]` : h;
-}
-
-async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
-  } finally {
-    clearTimeout(t);
-  }
 }

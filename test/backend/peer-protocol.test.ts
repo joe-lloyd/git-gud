@@ -13,6 +13,7 @@ import {
   PairRateLimiter,
   generatePairingCode,
   hashToken,
+  pairingProof,
   safeEqual,
   rpcActivityKind,
   READ_METHODS,
@@ -146,6 +147,14 @@ describe('peer-protocol: pairing + tokens', () => {
     expect(safeEqual('123456', '123457')).toBe(false)
     expect(safeEqual('12345', '123456')).toBe(false)
   })
+  it('pairing proof depends on both the code and the certificate fingerprint', () => {
+    const fp = 'AA:BB:CC'
+    expect(pairingProof('123456', fp)).toMatch(/^[0-9a-f]{64}$/)
+    expect(pairingProof('123456', fp)).toBe(pairingProof('123456', 'aa:bb:cc'))
+    expect(pairingProof('123456', fp)).not.toBe(pairingProof('123457', fp))
+    expect(pairingProof('123456', fp)).not.toBe(pairingProof('123456', 'AA:BB:CD'))
+  })
+
   it('locks pairing after repeated failures and recovers', () => {
     const l = new PairRateLimiter(3, 1000, 5000)
     let now = 0

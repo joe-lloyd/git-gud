@@ -566,13 +566,14 @@ const uiApi = {
 }
 
 // ── Peers ──────────────────────────────────────────────────────────────────
-// Other Git Gud instances on the LAN. Sharing (host side) is opt-in; a paired
+// Other Git Gud instances on the LAN, over TLS with certificates pinned at
+// pairing. Sharing (host side) is opt-in; a paired
 // peer's repos open as normal tabs whose path is gitgud-peer://<peerId>/<path>
 // and whose reads + sync ops run on that machine. Tokens never reach the
 // renderer — only status.
 
 export type PeerStatus = 'connected' | 'connecting' | 'offline' | 'revoked'
-export type PeerInfo = { peerId: string; name: string; version: string; platform: string; protocol: number }
+export type PeerInfo = { peerId: string; name: string; version: string; platform: string; protocol: number; fingerprint: string }
 export type PeerRepoSummary = { path: string; name: string; open: boolean }
 export type PeerState = {
   self: { peerId: string; name: string }
@@ -582,6 +583,8 @@ export type PeerState = {
     port: number
     readOnly: boolean
     pairingCode: string
+    /** SHA-256 fingerprint of this host's TLS certificate (AA:BB:…). */
+    fingerprint: string
     error: string
     paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean }>
   }

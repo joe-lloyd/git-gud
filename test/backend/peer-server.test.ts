@@ -8,7 +8,8 @@ import { GitService } from '../../src/main/git-service'
 import { PeerServer, type PeerServerHost } from '../../src/main/peer-server'
 import { PeerConnection, PeerRpcError, createRemoteRepoProxy } from '../../src/main/peer-client'
 import { PeerStore } from '../../src/main/peer-store'
-import { makePeerRepoPath, type PeerEvent } from '../../src/main/peer-protocol'
+import { makePeerRepoPath, pairingProof, type PeerEvent } from '../../src/main/peer-protocol'
+import { generateSelfSigned } from '../../src/main/peer-tls'
 
 // Integration: a real PeerServer fronting a real GitService, talked to over
 // loopback by the real PeerConnection + RemoteRepoProxy. Covers pairing,
@@ -24,6 +25,9 @@ describe('peer server ⇄ client over loopback', () => {
   let readOnly = false
   const watchers: Array<(ev: PeerEvent) => void> = []
   const self = { peerId: 'c11e47c11e47c11e', name: 'Client' }
+  const tlsId = generateSelfSigned('Host')
+  const endpoint = (token: string, certPem = tlsId.certPem) =>
+    ({ peerId: 'h057h057h057h057', name: 'Host', host: '127.0.0.1', port, token, certPem })
 
   beforeAll(async () => {
     // realpath: macOS tmp lives under /var → /private/var and git reports the real path
@@ -39,7 +43,8 @@ describe('peer server ⇄ client over loopback', () => {
     store = new PeerStore(storeDir)
     const svc = new GitService(repo)
     const host: PeerServerHost = {
-      info: () => ({ peerId: 'h057h057h057h057', name: 'Host', version: '1.10.0', platform: 'test', protocol: 1 }),
+      info: () => ({ peerId: 'h057h057h057h057', name: 'Host', version: '1.10.0', platform: 'test', protocol: 1, fingerprint: tlsId.fingerprint }),
+      tls: () => tlsId,
       readOnly: () => readOnly,
       listRepos: () => [{ path: repo, name: 'repo', open: true }],
       resolveRepo: async (p) => (p === repo ? svc : null),
@@ -57,24 +62,48 @@ describe('peer server ⇄ client over loopback', () => {
     rmSync(storeDir, { recursive: true, force: true })
   })
 
-  it('answers /info without auth', async () => {
-    const info = await PeerConnection.probe('127.0.0.1', port)
-    expect(info).toMatchObject({ peerId: 'h057h057h057h057', name: 'Host', protocol: 1 })
+  it('serves TLS: /info (no auth) returns the cert we can pin, and reports its fingerprint', async () => {
+    const { info, certPem } = await PeerConnection.probe('127.0.0.1', port)
+    expect(info).toMatchObject({ peerId: 'h057h057h057h057', name: 'Host', protocol: 1, fingerprint: tlsId.fingerprint })
+    expect(certPem.replace(/\s/g, '')).toBe(tlsId.certPem.replace(/\s/g, ''))
   })
 
   it('refuses a wrong pairing code and rotates the code on success', async () => {
     const wrong = server.code === '000000' ? '000001' : '000000'
-    await expect(PeerConnection.pair('127.0.0.1', port, wrong, self)).rejects.toThrow(/Wrong pairing code/)
+    await expect(PeerConnection.pair('127.0.0.1', port, wrong, self, tlsId.certPem)).rejects.toThrow(/Wrong pairing code/)
     const before = server.code
-    const { token, peer } = await PeerConnection.pair('127.0.0.1', port, before, self)
+    const { token, peer } = await PeerConnection.pair('127.0.0.1', port, before, self, tlsId.certPem)
     expect(token).toMatch(/^[0-9a-f]{64}$/)
     expect(peer.name).toBe('Host')
     expect(server.code).not.toBe(before)
     expect(store.findByToken(token)?.name).toBe('Client')
   })
 
+  it('pairing proof is bound to the host certificate (MITM with another cert cannot pair)', async () => {
+    // A relay that terminates TLS with its own cert would make the client
+    // compute the proof over THAT fingerprint — the host must reject it even
+    // though the code is right.
+    const mitm = generateSelfSigned('Evil')
+    const badProof = pairingProof(server.code, mitm.fingerprint)
+    expect(badProof).not.toBe(pairingProof(server.code, tlsId.fingerprint))
+    const https = await import('https')
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = https.request({ host: '127.0.0.1', port, path: '/gitgud/pair', method: 'POST', agent: false, rejectUnauthorized: false, headers: { 'Content-Type': 'application/json' } },
+        (res) => { res.resume(); res.on('end', () => resolve(res.statusCode ?? 0)) })
+      req.on('error', reject)
+      req.end(JSON.stringify({ proof: badProof, peerId: 'bad0bad0bad0bad0', name: 'Evil' }))
+    })
+    expect(status).toBe(401)
+  })
+
+  it('refuses to talk to a host whose certificate does not match the pin', async () => {
+    const other = generateSelfSigned('Other')
+    const conn = new PeerConnection(endpoint('f'.repeat(64), other.certPem), self)
+    await expect(conn.rpc(repo, 'getLog', [10])).rejects.toMatchObject({ code: 'tls' })
+  })
+
   it('rejects RPC without a valid token', async () => {
-    const conn = new PeerConnection({ peerId: 'h057h057h057h057', name: 'Host', host: '127.0.0.1', port, token: 'f'.repeat(64) }, self)
+    const conn = new PeerConnection(endpoint('f'.repeat(64)), self)
     await expect(conn.rpc(repo, 'getLog', [10])).rejects.toMatchObject({ code: 'unauthorized' })
     expect(conn.status).toBe('revoked')
   })
@@ -82,8 +111,8 @@ describe('peer server ⇄ client over loopback', () => {
   describe('with a paired connection', () => {
     let conn: PeerConnection
     beforeAll(async () => {
-      const { token } = await PeerConnection.pair('127.0.0.1', port, server.code, self)
-      conn = new PeerConnection({ peerId: 'h057h057h057h057', name: 'Host', host: '127.0.0.1', port, token }, self)
+      const { token } = await PeerConnection.pair('127.0.0.1', port, server.code, self, tlsId.certPem)
+      conn = new PeerConnection(endpoint(token), self)
     })
     afterAll(() => conn.disconnect())
 

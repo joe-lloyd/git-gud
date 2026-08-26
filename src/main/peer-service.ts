@@ -26,6 +26,7 @@ export type PeerStateSnapshot = {
     port: number;
     readOnly: boolean;
     pairingCode: string;
+    fingerprint: string;
     error: string;
     paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean }>;
   };
@@ -62,7 +63,8 @@ export class PeerService {
     this.store = new PeerStore(deps.userDataDir, deps.crypter);
     const identity = () => this.store.getIdentity();
     const host: PeerServerHost = {
-      info: (): PeerInfo => ({ ...identity(), version: deps.appVersion, platform: process.platform, protocol: PROTOCOL_VERSION }),
+      info: (): PeerInfo => ({ ...identity(), version: deps.appVersion, platform: process.platform, protocol: PROTOCOL_VERSION, fingerprint: this.store.getTls().fingerprint }),
+      tls: () => this.store.getTls(),
       readOnly: () => this.store.getSettings().readOnly,
       listRepos: () => deps.listLocalRepos(),
       resolveRepo: (p) => deps.resolveLocalRepo(p),
@@ -113,6 +115,7 @@ export class PeerService {
         port: this.server.isListening ? this.server.listeningPort : s.port,
         readOnly: s.readOnly,
         pairingCode: this.server.isListening ? this.server.code : "",
+        fingerprint: this.server.isListening ? this.store.getTls().fingerprint : "",
         error: this.serverError,
         paired: this.store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, createdAt: d.createdAt, connected: connectedIds.has(d.peerId) })),
       },
@@ -182,14 +185,18 @@ export class PeerService {
 
   // ── Client (connecting) ─────────────────────────────────────────────
 
+  // First contact (trust-on-first-use): learn the host's certificate. The
+  // fingerprint is surfaced so the user can compare it with the host's
+  // Settings before typing the code.
   async probe(host: string, port: number): Promise<PeerInfo> {
-    return PeerConnection.probe(host, port);
+    return (await PeerConnection.probe(host, port)).info;
   }
 
   async pair(host: string, port: number, code: string): Promise<{ peerId: string; name: string }> {
-    const { token, peer } = await PeerConnection.pair(host, port, code, this.store.getIdentity());
-    if (peer.peerId === this.store.getIdentity().peerId) throw new Error("That's this instance — pick another machine.");
-    const known = this.store.upsertKnown({ peerId: peer.peerId, name: peer.name, host, port, token });
+    const { info, certPem } = await PeerConnection.probe(host, port);
+    if (info.peerId === this.store.getIdentity().peerId) throw new Error("That's this instance — pick another machine.");
+    const { token, peer } = await PeerConnection.pair(host, port, code, this.store.getIdentity(), certPem);
+    const known = this.store.upsertKnown({ peerId: peer.peerId, name: peer.name, host, port, token, certPem });
     // A fresh token replaces whatever connection state we had.
     this.connections.get(peer.peerId)?.disconnect();
     this.connections.delete(peer.peerId);
@@ -285,7 +292,7 @@ export class PeerService {
   private ensureConnection(k: KnownPeer): PeerConnection {
     let c = this.connections.get(k.peerId);
     if (c) return c;
-    c = new PeerConnection({ peerId: k.peerId, name: k.name, host: k.host, port: k.port, token: k.token }, this.store.getIdentity());
+    c = new PeerConnection({ peerId: k.peerId, name: k.name, host: k.host, port: k.port, token: k.token, certPem: k.certPem }, this.store.getIdentity());
     c.on("status", () => this.schedulePublish());
     c.on("event", (ev: PeerEvent) => this.onPeerEvent(k.peerId, ev));
     this.connections.set(k.peerId, c);

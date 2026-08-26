@@ -2,6 +2,7 @@ import * as fs from "fs";
 import { join } from "path";
 import { hostname } from "os";
 import { DEFAULT_SERVER_PORT, generatePeerId, hashToken } from "./peer-protocol";
+import { generateSelfSigned, validateIdentity, certFingerprint, type TlsIdentity } from "./peer-tls";
 
 // Persistence for the peer feature — four small JSON files in userData.
 // Electron-free: the caller injects a Crypter (safeStorage in the app, a
@@ -12,8 +13,9 @@ export type PeerIdentity = { peerId: string; name: string };
 export type PeerSettings = { enabled: boolean; port: number; name: string; readOnly: boolean };
 // A device allowed to connect TO me. Only the SHA-256 of its token is kept.
 export type PairedDevice = { peerId: string; name: string; tokenHash: string; createdAt: number };
-// A peer I connect TO. `token` is the raw bearer token (encrypted on disk).
-export type KnownPeer = { peerId: string; name: string; host: string; port: number; token: string; pairedAt: number };
+// A peer I connect TO. `token` is the raw bearer token (encrypted on disk);
+// `certPem` is the host's pinned TLS certificate.
+export type KnownPeer = { peerId: string; name: string; host: string; port: number; token: string; certPem: string; pairedAt: number };
 
 export interface Crypter {
   encrypt(plain: string): Buffer;
@@ -30,8 +32,11 @@ export class PeerStore {
   private settingsFile: string;
   private pairedFile: string;
   private knownFile: string;
+  private tlsKeyFile: string;
+  private tlsCertFile: string;
 
   private identity: PeerIdentity;
+  private tls: TlsIdentity | null = null;
   private settings: PeerSettings;
   private paired: PairedDevice[] = [];
   private known: KnownPeer[] = [];
@@ -41,6 +46,8 @@ export class PeerStore {
     this.settingsFile = join(userDataDir, "peer-settings.json");
     this.pairedFile = join(userDataDir, "peer-paired.json");
     this.knownFile = join(userDataDir, "peer-known.json");
+    this.tlsKeyFile = join(userDataDir, "peer-tls-key.pem");
+    this.tlsCertFile = join(userDataDir, "peer-tls-cert.pem");
 
     this.identity = this.readJson<PeerIdentity>(this.identityFile) ?? { peerId: generatePeerId(), name: defaultName() };
     if (!this.identity.peerId) this.identity.peerId = generatePeerId();
@@ -58,7 +65,35 @@ export class PeerStore {
     this.paired = (this.readJson<PairedDevice[]>(this.pairedFile) ?? []).filter(
       (d) => d && typeof d.peerId === "string" && typeof d.tokenHash === "string",
     );
-    this.known = this.readEncrypted();
+    this.known = this.readEncrypted().filter((p) => typeof p.certPem === "string" && p.certPem.includes("CERTIFICATE"));
+  }
+
+  // ── TLS identity (host side) ────────────────────────────────────────
+  // Generated on first use, kept for ~10 years. The private key is written
+  // with owner-only permissions; the cert is public (clients pin it).
+  getTls(): TlsIdentity {
+    if (this.tls) return this.tls;
+    try {
+      if (fs.existsSync(this.tlsKeyFile) && fs.existsSync(this.tlsCertFile)) {
+        const keyPem = fs.readFileSync(this.tlsKeyFile, "utf8");
+        const certPem = fs.readFileSync(this.tlsCertFile, "utf8");
+        if (validateIdentity({ keyPem, certPem })) {
+          this.tls = { keyPem, certPem, fingerprint: certFingerprint(certPem) };
+          return this.tls;
+        }
+        console.error("peer-store: stored TLS identity invalid — regenerating");
+      }
+    } catch (e) {
+      console.error("peer-store: failed to read TLS identity", e);
+    }
+    this.tls = generateSelfSigned(`Git Gud peer ${this.identity.peerId.slice(0, 8)}`);
+    try {
+      fs.writeFileSync(this.tlsKeyFile, this.tls.keyPem, { mode: 0o600 });
+      fs.writeFileSync(this.tlsCertFile, this.tls.certPem);
+    } catch (e) {
+      console.error("peer-store: failed to persist TLS identity", e);
+    }
+    return this.tls;
   }
 
   // ── Identity / settings ─────────────────────────────────────────────
