@@ -142,9 +142,16 @@ describe('peer server ⇄ client over loopback', () => {
     await expect(conn.rpc(repo, 'stage', [['a.txt']])).rejects.toMatchObject({ code: 'read-only' })
     await expect(conn.rpc(repo, 'stage', [['a.txt']])).rejects.toThrow(/this device is read-only/)
     expect(await conn.rpc(repo, 'getLog', [5])).toBeTruthy()
-    // owner flips it → writes allowed (no re-pair needed)
+    // owner grants a scope → only that write passes, everything else still refused
+    store.setPairedScopes(phone.peerId, ['createTag', 'notAWriteMethod'])
+    expect(await conn.rpc('', '__whoami', [])).toMatchObject({ readOnly: true, scopes: ['createTag'] })
+    await expect(conn.rpc(repo, 'createTag', ['from-phone', 'HEAD'])).resolves.toBeNull()
+    await expect(conn.rpc(repo, 'deleteTag', ['from-phone'])).rejects.toMatchObject({ code: 'read-only' })
+    readOnly = true
+    try { await expect(conn.rpc(repo, 'createTag', ['nope', 'HEAD'])).rejects.toMatchObject({ code: 'read-only' }) } finally { readOnly = false } // host switch wins
+    // owner flips read-only off → writes allowed (no re-pair needed)
     store.setPairedReadOnly(phone.peerId, false)
-    await expect(conn.rpc(repo, 'unstage', [['a.txt']])).resolves.toBeNull()
+    await expect(conn.rpc(repo, 'deleteTag', ['from-phone'])).resolves.toBeNull()
     store.revokePaired(phone.peerId)
   })
 

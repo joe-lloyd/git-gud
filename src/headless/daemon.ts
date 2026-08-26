@@ -218,7 +218,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
           pairingOpen: pairingOpen(), pairingExpiresAt: pairingUntil || null, configFile: configPath(paths), pid: process.pid,
         };
       case "pair": return requestPairingCode();
-      case "devices": return store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, kind: d.kind ?? "desktop", readOnly: d.readOnly === true, createdAt: d.createdAt, lastSeenAt: d.lastSeenAt ?? null }));
+      case "devices": return store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, kind: d.kind ?? "desktop", readOnly: d.readOnly === true, scopes: d.scopes ?? [], createdAt: d.createdAt, lastSeenAt: d.lastSeenAt ?? null }));
+      case "scopes": {
+        const ok = store.setPairedScopes(req.peerId, req.scopes);
+        if (ok) audit.write("scopes", { peerId: req.peerId.slice(0, 8), scopes: req.scopes });
+        return { ok };
+      }
       case "revoke": {
         const ok = store.revokePaired(req.peerId);
         if (ok) audit.write("revoked", { peerId: req.peerId.slice(0, 8) });

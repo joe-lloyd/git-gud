@@ -13,6 +13,7 @@ export interface PeerActions {
   regenerateCode: () => Promise<void>
   revokeDevice: (peerId: string) => Promise<void>
   setDeviceReadOnly: (peerId: string, readOnly: boolean) => Promise<void>
+  setDeviceScopes: (peerId: string, scopes: string[]) => Promise<void>
   probe: (host: string, port: number) => Promise<{ success: boolean; info?: PeerInfo; error?: string }>
   pair: (host: string, port: number, code: string) => Promise<{ success: boolean; peer?: { peerId: string; name: string }; error?: string }>
   connect: (peerId: string) => Promise<void>
@@ -45,6 +46,7 @@ export function usePeers(): UsePeers {
     regenerateCode: async () => { await window.peerApi.regenerateCode() },
     revokeDevice: async (peerId) => { await window.peerApi.revokeDevice(peerId) },
     setDeviceReadOnly: async (peerId, readOnly) => { await window.peerApi.setDeviceReadOnly(peerId, readOnly) },
+    setDeviceScopes: async (peerId, scopes) => { await window.peerApi.setDeviceScopes(peerId, scopes) },
     pairingQr: () => window.peerApi.pairingQr(),
     pairPayload: (text) => window.peerApi.pairPayload(text),
     probe: (host, port) => window.peerApi.probe(host, port),

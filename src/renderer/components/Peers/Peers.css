@@ -182,3 +182,7 @@
 .peer-warn-danger { border-color: var(--danger, #ff5555); color: var(--text-primary); }
 .peer-ok { color: var(--success, #50fa7b); font-size: 12px; margin-top: 8px; }
 .peer-dot-cert-changed { background: var(--danger); box-shadow: 0 0 0 2px var(--danger) inset, 0 0 6px var(--danger); }
+
+.peer-scopes { display: inline-flex; gap: 4px; }
+.peer-scope-chip { font-size: 10px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; }
+.peer-scope-chip.on { border-color: var(--accent-border); color: var(--accent); background: rgba(255, 121, 198, 0.08); }

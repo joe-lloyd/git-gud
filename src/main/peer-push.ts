@@ -57,6 +57,7 @@ export class PushNotifier {
       title: kind === "repo-changed" ? `${repo} changed` : `${repo}: ${detail ?? "activity"}`,
       body: `on ${machine}`,
       data: { machine, repo, kind },
+      categoryId: "gitgud-repo", // phone shows "Fetch now" / "Open" actions
       channelId: "gitgud",
       priority: "default",
     };

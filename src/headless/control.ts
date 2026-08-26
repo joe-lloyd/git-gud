@@ -12,6 +12,7 @@ export type ControlRequest =
   | { cmd: "revoke"; peerId: string }
   | { cmd: "reload" }
   | { cmd: "tls"; action: "show" | "rotate" }
+  | { cmd: "scopes"; peerId: string; scopes: string[] }
   | { cmd: "stop" };
 
 export type ControlHandler = (req: ControlRequest) => Promise<unknown>;

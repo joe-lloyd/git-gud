@@ -524,6 +524,16 @@ export const PeersSection: React.FC<{
                 >
                   <input type="checkbox" checked={d.readOnly} onChange={(e) => peers.actions.setDeviceReadOnly(d.peerId, e.target.checked)} /> read-only
                 </label>
+                {d.readOnly && !s.server.readOnly && (
+                  <span className="peer-scopes" title="Writes this read-only device may still run (tap-to-approve on the phone)">
+                    {(['fetch', 'pull'] as const).map((m) => (
+                      <button key={m} className={`peer-scope-chip ${d.scopes.includes(m) ? 'on' : ''}`}
+                        onClick={() => peers.actions.setDeviceScopes(d.peerId, d.scopes.includes(m) ? d.scopes.filter((x) => x !== m) : [...d.scopes, m])}>
+                        {m}
+                      </button>
+                    ))}
+                  </span>
+                )}
                 <span style={{ ...hintText, whiteSpace: 'nowrap' }}>paired {new Date(d.createdAt).toLocaleDateString()}</span>
                 {confirmRevoke === d.peerId
                   ? <>

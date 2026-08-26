@@ -19,6 +19,9 @@ export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machine
         const { address } = await client.probeAny(m.addresses, m.fingerprint)
         if (address.host !== m.lastGood?.host || address.port !== m.lastGood?.port) await updateMachine(m.peerId, { lastGood: address })
         const repos = await client.listRepos({ ...m, lastGood: address })
+        // Scopes can change on the host at any time — refresh on every check.
+        const me = await client.whoami({ ...m, lastGood: address }).catch(() => null)
+        if (me && JSON.stringify(me.scopes ?? []) !== JSON.stringify(m.scopes ?? [])) await updateMachine(m.peerId, { scopes: me.scopes ?? [] })
         setStatus((s) => ({ ...s, [m.peerId]: { state: 'connected', repos: repos.length } }))
       } catch (e) {
         const code = (e as { code?: string }).code

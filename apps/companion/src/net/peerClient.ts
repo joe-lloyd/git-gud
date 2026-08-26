@@ -19,6 +19,8 @@ export type Machine = {
   fingerprint: string
   token: string
   readOnly: boolean
+  // Write methods the host lets this (read-only) phone run — tap-to-approve.
+  scopes?: string[]
   platform: string
   version: string
   pairedAt: number
@@ -71,7 +73,7 @@ export class PeerClient {
   }
 
   async rpc<T = unknown>(m: Machine, repoPath: string, method: string, args: unknown[] = []): Promise<T> {
-    if (!method.startsWith('__') && !READ_METHODS.has(method)) throw new RpcError(`"${method}" is not a read method — the companion app is read-only`, 'read-only')
+    if (!method.startsWith('__') && !READ_METHODS.has(method) && !(m.scopes ?? []).includes(method)) throw new RpcError(`"${method}" is not allowed for this phone — the host's owner can grant fetch/pull in Settings → Paired devices`, 'read-only')
     const a = m.lastGood ?? m.addresses[0]
     const id = String(++this.seq)
     let r
@@ -93,7 +95,10 @@ export class PeerClient {
   }
 
   listRepos(m: Machine): Promise<PeerRepoSummary[]> { return this.rpc(m, '', '__listRepos') }
-  whoami(m: Machine): Promise<{ peerId: string; name: string; kind: string; readOnly: boolean }> { return this.rpc(m, '', '__whoami') }
+  whoami(m: Machine): Promise<{ peerId: string; name: string; kind: string; readOnly: boolean; scopes?: string[] }> { return this.rpc(m, '', '__whoami') }
+  // Scoped writes (host-approved): fetch / pull with confirmation in the UI.
+  fetch(m: Machine, repoPath: string): Promise<null> { return this.rpc(m, repoPath, 'fetch') }
+  pull(m: Machine, repoPath: string): Promise<{ success: boolean; error?: string }> { return this.rpc(m, repoPath, 'pull', [{}]) }
   subscribePush(m: Machine, token: string, events: string[]): Promise<{ subscribed: boolean }> { return this.rpc(m, '', '__subscribePush', [{ token, events }]) }
 
   // Foreground-only event stream for one or more repos.

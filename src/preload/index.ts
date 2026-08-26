@@ -595,7 +595,7 @@ export type PeerState = {
     /** SHA-256 fingerprint of this host's TLS certificate (AA:BB:…). */
     fingerprint: string
     error: string
-    paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string }>
+    paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string; scopes: string[] }>
   }
   discovered: Array<{ peerId: string; name: string; address: string; port: number; version: string; known: boolean }>
   peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string; rttMs: number | null; transport: TransportKind; platform: string; hostReadOnly: boolean; tokenExpiresAt: number | null }>
@@ -616,6 +616,7 @@ const peerApi = {
   pairPayload: (text: string): Promise<{ success: boolean; peerId?: string; name?: string; error?: string }> => ipcRenderer.invoke('peer:pair-payload', text),
   revokeDevice: (peerId: string): Promise<boolean> => ipcRenderer.invoke('peer:revoke-device', peerId),
   setDeviceReadOnly: (peerId: string, readOnly: boolean): Promise<boolean> => ipcRenderer.invoke('peer:set-device-read-only', peerId, readOnly),
+  setDeviceScopes: (peerId: string, scopes: string[]): Promise<boolean> => ipcRenderer.invoke('peer:set-device-scopes', peerId, scopes),
   // Client side
   probe: (host: string, port: number): Promise<{ success: boolean; info?: PeerInfo; error?: string }> =>
     ipcRenderer.invoke('peer:probe', host, port),

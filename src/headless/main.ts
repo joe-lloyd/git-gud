@@ -33,6 +33,7 @@ Usage:
   gitgud-headless status
   gitgud-headless devices
   gitgud-headless revoke <peerId or first 8 chars>
+  gitgud-headless allow <peerId8> fetch,pull | none   (writes a read-only device may run)
   gitgud-headless reload | stop
   gitgud-headless audit [-n 50]
   gitgud-headless tls show | tls rotate --yes
@@ -109,7 +110,19 @@ async function main(argv: string[]): Promise<number> {
     case "devices": {
       const ds = (await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "devices" })) as Array<{ peerId: string; name: string; kind: string; readOnly: boolean; createdAt: number; lastSeenAt: number | null }>;
       if (!ds.length) { out("no paired devices"); return 0; }
-      for (const d of ds) out(`${d.peerId.slice(0, 8)}  ${d.name.padEnd(24)} ${d.kind.padEnd(10)} ${d.readOnly ? "read-only" : "writable "}  paired ${new Date(d.createdAt).toISOString().slice(0, 10)}${d.lastSeenAt ? `  seen ${new Date(d.lastSeenAt).toISOString().slice(0, 16)}` : ""}`);
+      for (const d of ds) out(`${d.peerId.slice(0, 8)}  ${d.name.padEnd(24)} ${d.kind.padEnd(10)} ${d.readOnly ? `read-only${(d as { scopes?: string[] }).scopes?.length ? ` (+${(d as { scopes?: string[] }).scopes!.join(",")})` : ""}` : "writable "}  paired ${new Date(d.createdAt).toISOString().slice(0, 10)}${d.lastSeenAt ? `  seen ${new Date(d.lastSeenAt).toISOString().slice(0, 16)}` : ""}`);
+      return 0;
+    }
+    case "allow": {
+      // gitgud-headless allow <peerId8> fetch,pull   |   allow <peerId8> none
+      const [id, list] = args;
+      if (!id) { out("usage: gitgud-headless allow <peerId or first 8 chars> <fetch,pull|none>"); return 1; }
+      const ds = (await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "devices" })) as Array<{ peerId: string }>;
+      const match = ds.filter((d) => d.peerId === id || d.peerId.startsWith(id));
+      if (match.length !== 1) { out(match.length ? "ambiguous prefix" : "no such device"); return 1; }
+      const scopes = !list || list === "none" ? [] : list.split(",").map((x) => x.trim()).filter(Boolean);
+      await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "scopes", peerId: match[0].peerId, scopes });
+      out(scopes.length ? `${match[0].peerId.slice(0, 8)} may now run: ${scopes.join(", ")}` : `${match[0].peerId.slice(0, 8)} is read-only again`);
       return 0;
     }
     case "revoke": {

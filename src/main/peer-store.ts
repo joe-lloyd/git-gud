@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { join } from "path";
 import { hostname } from "os";
-import { DEFAULT_SERVER_PORT, generatePeerId, generateToken, hashToken } from "./peer-protocol";
+import { DEFAULT_SERVER_PORT, WRITE_METHODS, generatePeerId, generateToken, hashToken } from "./peer-protocol";
 import { generateSelfSigned, validateIdentity, certFingerprint, type TlsIdentity } from "./peer-tls";
 
 // Persistence for the peer feature — four small JSON files in userData.
@@ -28,6 +28,9 @@ export type PairedDevice = {
   push?: { token: string; events: string[] };
   // Token expiry (ms epoch). Absent = never. Clients rotate before it hits.
   expiresAt?: number;
+  // Write methods a read-only device may still run (M6 companion v2:
+  // tap-to-approve fetch/pull). Ignored for writable devices.
+  scopes?: string[];
 };
 // A peer I connect TO. `token` is the raw bearer token (encrypted on disk);
 // `certPem` is the host's pinned TLS certificate.
@@ -174,6 +177,14 @@ export class PeerStore {
     const d = this.paired.find((x) => x.peerId === peerId);
     if (!d) return false;
     if (push) d.push = push; else delete d.push;
+    this.writeJson(this.pairedFile, this.paired);
+    return true;
+  }
+
+  setPairedScopes(peerId: string, scopes: string[]): boolean {
+    const d = this.paired.find((x) => x.peerId === peerId);
+    if (!d) return false;
+    d.scopes = [...new Set(scopes.filter((m) => WRITE_METHODS.has(m)))];
     this.writeJson(this.pairedFile, this.paired);
     return true;
   }

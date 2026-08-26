@@ -43,7 +43,7 @@ export type PeerStateSnapshot = {
     pairingCode: string;
     fingerprint: string;
     error: string;
-    paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string }>;
+    paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string; scopes: string[] }>;
   };
   discovered: Array<{ peerId: string; name: string; address: string; port: number; version: string; known: boolean }>;
   peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string; rttMs: number | null; transport: TransportKind; platform: string; hostReadOnly: boolean; tokenExpiresAt: number | null }>;
@@ -159,7 +159,7 @@ export class PeerService {
         pairingCode: this.server.isListening ? this.server.code : "",
         fingerprint: this.server.isListening ? this.store.getTls().fingerprint : "",
         error: this.serverError,
-        paired: this.store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, createdAt: d.createdAt, connected: connectedIds.has(d.peerId), readOnly: d.readOnly === true, kind: d.kind ?? "desktop" })),
+        paired: this.store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, createdAt: d.createdAt, connected: connectedIds.has(d.peerId), readOnly: d.readOnly === true, kind: d.kind ?? "desktop", scopes: d.scopes ?? [] })),
       },
       discovered: this.discovery.list().map((d) => ({ peerId: d.peerId, name: d.name, address: d.address, port: d.port, version: d.version, known: knownIds.has(d.peerId) })),
       peers: this.store.listKnown().map((k) => {
@@ -196,6 +196,12 @@ export class PeerService {
     const c = this.server.regenerateCode();
     this.schedulePublish();
     return c;
+  }
+
+  setDeviceScopes(peerId: string, scopes: string[]): boolean {
+    const ok = this.store.setPairedScopes(peerId, scopes);
+    if (ok) this.schedulePublish();
+    return ok;
   }
 
   setDeviceReadOnly(peerId: string, readOnly: boolean): boolean {

@@ -12,7 +12,10 @@ import { ReposScreen } from './src/screens/ReposScreen'
 import { RepoScreen } from './src/screens/RepoScreen'
 import { CommitScreen } from './src/screens/CommitScreen'
 import { DiffScreen } from './src/screens/DiffScreen'
-import { registerPush } from './src/push'
+import { handleNotificationResponse, registerPush, setupNotificationActions } from './src/push'
+import { createNavigationContainerRef } from '@react-navigation/native'
+
+const navRef = createNavigationContainerRef<RootStack>()
 
 const Stack = createNativeStackNavigator<RootStack>()
 // Screens are typed with NativeStackScreenProps; the navigator's
@@ -27,8 +30,17 @@ const navTheme = { ...DarkTheme, colors: { ...DarkTheme.colors, background: them
 const Root: React.FC = () => {
   const { client, machines } = useAppState()
   useEffect(() => { if (client && machines.length) registerPush(client, machines).catch(() => {}) }, [client, machines.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setupNotificationActions()
+    if (!client) return
+    const sub = Notifications.addNotificationResponseReceivedListener((resp) =>
+      handleNotificationResponse(client, machines, resp, (m, repoName) => {
+        client.listRepos(m).then((repos) => { const r = repos.find((x) => x.name === repoName); if (r && navRef.isReady()) navRef.navigate('Repo', { peerId: m.peerId, repoPath: r.path, name: r.name }) }).catch(() => {})
+      }))
+    return () => sub.remove()
+  }, [client, machines])
   return (
-    <NavigationContainer theme={navTheme} linking={{ prefixes: ['gitgud-peer://'], config: { screens: { Pair: 'pair' } } }}>
+    <NavigationContainer ref={navRef} theme={navTheme} linking={{ prefixes: ['gitgud-peer://'], config: { screens: { Pair: 'pair' } } }}>
       <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: theme.bgElevated }, headerTintColor: theme.text, headerTitleStyle: { fontWeight: '600' }, contentStyle: { backgroundColor: theme.bg } }}>
         <Stack.Screen name="Machines" component={screen(MachinesScreen)} options={{ title: 'Git Gud' }} />
         <Stack.Screen name="Pair" component={screen(PairScreen)} options={{ title: 'Pair a machine' }} />

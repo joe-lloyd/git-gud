@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, Pressable, ScrollView, Text, View } from 'react-native'
+import { Alert, FlatList, Pressable, ScrollView, Text, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import type { PeerEvent } from '@gitgud/peer-protocol'
-import { Badge, Card, Empty, Hint, Loading, Mono, Screen, Title } from '../ui/atoms'
+import { Badge, Button, Card, Empty, Hint, Loading, Mono, Screen, Title } from '../ui/atoms'
 import { theme } from '../ui/theme'
 import { useAppState } from '../state/AppState'
 import { assignLanes, LANE_COLORS, type LogRow } from '../net/lanes'
@@ -24,6 +24,24 @@ export const RepoScreen: React.FC<NativeStackScreenProps<RootStack, 'Repo'>> = (
   const [status, setStatus] = useState<RepoStatus | null>(null)
   const [activity, setActivity] = useState<Array<{ ts: number; text: string }>>([])
   const [live, setLive] = useState<'connecting' | 'live' | 'offline'>('connecting')
+  const [busyAction, setBusyAction] = useState<'fetch' | 'pull' | null>(null)
+  const scopes = m?.scopes ?? []
+
+  // Tap-to-approve writes (M6): only the methods the host granted this phone.
+  const runScoped = (action: 'fetch' | 'pull') => {
+    if (!client || !m) return
+    Alert.alert(`${action === 'fetch' ? 'Fetch' : 'Pull'} on ${m.name}?`, `Runs \`git ${action}\` in ${name} on ${m.name}.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: action === 'fetch' ? 'Fetch' : 'Pull', onPress: async () => {
+        setBusyAction(action)
+        try {
+          if (action === 'fetch') { await client.fetch(m, repoPath); setActivity((a) => [{ ts: Date.now(), text: 'fetch (from phone) ✓' }, ...a]) }
+          else { const r = await client.pull(m, repoPath); setActivity((a) => [{ ts: Date.now(), text: r.success ? 'pull (from phone) ✓' : `pull failed: ${r.error ?? ''}` }, ...a]); if (!r.success) Alert.alert('Pull failed', r.error ?? 'unknown error') }
+          load()
+        } catch (e) { Alert.alert(`${action} failed`, String((e as Error).message)) } finally { setBusyAction(null) }
+      } },
+    ])
+  }
   const closeRef = useRef<(() => void) | null>(null)
 
   const load = useCallback(async () => {
@@ -63,8 +81,14 @@ export const RepoScreen: React.FC<NativeStackScreenProps<RootStack, 'Repo'>> = (
         {status && status.behind > 0 && <Text style={{ color: theme.cyan, fontSize: 12 }}>↓{status.behind}</Text>}
         <View style={{ flex: 1 }} />
         <Badge label={live === 'live' ? 'live' : live} color={live === 'live' ? theme.green : theme.textMuted} />
-        {m.readOnly && <Badge label="read-only" color={theme.cyan} />}
+        {m.readOnly && <Badge label={scopes.length ? `read-only +${scopes.join(',')}` : 'read-only'} color={theme.cyan} />}
       </View>
+      {scopes.length > 0 && (
+        <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingTop: 10 }}>
+          {scopes.includes('fetch') && <View style={{ flex: 1 }}><Button label={busyAction === 'fetch' ? 'Fetching…' : 'Fetch'} disabled={busyAction !== null} onPress={() => runScoped('fetch')} /></View>}
+          {scopes.includes('pull') && <View style={{ flex: 1 }}><Button label={busyAction === 'pull' ? 'Pulling…' : 'Pull'} primary disabled={busyAction !== null} onPress={() => runScoped('pull')} /></View>}
+        </View>
+      )}
       <View style={{ flexDirection: 'row', margin: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.border, overflow: 'hidden' }}>
         {(['graph', 'tree', 'activity'] as Tab[]).map((t) => (
           <Pressable key={t} onPress={() => setTab(t)} style={{ flex: 1, paddingVertical: 8, alignItems: 'center', backgroundColor: tab === t ? theme.bgHover : theme.bgElevated }}>

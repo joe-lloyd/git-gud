@@ -282,7 +282,7 @@ export class PeerServer {
     // Host-level (non-repo) methods.
     if (method === "__listRepos") return reply({ id, ok: true, result: this.host.listRepos() });
     if (method === "__ping") return reply({ id, ok: true, result: { ts: Date.now() } });
-    if (method === "__whoami") return reply({ id, ok: true, result: { peerId: device.peerId, name: device.name, kind: device.kind ?? "desktop", readOnly: this.host.readOnly() || device.readOnly === true, expiresAt: device.expiresAt ?? null } });
+    if (method === "__whoami") return reply({ id, ok: true, result: { peerId: device.peerId, name: device.name, kind: device.kind ?? "desktop", readOnly: this.host.readOnly() || device.readOnly === true, expiresAt: device.expiresAt ?? null, scopes: this.host.readOnly() ? [] : (device.scopes ?? []) } });
     if (method === "__rotateToken") {
       const r = this.host.rotateToken?.(device) ?? null;
       return r ? reply({ id, ok: true, result: r }) : reply({ id, ok: false, error: "Token rotation is not supported by this host", code: "not-found" }, 404);
@@ -299,7 +299,10 @@ export class PeerServer {
     if (access === "denied") {
       return reply({ id, ok: false, error: refusalMessage(method, false), code: "forbidden-method" }, 403);
     }
-    if (access === "write" && (this.host.readOnly() || device.readOnly)) {
+    // Read-only devices may still run explicitly scoped writes (fetch/pull for
+    // the companion's tap-to-approve). The host-wide switch always wins.
+    const scoped = device.readOnly && !this.host.readOnly() && (device.scopes ?? []).includes(method);
+    if (access === "write" && (this.host.readOnly() || (device.readOnly && !scoped))) {
       return reply({ id, ok: false, error: refusalMessage(method, true, device.readOnly && !this.host.readOnly() ? "device" : "host"), code: "read-only" }, 403);
     }
     if (access === "write" && this.host.denyMethods?.().has(method)) {

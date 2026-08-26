@@ -113,7 +113,13 @@ describe('companion client ⇄ real host', () => {
     const log = await client.rpc<Array<{ message: string }>>(m, repo, 'getLog', [50]); expect(log[0].message).toBe('first')
     const st = await client.rpc<{ unstaged: Array<{ path: string }> }>(m, repo, 'getStatus'); expect(st.unstaged.map((f) => f.path)).toEqual(['a.txt'])
     await expect(client.rpc(m, repo, 'stage', [['a.txt']])).rejects.toMatchObject({ code: 'read-only' }) // client refuses before the wire
-    expect(await client.whoami(m)).toMatchObject({ kind: 'companion', readOnly: true })
+    expect(await client.whoami(m)).toMatchObject({ kind: 'companion', readOnly: true, scopes: [] })
+    // M6: host grants fetch → client allows exactly that method; pull still refused client-side
+    store.setPairedScopes(client.self.peerId, ['fetch'])
+    const me = await client.whoami(m); expect(me.scopes).toEqual(['fetch'])
+    const scoped = { ...m, scopes: me.scopes }
+    await expect(client.pull(scoped, repo)).rejects.toMatchObject({ code: 'read-only' })
+    await expect(client.fetch(scoped, repo)).resolves.toBeNull() // reaches the host and runs (no remotes → no-op fetch)
     ;(globalThis as any).__m = m
   })
 

@@ -120,6 +120,7 @@ Object.defineProperty(window, 'peerApi', {
     regenerateCode: vi.fn().mockResolvedValue('000000'),
     revokeDevice: vi.fn(),
     setDeviceReadOnly: vi.fn().mockResolvedValue(true),
+    setDeviceScopes: vi.fn().mockResolvedValue(true),
     pairingQr: vi.fn().mockResolvedValue(null),
     pairPayload: vi.fn().mockResolvedValue({ success: false, error: 'mock' }),
     probe: vi.fn().mockResolvedValue({ success: false, error: 'n/a' }),
