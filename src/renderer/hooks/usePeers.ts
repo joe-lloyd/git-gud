@@ -7,7 +7,7 @@ import { parsePeerPath } from '../lib/peerPath'
 // hook mirrors it and exposes the actions the Peers modal / Settings need.
 
 export interface PeerActions {
-  setServer: (patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean }) => Promise<void>
+  setServer: (patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean; relayUrl?: string }) => Promise<void>
   pairingQr: () => Promise<{ payload: string; svg: string } | null>
   pairPayload: (text: string) => Promise<{ success: boolean; peerId?: string; name?: string; error?: string }>
   regenerateCode: () => Promise<void>

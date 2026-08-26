@@ -17,6 +17,7 @@ import type { Logger } from "./log";
 import { ConfigRepoAllowList } from "./repos";
 import { AuditLog } from "./audit";
 import { createRepoWatcher, pushSubscribers } from "../main/peer-host-core";
+import { RelayLink } from "../main/peer-relay";
 import { PushNotifier } from "../main/peer-push";
 
 export interface DaemonOptions {
@@ -35,7 +36,7 @@ export interface RunningDaemon {
   socketPath: string;
   server: PeerServer;
   store: PeerStore;
-  requestPairingCode(): { code: string; fingerprint: string; expiresAt: number; addresses: string[] };
+  requestPairingCode(): { code: string; fingerprint: string; expiresAt: number; addresses: string[]; relay?: string };
   reload(): void;
   stop(): Promise<void>;
 }
@@ -126,6 +127,25 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
   const port = await server.start(cfg.port, bindAddress, 0);
   log("serving", { bind: `${bindAddress}:${port}`, readOnly: readOnlyNow(), repos: allow.current().size, fingerprint: shortFingerprint(tls.fingerprint), sourceFilter: cfg.allowSourceCidrs.join(",") || "any" });
 
+  // Rendezvous/relay registration (M5): outbound only; peers anywhere reach
+  // us through the relay with our fingerprint in hand (QR / payload).
+  let relay: RelayLink | null = null;
+  const applyRelay = () => {
+    const want = cfg.rendezvous?.url;
+    if (!want) { relay?.stop(); relay = null; return; }
+    if (relay && relay["o"].relayUrl === want) return;
+    relay?.stop();
+    relay = new RelayLink({
+      relayUrl: want, peerId: store.getIdentity().peerId, token: cfg.rendezvous!.token, name: cfg.name,
+      fingerprint: () => tls.fingerprint,
+      onSocket: (sock) => { if (!server.injectConnection(sock)) sock.destroy(); },
+      log: (m) => log.level("warn", m),
+    });
+    relay.on("status", (st: string) => log("relay", { status: st, error: relay?.lastError || undefined }));
+    relay.start();
+  };
+  applyRelay();
+
   let discovery: PeerDiscovery | null = null;
   const applyDiscovery = () => {
     if (cfg.discovery && !discovery) {
@@ -153,7 +173,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
     pairingUntil = Date.now() + cfg.pairingWindowMinutes * 60_000;
     audit.write("pairing-code-issued", {});
     log("pairing window opened", { minutes: cfg.pairingWindowMinutes });
-    return { code, fingerprint: tls.fingerprint, expiresAt: pairingUntil, addresses: addresses() };
+    const relayAddr = cfg.rendezvous?.url ? `${cfg.rendezvous.url.replace(/#.*$/, "").replace(/\/$/, "")}/${store.getIdentity().peerId}${cfg.rendezvous.url.includes("#") ? "#" + cfg.rendezvous.url.split("#")[1] : ""}` : undefined;
+    return { code, fingerprint: tls.fingerprint, expiresAt: pairingUntil, addresses: addresses(), relay: relayAddr };
   };
 
   const reload = () => {
@@ -166,6 +187,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
       repos.prune();
       applyDiscovery();
       applyPushWatchers();
+      applyRelay();
       log("reloaded", { repos: allow.current().size, readOnly: cfg.readOnly });
     } catch (e) {
       log.level("error", `reload failed: ${String(e)} — keeping previous config`);
@@ -177,6 +199,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
   const stop = async () => {
     for (const s of pushWatchers.values()) s();
     push.stop();
+    relay?.stop();
     discovery?.stop();
     server.stop();
     await new Promise<void>((r) => (control ? control.close(() => r()) : r()));
@@ -190,6 +213,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
           version: opts.version, peerId: store.getIdentity().peerId, name: cfg.name, bind: `${bindAddress}:${port}`,
           readOnly: readOnlyNow(), readOnlyForced: effectiveReadOnly(cfg, bindAddress).forced, fingerprint: tls.fingerprint, repos: [...allow.current().keys()],
           allowSourceCidrs: cfg.allowSourceCidrs, tokenTtlDays: cfg.tokenTtlDays, infoPublic: cfg.infoPublic,
+          relay: cfg.rendezvous?.url ? { url: cfg.rendezvous.url, status: relay?.status ?? "offline", error: relay?.lastError ?? "" } : null,
           paired: store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, kind: d.kind, readOnly: d.readOnly === true, connected: server.connectedDevices().some((c) => c.peerId === d.peerId) })),
           pairingOpen: pairingOpen(), pairingExpiresAt: pairingUntil || null, configFile: configPath(paths), pid: process.pid,
         };

@@ -84,14 +84,16 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "pair": {
-      const r = (await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "pair" })) as { code: string; fingerprint: string; expiresAt: number; addresses: string[] };
+      const r = (await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "pair" })) as { code: string; fingerprint: string; expiresAt: number; addresses: string[]; relay?: string };
       const mins = Math.round((r.expiresAt - Date.now()) / 60000);
       out(`Pairing code:  ${r.code.slice(0, 3)} ${r.code.slice(3)}     (valid ${mins} min or until used)`);
       out(`Certificate:   ${r.fingerprint}`);
       out(`Connect from Git Gud → Peers → Connect by address → one of:`);
       for (const a of r.addresses) out(`               ${a}`);
+      if (r.relay) out(`               ${r.relay}   (from anywhere, via relay — paste the payload below)`);
+      const payload = pairingQrPayload({ host: r.addresses[0].split(":")[0], port: Number(r.addresses[0].split(":")[1]), fingerprint: r.fingerprint, code: r.code, alts: r.addresses.slice(1).map((a) => a.split(":")[0]), relay: r.relay });
+      if (!has(args, "--qr")) out(`Payload (paste into Connect by address): ${payload}`);
       if (has(args, "--qr")) {
-        const payload = pairingQrPayload({ host: r.addresses[0].split(":")[0], port: Number(r.addresses[0].split(":")[1]), fingerprint: r.fingerprint, code: r.code, alts: r.addresses.slice(1).map((a) => a.split(":")[0]) });
         out("");
         out(renderQrAscii(payload));
         out(`Scan with the Git Gud companion app. Payload: ${payload}`);

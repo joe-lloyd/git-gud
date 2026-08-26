@@ -491,6 +491,24 @@ export const PeersSection: React.FC<{
               <input type="checkbox" checked={s.server.push} onChange={(e) => peers.actions.setServer({ push: e.target.checked })} />
             </label>
           </div>
+
+          {/* Relay (M5): reachable from the internet without port forwarding */}
+          <div style={{ ...row, borderBottom: 'none', padding: '8px 0', alignItems: 'flex-start' }}>
+            <div style={{ ...labelWrap, flex: 1 }}>
+              <span style={{ ...labelText, fontSize: 12 }}>Reachable via relay</span>
+              <span style={hintText}>
+                Address of your <span className="mono">gitgud-relay</span> (e.g. <span className="mono">relay://relay.example.com:47833#FINGERPRINT</span>). This machine keeps an outbound connection there; peers that scan your QR from anywhere are spliced through. The relay only ever sees encrypted bytes.
+                {s.server.relay.url && <><br /><span style={{ color: s.server.relay.status === 'registered' ? 'var(--success)' : 'var(--text-primary)' }}>{s.server.relay.status === 'registered' ? 'Registered at relay' : s.server.relay.status === 'connecting' ? 'Connecting to relay…' : `Relay offline${s.server.relay.error ? ` — ${s.server.relay.error}` : ''}`}</span></>}
+              </span>
+              <input
+                className="peer-input mono"
+                style={{ marginTop: 6 }}
+                placeholder="relay://host:47833#fingerprint (empty = off)"
+                defaultValue={s.server.relay.url}
+                onBlur={(e) => { const v = e.target.value.trim(); if (v !== s.server.relay.url) peers.actions.setServer({ relayUrl: v }) }}
+              />
+            </div>
+          </div>
             {s.server.paired.length === 0 && <div style={hintText}>None yet — pair from the other machine's Peers window.</div>}
             {s.server.paired.map((d) => (
               <div key={d.peerId} className="peer-paired-row">

@@ -24,7 +24,9 @@
     "release:patch": "bash scripts/bump-release.sh patch",
     "release:dev": "bash scripts/bump-release.sh dev",
     "build:headless": "vite build --config vite.headless.config.ts && chmod +x out/headless/main.js",
-    "headless": "node out/headless/main.js"
+    "headless": "node out/headless/main.js",
+    "build:relay": "vite build --config vite.relay.config.ts && chmod +x out/relay/main.js",
+    "relay": "node out/relay/main.js"
   },
   "dependencies": {
     "@octokit/rest": "^19.0.13",

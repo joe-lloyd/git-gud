@@ -24,7 +24,7 @@ describe('PeerStore', () => {
     expect(id.name.length).toBeGreaterThan(0)
     const b = new PeerStore(dir)
     expect(b.getIdentity().peerId).toBe(id.peerId)
-    expect(b.getSettings()).toEqual({ enabled: false, port: 47831, name: id.name, readOnly: false, push: false })
+    expect(b.getSettings()).toEqual({ enabled: false, port: 47831, name: id.name, readOnly: false, push: false, relayUrl: '' })
   })
 
   it('validates settings patches', () => {

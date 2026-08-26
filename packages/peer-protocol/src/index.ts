@@ -441,3 +441,56 @@ export function parsePairingQr(text: string): PairingQrPayload | null {
   const alts = (q.get("alt") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   return { host, port, fingerprint, code, alts: alts.length ? alts : undefined, relay: q.get("r") ?? undefined, name: q.get("n") ?? undefined };
 }
+
+// ── Rendezvous / relay (M5) ─────────────────────────────────────────────
+// A tiny public service that (1) knows which hosts are online and (2) splices
+// a client's TCP stream to a host's. Everything after the splice is the
+// host's pinned TLS: the relay sees ciphertext only. Control frames are
+// newline-delimited JSON on the relay's own TLS listener.
+//
+//   host   → relay : {"t":"register","peerId","token","fph"}   fph = sha256(host cert fingerprint)
+//   relay  → host  : {"t":"registered"} | {"t":"error","error"}
+//   relay  → host  : {"t":"incoming","conn"}                     a client wants you
+//   host   → relay : (new connection) {"t":"accept","conn","peerId","token"} → {"t":"ok"} then raw
+//   client → relay : {"t":"connect","peerId","fph"}              must know the fingerprint → no enumeration
+//   relay  → client: {"t":"ok"} then raw | {"t":"error","error"}
+//   either → relay : {"t":"ping"} → {"t":"pong"}
+export const RELAY_DEFAULT_PORT = 47833;
+export const RELAY_URI_SCHEME = "relay://";
+export const RELAY_KEEPALIVE_MS = 25_000;
+export const RELAY_ACCEPT_TIMEOUT_MS = 10_000;
+
+export type RelayFrame =
+  | { t: "register"; peerId: string; token: string; fph: string; name?: string }
+  | { t: "registered" }
+  | { t: "incoming"; conn: string }
+  | { t: "accept"; conn: string; peerId: string; token: string }
+  | { t: "connect"; peerId: string; fph: string }
+  | { t: "ok" }
+  | { t: "error"; error: string }
+  | { t: "ping" }
+  | { t: "pong" };
+
+export function encodeRelayFrame(f: RelayFrame): string {
+  return JSON.stringify(f) + "\n";
+}
+
+export function parseRelayFrame(line: string): RelayFrame | null {
+  try {
+    const j = JSON.parse(line) as RelayFrame;
+    return j && typeof j.t === "string" ? j : null;
+  } catch { return null; }
+}
+
+// relay://relay.example.com:47833[/<peerId>][#<relay cert fingerprint hex>]
+export function parseRelayUrl(input: string): { host: string; port: number; peerId?: string; fingerprint?: string } | null {
+  const m = /^relay:\/\/([^/#]+)(?:\/([0-9a-f]{8,64}))?(?:#([0-9A-Fa-f:]{64,95}))?$/.exec(input.trim());
+  if (!m) return null;
+  const hp = parseHostPort(m[1], RELAY_DEFAULT_PORT);
+  if (!hp) return null;
+  return { host: hp.host, port: hp.port, peerId: m[2], fingerprint: m[3]?.replace(/:/g, "").toUpperCase() };
+}
+
+export function isRelayAddress(host: string | null | undefined): boolean {
+  return typeof host === "string" && host.startsWith(RELAY_URI_SCHEME);
+}

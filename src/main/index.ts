@@ -367,7 +367,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('peer:get-state', async () => peerService?.getState() ?? null)
   ipcMain.handle('peer:set-device-read-only', async (_event, peerId: string, readOnly: boolean) => peerService?.setDeviceReadOnly(peerId, readOnly) ?? false)
-  ipcMain.handle('peer:set-server', async (_event, patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean }) => {
+  ipcMain.handle('peer:set-server', async (_event, patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean; relayUrl?: string }) => {
     if (!peerService) return null
     return peerService.setServer(patch ?? {})
   })

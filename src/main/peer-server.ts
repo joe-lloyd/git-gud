@@ -148,6 +148,14 @@ export class PeerServer {
     });
   }
 
+  // A socket that arrived through a relay: the https server runs its TLS
+  // handshake on it exactly as for an accepted connection.
+  injectConnection(sock: import("net").Socket): boolean {
+    if (!this.server) return false;
+    this.server.emit("connection", sock);
+    return true;
+  }
+
   stop(): void {
     for (const c of this.clients) {
       try { c.res.end(); } catch { /* gone */ }

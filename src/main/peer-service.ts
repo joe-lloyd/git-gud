@@ -3,6 +3,7 @@ import { PeerServer, type PeerServerHost } from "./peer-server";
 import * as os from "os";
 import { createPeerServerHost, pushSubscribers } from "./peer-host-core";
 import { PushNotifier } from "./peer-push";
+import { RelayLink } from "./peer-relay";
 import { renderQrSvg } from "./qr";
 import { certFingerprint } from "./peer-tls";
 import { PeerDiscovery } from "./peer-discovery";
@@ -20,6 +21,8 @@ import {
   parsePairingQr,
   classifyTransport,
   type TransportKind,
+  isRelayAddress,
+  parseRelayUrl,
 } from "./peer-protocol";
 import type { GitActivity } from "./git-service";
 
@@ -36,6 +39,7 @@ export type PeerStateSnapshot = {
     port: number;
     readOnly: boolean;
     push: boolean;
+    relay: { url: string; status: string; error: string };
     pairingCode: string;
     fingerprint: string;
     error: string;
@@ -70,6 +74,7 @@ export class PeerService {
   private serverError = "";
   private push: PushNotifier;
   private rttTimer: NodeJS.Timeout | null = null;
+  private relayLink: RelayLink | null = null;
   private publishTimer: NodeJS.Timeout | null = null;
 
   constructor(private deps: PeerServiceDeps) {
@@ -134,6 +139,7 @@ export class PeerService {
 
   shutdown(): void {
     if (this.rttTimer) { clearInterval(this.rttTimer); this.rttTimer = null; }
+    this.relayLink?.stop(); this.relayLink = null;
     this.server.stop();
     this.discovery.stop();
     for (const c of this.connections.values()) c.disconnect();
@@ -169,7 +175,7 @@ export class PeerService {
 
   // ── Host (sharing) ──────────────────────────────────────────────────
 
-  async setServer(patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean }): Promise<PeerStateSnapshot> {
+  async setServer(patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean; relayUrl?: string }): Promise<PeerStateSnapshot> {
     const before = this.store.getSettings();
     const after = this.store.updateSettings(patch);
     const restart = after.enabled && this.server.isListening && after.port !== before.port;
@@ -181,6 +187,7 @@ export class PeerService {
       // Name change → refresh the beacon payload.
       this.discovery.setBeacon(this.beaconPayload());
     }
+    this.applyRelayLink();
     this.schedulePublish();
     return this.getState();
   }
@@ -203,6 +210,10 @@ export class PeerService {
     return ok;
   }
 
+  relayStatus(): { url: string; status: string; error: string } {
+    return { url: this.store.getSettings().relayUrl, status: this.relayLink?.status ?? "offline", error: this.relayLink?.lastError ?? "" };
+  }
+
   broadcastActivity(rec: GitActivity): void {
     if (this.server.isListening) this.server.broadcastActivity(rec.repoPath, rec);
     if (rec.kind === "write" && !rec.failed) this.push.notify(rec.repoPath, "activity", rec.args[0]);
@@ -222,13 +233,37 @@ export class PeerService {
     for (const list of Object.values(os.networkInterfaces())) for (const a of list ?? []) if ((a.family === "IPv4" || (a.family as unknown) === 4) && !a.internal) addrs.push(a.address);
     const host = addrs[0] ?? os.hostname();
     const alts = [...addrs.slice(1), os.hostname()].filter((h) => h !== host);
-    const payload = pairingQrPayload({ host, port, fingerprint: this.store.getTls().fingerprint, code: this.server.code, alts, name: this.store.getSettings().name });
+    const relay = this.store.getSettings().relayUrl ? `${this.store.getSettings().relayUrl.replace(/#.*$/, "").replace(/\/$/, "")}/${this.store.getIdentity().peerId}${this.store.getSettings().relayUrl.includes("#") ? "#" + this.store.getSettings().relayUrl.split("#")[1] : ""}` : undefined;
+    const payload = pairingQrPayload({ host, port, fingerprint: this.store.getTls().fingerprint, code: this.server.code, alts, name: this.store.getSettings().name, relay });
     return { payload, svg: renderQrSvg(payload, { size: 220 }) };
+  }
+
+  // Host side: keep a control connection to the configured relay so peers
+  // elsewhere on the internet can reach this instance without port forwarding.
+  private applyRelayLink(): void {
+    const st = this.store.getSettings();
+    const want = this.server.isListening && !!st.relayUrl;
+    if (!want) { this.relayLink?.stop(); this.relayLink = null; return; }
+    if (this.relayLink && this.relayLink["o"].relayUrl === st.relayUrl) return;
+    this.relayLink?.stop();
+    const id = this.store.getIdentity();
+    this.relayLink = new RelayLink({
+      relayUrl: st.relayUrl,
+      peerId: id.peerId,
+      token: this.store.getRelayToken(),
+      name: st.name,
+      fingerprint: () => this.store.getTls().fingerprint,
+      onSocket: (sock) => { if (!this.server.injectConnection(sock)) sock.destroy(); },
+      log: this.deps.log,
+    });
+    this.relayLink.on("status", () => this.schedulePublish());
+    this.relayLink.start();
   }
 
   private async startServer(): Promise<void> {
     try {
       const port = await this.server.start(this.store.getSettings().port);
+      queueMicrotask(() => this.applyRelayLink());
       this.serverError = "";
       this.discovery.setBeacon(this.beaconPayload(port));
       this.deps.log?.(`peer-server: sharing on port ${port}`);
@@ -239,6 +274,7 @@ export class PeerService {
   }
 
   private stopServer(): void {
+    this.relayLink?.stop(); this.relayLink = null;
     this.server.stop();
     this.discovery.setBeacon(null);
   }
@@ -275,6 +311,24 @@ export class PeerService {
         lastErr = e;
         if (/does not match|this instance/.test(String((e as Error).message))) throw e;
       }
+    }
+    // Direct addresses failed: go through the relay named in the payload.
+    if (qr.relay) {
+      const relayHost = qr.relay.startsWith("relay://") ? qr.relay : `relay://${qr.relay}`;
+      const parsed = parseRelayUrl(relayHost);
+      const peerId = parsed?.peerId;
+      if (!peerId) throw new Error("Relay address in the payload lacks the host's peer id");
+      const route = { url: relayHost, peerId, fingerprint: qr.fingerprint };
+      const { info, certPem } = await PeerConnection.probe("gitgud-peer", 0, route);
+      if (certFingerprint(certPem) !== qr.fingerprint) throw new Error("Certificate via relay does not match the payload — refusing to pair.");
+      if (info.peerId === this.store.getIdentity().peerId) throw new Error("That's this instance — pick another machine.");
+      const { token, peer } = await PeerConnection.pair("gitgud-peer", 0, qr.code, this.store.getIdentity(), certPem, "desktop", route);
+      const known = this.store.upsertKnown({ peerId: peer.peerId, name: peer.name, host: relayHost, port: 0, token, certPem });
+      this.connections.get(peer.peerId)?.disconnect();
+      this.connections.delete(peer.peerId);
+      this.ensureConnection(known).connect();
+      this.schedulePublish();
+      return { peerId: peer.peerId, name: peer.name };
     }
     throw lastErr instanceof Error ? lastErr : new Error("No address in the payload answered");
   }
@@ -379,7 +433,7 @@ export class PeerService {
   private ensureConnection(k: KnownPeer): PeerConnection {
     let c = this.connections.get(k.peerId);
     if (c) return c;
-    c = new PeerConnection({ peerId: k.peerId, name: k.name, host: k.host, port: k.port, token: k.token, certPem: k.certPem }, this.store.getIdentity());
+    c = new PeerConnection({ peerId: k.peerId, name: k.name, host: k.host, port: k.port, token: k.token, certPem: k.certPem, ...(isRelayAddress(k.host) ? { relay: k.host } : {}) }, this.store.getIdentity());
     c.on("status", () => this.schedulePublish());
     c.on("event", (ev: PeerEvent) => this.onPeerEvent(k.peerId, ev));
     c.on("info", () => this.schedulePublish());

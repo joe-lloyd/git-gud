@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { join } from "path";
 import { hostname } from "os";
-import { DEFAULT_SERVER_PORT, generatePeerId, hashToken } from "./peer-protocol";
+import { DEFAULT_SERVER_PORT, generatePeerId, generateToken, hashToken } from "./peer-protocol";
 import { generateSelfSigned, validateIdentity, certFingerprint, type TlsIdentity } from "./peer-tls";
 
 // Persistence for the peer feature — four small JSON files in userData.
@@ -9,8 +9,10 @@ import { generateSelfSigned, validateIdentity, certFingerprint, type TlsIdentity
 // pass-through in tests) so outbound tokens are encrypted at rest while the
 // host side only ever stores token *hashes*.
 
-export type PeerIdentity = { peerId: string; name: string };
-export type PeerSettings = { enabled: boolean; port: number; name: string; readOnly: boolean; push: boolean };
+export type PeerIdentity = { peerId: string; name: string; relayToken?: string };
+// `relayUrl`: relay://host:port[#fp] this host registers at so peers elsewhere
+// on the internet can reach it (M5). Empty = off.
+export type PeerSettings = { enabled: boolean; port: number; name: string; readOnly: boolean; push: boolean; relayUrl: string };
 // A device allowed to connect TO me. Only the SHA-256 of its token is kept.
 export type PairedDevice = {
   peerId: string;
@@ -75,6 +77,7 @@ export class PeerStore {
       name: typeof s.name === "string" && s.name.trim() ? s.name.trim() : this.identity.name,
       readOnly: s.readOnly === true,
       push: s.push === true,
+      relayUrl: typeof s.relayUrl === "string" ? s.relayUrl.trim() : "",
     };
 
     this.paired = (this.readJson<PairedDevice[]>(this.pairedFile) ?? []).filter(
@@ -115,6 +118,16 @@ export class PeerStore {
 
   getIdentity(): PeerIdentity {
     return { peerId: this.identity.peerId, name: this.settings.name };
+  }
+
+  // Per-host secret that binds our peerId at the relay (first registration
+  // wins; see src/relay). Generated once, never shown in the UI.
+  getRelayToken(): string {
+    if (!this.identity.relayToken) {
+      this.identity.relayToken = generateToken();
+      this.writeJson(this.identityFile, this.identity);
+    }
+    return this.identity.relayToken;
   }
 
   getSettings(): PeerSettings {

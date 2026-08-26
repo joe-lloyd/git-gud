@@ -590,6 +590,7 @@ export type PeerState = {
     port: number
     readOnly: boolean
     push: boolean
+    relay: { url: string; status: string; error: string }
     pairingCode: string
     /** SHA-256 fingerprint of this host's TLS certificate (AA:BB:…). */
     fingerprint: string
@@ -608,7 +609,7 @@ const peerApi = {
     return () => { ipcRenderer.removeListener('peer:state', handler) }
   },
   // Host side
-  setServer: (patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean }): Promise<PeerState | null> =>
+  setServer: (patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean; relayUrl?: string }): Promise<PeerState | null> =>
     ipcRenderer.invoke('peer:set-server', patch),
   regenerateCode: (): Promise<string> => ipcRenderer.invoke('peer:regenerate-code'),
   pairingQr: (): Promise<{ payload: string; svg: string } | null> => ipcRenderer.invoke('peer:pairing-qr'),

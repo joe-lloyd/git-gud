@@ -82,7 +82,7 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm build:headless
+      - run: pnpm build:headless && pnpm build:relay
       - name: Smoke test
         run: |
           set -euo pipefail
@@ -104,9 +104,12 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           cp out/headless/main.js "gitgud-headless-${VERSION}.js"
           sha256sum "gitgud-headless-${VERSION}.js" > "gitgud-headless-${VERSION}.js.sha256"
+          cp out/relay/main.js "gitgud-relay-${VERSION}.js"
+          sha256sum "gitgud-relay-${VERSION}.js" > "gitgud-relay-${VERSION}.js.sha256"
+          test "$(node out/relay/main.js --version)" = "$VERSION"
           # The release is created by the electron-builder jobs; wait for it.
           for i in $(seq 1 30); do gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break; sleep 20; done
-          gh release upload "$GITHUB_REF_NAME" "gitgud-headless-${VERSION}.js" "gitgud-headless-${VERSION}.js.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$GITHUB_REF_NAME" "gitgud-headless-${VERSION}.js" "gitgud-headless-${VERSION}.js.sha256" "gitgud-relay-${VERSION}.js" "gitgud-relay-${VERSION}.js.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
   tidy-release:
     name: Tidy release assets
@@ -146,6 +149,7 @@ jobs:
           | Windows | \`Git-Gud-Setup-${VERSION}.exe\` |
           | Linux | \`Git-Gud-${VERSION}.AppImage\` |
           | Linux headless daemon | \`gitgud-headless-${VERSION}.js\` (+ \`.sha256\`) — \`curl -fsSL https://raw.githubusercontent.com/joe-lloyd/git-gud/main/scripts/install-headless.sh | bash\` |
+          | Rendezvous/relay service | \`gitgud-relay-${VERSION}.js\` (+ \`.sha256\`) — see docs/relay.md |
 
           ### macOS first launch
 

@@ -18,6 +18,7 @@ import {
   type RpcResponse,
 } from "./peer-protocol";
 import { certFingerprint } from "./peer-tls";
+import { relayDial } from "./peer-relay";
 import type { GitActivity } from "./git-service";
 
 // Client side of a peer connection. `PeerConnection` speaks the HTTPS/SSE
@@ -34,7 +35,10 @@ import type { GitActivity } from "./git-service";
 // recovers; the user must forget + re-pair (or the host was replaced).
 export type PeerStatus = "connected" | "connecting" | "offline" | "revoked" | "cert-changed";
 
-export type PeerEndpoint = { peerId: string; name: string; host: string; port: number; token: string; certPem: string };
+// `relay`: reach the host through a rendezvous relay (relay://host:port[#fp])
+// instead of host:port. The pinned TLS handshake still runs end to end.
+export type PeerEndpoint = { peerId: string; name: string; host: string; port: number; token: string; certPem: string; relay?: string };
+export type RelayRoute = { url: string; peerId: string; fingerprint: string };
 
 export class PeerRpcError extends Error {
   constructor(message: string, public code: RpcErrorCode | "network" | "timeout" | "tls") {
@@ -66,18 +70,33 @@ function pinOptions(certPem: string): Pick<https.RequestOptions, "ca" | "checkSe
 // pin it. Only ever used for /info and the pairing request itself.
 const TOFU_OPTIONS: Pick<https.RequestOptions, "rejectUnauthorized"> = { rejectUnauthorized: false };
 
-function request(
-  opts: https.RequestOptions & { body?: string; timeoutMs: number },
-): Promise<HttpResult> {
+// Through a relay: raw spliced socket → our own TLS handshake with the pin,
+// handed to http as an already-connected socket.
+async function relayTlsSocket(route: RelayRoute, tlsOpts: Pick<https.RequestOptions, "ca" | "checkServerIdentity" | "rejectUnauthorized">): Promise<tls.TLSSocket> {
+  const raw = await relayDial(route.url, route.peerId, route.fingerprint);
+  // Strip undefined keys: tls.connect rejects `checkServerIdentity: undefined`.
+  const clean = Object.fromEntries(Object.entries(tlsOpts).filter(([, v]) => v !== undefined)) as typeof tlsOpts;
   return new Promise((resolve, reject) => {
-    const { body, timeoutMs, ...rest } = opts;
+    const sock = tls.connect({ socket: raw, servername: "gitgud-peer", minVersion: "TLSv1.2", checkServerIdentity: () => undefined, ...clean });
+    sock.once("secureConnect", () => resolve(sock));
+    sock.once("error", (e) => { raw.destroy(); reject(e); });
+  });
+}
+
+async function request(
+  opts: https.RequestOptions & { body?: string; timeoutMs: number; relay?: RelayRoute },
+): Promise<HttpResult> {
+  const { relay, ...restOpts } = opts;
+  const relaySock = relay ? await relayTlsSocket(relay, { ca: restOpts.ca, checkServerIdentity: restOpts.checkServerIdentity, rejectUnauthorized: restOpts.rejectUnauthorized }) : null;
+  return new Promise((resolve, reject) => {
+    const { body, timeoutMs, ...rest } = restOpts;
     const req = https.request(
       {
         ...rest,
         // agent: false → no TLS session resumption. Node skips
         // checkServerIdentity on resumed sessions; we want the pin checked on
-        // every connection.
-        agent: false,
+        // every connection. Via relay: no agent, our pre-connected socket.
+        ...(relaySock ? { agent: undefined, createConnection: () => relaySock, host: "gitgud-peer", port: undefined } : { agent: false }),
         minVersion: "TLSv1.2",
         headers: { ...(rest.headers ?? {}), ...(body ? { "Content-Length": Buffer.byteLength(body) } : {}) },
       },
@@ -133,8 +152,8 @@ export class PeerConnection extends EventEmitter {
 
   // Trust-on-first-use: returns the host's info AND the certificate it
   // presented, so the UI can show the fingerprint and pairing can pin it.
-  static async probe(host: string, port: number): Promise<{ info: PeerInfo; certPem: string }> {
-    const r = await request({ host, port, path: "/gitgud/info", method: "GET", ...TOFU_OPTIONS, timeoutMs: PROBE_TIMEOUT_MS });
+  static async probe(host: string, port: number, relay?: RelayRoute): Promise<{ info: PeerInfo; certPem: string }> {
+    const r = await request({ host, port, path: "/gitgud/info", method: "GET", ...TOFU_OPTIONS, timeoutMs: PROBE_TIMEOUT_MS, relay });
     if (r.status !== 200) throw new Error(`Peer answered ${r.status}`);
     const info = JSON.parse(r.body) as PeerInfo;
     if (!info || typeof info.peerId !== "string") throw new Error("Not a Git Gud peer");
@@ -151,11 +170,11 @@ export class PeerConnection extends EventEmitter {
   // to it and the proof binds the code to its fingerprint.
   static async pair(
     host: string, port: number, code: string, self: { peerId: string; name: string }, certPem: string,
-    kind: PeerDeviceKind = "desktop",
+    kind: PeerDeviceKind = "desktop", relay?: RelayRoute,
   ): Promise<{ token: string; peer: PeerInfo; readOnly: boolean }> {
     const fingerprint = certFingerprint(certPem);
     const r = await request({
-      host, port, path: "/gitgud/pair", method: "POST",
+      host, port, path: "/gitgud/pair", method: "POST", relay,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ proof: pairingProof(code, fingerprint), peerId: self.peerId, name: self.name, kind } satisfies PairRequest),
       ...pinOptions(certPem),
@@ -214,7 +233,7 @@ export class PeerConnection extends EventEmitter {
     let r: HttpResult;
     try {
       r = await request({
-        host: this.endpoint.host, port: this.endpoint.port, path: "/gitgud/rpc", method: "POST",
+        host: this.endpoint.host, port: this.endpoint.port, path: "/gitgud/rpc", method: "POST", relay: this.relayRoute(),
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.endpoint.token}` },
         body: JSON.stringify({ id, repoPath, method, args }),
         ...pinOptions(this.endpoint.certPem),
@@ -281,21 +300,37 @@ export class PeerConnection extends EventEmitter {
     } catch { /* best effort — status stays connected */ }
   }
 
+  private relayRoute(): RelayRoute | undefined {
+    return this.endpoint.relay ? { url: this.endpoint.relay, peerId: this.endpoint.peerId, fingerprint: certFingerprint(this.endpoint.certPem) } : undefined;
+  }
+
   // ── SSE stream ──────────────────────────────────────────────────────
 
   private openStream(): void {
     if (!this.wantConnected) return;
     this.setStatus(this.status === "connected" ? "connected" : "connecting", "");
+    const route = this.relayRoute();
+    if (!route) { this.openStreamWith(null); return; }
+    // Via relay: dial first (async), then run the same request over it.
+    const marker = {} as https.ClientRequest; // placeholder so closeStream() can cancel the dial
+    this.stream = marker;
+    relayTlsSocket(route, pinOptions(this.endpoint.certPem)).then(
+      (sock) => { if (this.stream !== marker) { sock.destroy(); return; } this.stream = null; this.openStreamWith(sock); },
+      (e) => { if (this.stream !== marker) return; this.stream = null; if (isTlsError(e)) { this.setStatus("cert-changed", "TLS certificate check failed — the peer's identity changed"); return; } this.stream = marker; this.streamFailed(String((e as Error).message ?? e)); },
+    );
+  }
+
+  private openStreamWith(relaySock: tls.TLSSocket | null): void {
     const repos = this.subscriptions.map(encodeURIComponent).join(",");
     const req = https.request(
       {
-        host: this.endpoint.host,
-        port: this.endpoint.port,
+        host: relaySock ? "gitgud-peer" : this.endpoint.host,
+        port: relaySock ? undefined : this.endpoint.port,
         path: `/gitgud/events?repos=${repos}`,
         method: "GET",
         headers: { Authorization: `Bearer ${this.endpoint.token}`, Accept: "text/event-stream" },
         timeout: PROBE_TIMEOUT_MS,
-        agent: false,
+        ...(relaySock ? { createConnection: () => relaySock } : { agent: false }),
         minVersion: "TLSv1.2",
         ...pinOptions(this.endpoint.certPem),
       },
@@ -346,7 +381,7 @@ export class PeerConnection extends EventEmitter {
   private closeStream(): void {
     const s = this.stream;
     this.stream = null;
-    if (s) { try { s.destroy(); } catch { /* ignore */ } }
+    if (s && typeof (s as https.ClientRequest).destroy === "function") { try { s.destroy(); } catch { /* ignore */ } }
   }
 
   private streamFailed(reason: string): void {
