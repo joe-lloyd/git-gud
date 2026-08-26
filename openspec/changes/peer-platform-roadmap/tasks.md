@@ -1,0 +1,11 @@
+# Tasks
+- [x] M1 headless daemon — commit f005ae9 (`src/main/peer-host-core.ts`, `src/headless/`, `vite.headless.config.ts`, `resources/gitgud-headless.service`, `scripts/install-headless.sh`, CI job `headless`, `docs/headless.md`)
+- [x] M2 shared protocol package — commit e3c0d35 (`packages/peer-protocol`)
+- [x] M3 companion v1 — commit d30e91a (`apps/companion`, `modules/pinned-fetch`, host `__subscribePush`, `src/main/peer-push.ts`, QR pane, `docs/companion.md`)
+- [x] M4 hardening — commit a1ea425
+- [x] M5 relay — commit 99ddd6f (`src/relay/main.ts`, `src/main/peer-relay.ts`, `deploy/relay/Dockerfile`, `docs/relay.md`)
+- [x] M6 companion v2 — commit 196a99c
+- [ ] Hole punching (simultaneous open) before relay fallback
+- [ ] Companion widgets (WidgetKit / Glance)
+- [ ] Node SEA single binary for daemon/relay
+- [ ] Native module verified on a real device (EAS/prebuild) — see test plan
