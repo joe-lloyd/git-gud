@@ -340,6 +340,15 @@ export class SseParser {
 // ── Misc ────────────────────────────────────────────────────────────────
 
 // "host", "host:port", "[v6]:port" → { host, port }
+// IPv4/IPv6 literal vs. a name (mDNS `.local`, Tailscale MagicDNS, DDNS…).
+// Names are stable identities the user chose; LAN discovery must never
+// overwrite them with whatever IP the beacon happens to report.
+export function isIpLiteral(host: string): boolean {
+  const h = host.trim().replace(/^\[|\]$/g, "");
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return true;
+  return /^[0-9a-f:]+(%[a-z0-9]+)?$/i.test(h) && h.includes(":");
+}
+
 export function parseHostPort(input: string, defaultPort = DEFAULT_SERVER_PORT): { host: string; port: number } | null {
   const s = input.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
   if (!s) return null;

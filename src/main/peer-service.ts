@@ -3,6 +3,7 @@ import { PeerServer, type PeerServerHost } from "./peer-server";
 import { PeerDiscovery } from "./peer-discovery";
 import { PeerConnection, createRemoteRepoProxy, type PeerStatus } from "./peer-client";
 import {
+  isIpLiteral,
   PROTOCOL_VERSION,
   makePeerRepoPath,
   parsePeerRepoPath,
@@ -77,11 +78,23 @@ export class PeerService {
     this.discovery = new PeerDiscovery(identity().peerId);
     this.discovery.on("change", () => {
       // Discovery doubles as address book refresh for peers that moved IPs.
+      // A peer saved under a *name* (Tailscale MagicDNS, DDNS, .local) keeps
+      // that name — it's how we reach it from another network. The LAN
+      // address is only used as a live fallback while the name isn't
+      // answering, and never persisted over the name.
       for (const d of this.discovery.list()) {
         const known = this.store.getKnown(d.peerId);
         if (!known) continue;
-        this.store.touchKnown(d.peerId, { host: d.address, port: d.port, name: d.name });
-        this.connections.get(d.peerId)?.updateEndpoint({ host: d.address, port: d.port, name: d.name });
+        const conn = this.connections.get(d.peerId);
+        if (isIpLiteral(known.host)) {
+          this.store.touchKnown(d.peerId, { host: d.address, port: d.port, name: d.name });
+          conn?.updateEndpoint({ host: d.address, port: d.port, name: d.name });
+        } else {
+          this.store.touchKnown(d.peerId, { name: d.name });
+          if (conn && conn.status !== "connected" && conn.status !== "connecting") {
+            conn.updateEndpoint({ host: d.address, port: d.port, name: d.name });
+          }
+        }
       }
       this.schedulePublish();
     });

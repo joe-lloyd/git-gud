@@ -67,6 +67,11 @@ Git Gud is Electron: one main process owns a `Map<repoPath, GitService>` and the
 - `pnpm release:dev` bumps to a prerelease version (`1.11.0-dev.0`, then `-dev.1`…) from any branch, tags and pushes. CI sets `EP_PRE_RELEASE` for tags containing `-`, so electron-builder publishes a GitHub *pre-release*: the stable updaters (electron-updater without allowPrerelease, MacUpdater reading `releases/latest`) never see it.
 - **Update channel setting** (Settings → Updates: Stable / Dev, persisted in `update-channel.json`; a prerelease build with no saved choice defaults to Dev). Stable follows GitHub's `releases/latest` (never a pre-release). Dev resolves the newest release *including* pre-releases via the GitHub releases API (`update-channel.ts: pickRelease`) and reads that tag's `latest-mac.yml`; on Windows/Linux it sets `autoUpdater.allowPrerelease`. Version compare is semver-aware (`1.11.0-dev.1 < 1.11.0`), so a dev build moves to stable at the next stable release and never downgrades. Switching channels re-checks immediately.
 
+### 9. Reaching peers across the internet (GUI ↔ GUI)
+- No NAT traversal in-app; the supported path is an overlay network (Tailscale/WireGuard) or an SSH tunnel, then *Connect by address* with the name. Pinned TLS runs inside the tunnel, so nothing changes in the security model.
+- `isIpLiteral` (peer-protocol) decides whether discovery may rewrite a saved address: names win, IPs follow the beacon. Beacon IP is used as an in-session fallback only when the named connection is down.
+- Headless daemon, direct exposure hardening and a rendezvous/relay service are planned separately (see the roadmap HTML in the summary).
+
 ## Risks / Trade-offs
 - **TOFU window at first contact** — see §3; mitigated by the on-screen fingerprint and the cert-bound pairing proof. Everything after pairing is pinned TLS.
 - **Windows firewall** prompts on first listen — documented in the summary.

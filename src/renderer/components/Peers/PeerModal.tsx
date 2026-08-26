@@ -232,7 +232,7 @@ const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
 
   const lookup = useCallback(async () => {
     const parsed = parseHostPort(addr)
-    if (!parsed) { setError('Enter an address like 192.168.1.20 or my-pc.local:47831'); return }
+    if (!parsed) { setError('Enter an address like 192.168.1.20, my-pc.local:47831 or studio-pc.tail1234.ts.net'); return }
     setBusy(true); setError(''); setFound(null)
     const r = await peers.actions.probe(parsed.host, parsed.port)
     setBusy(false)
@@ -244,13 +244,25 @@ const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
     <div className="peer-pane">
       <h3>Connect by address</h3>
       <p className="peer-hint">
-        For machines on another subnet or a VPN where discovery can't see them. The other side must have
-        sharing enabled; the default port is 47831.
+        For machines discovery can't see — another subnet, or <b>another building over the internet</b>. The other
+        side must have sharing enabled; the default port is 47831. A name you enter here is kept as this
+        peer's address even when it later shows up on the local network.
       </p>
+      <details className="peer-hint peer-recipe">
+        <summary>Over the internet with Tailscale (recommended, nothing to forward)</summary>
+        <ol>
+          <li>Install Tailscale on both machines and sign in to the same tailnet (<span className="mono">tailscale.com/download</span>).</li>
+          <li>On the other machine: Git Gud → Settings → <i>Share with other Git Gud instances</i> on.</li>
+          <li>Here: enter its MagicDNS name, e.g. <span className="mono">studio-pc.tail1234.ts.net</span> (or its 100.x.y.z IP), then Look up.</li>
+          <li>Compare the certificate fingerprint with the one on its Settings screen, enter the pairing code — done.</li>
+        </ol>
+        Traffic stays end-to-end encrypted (pinned TLS inside the WireGuard tunnel). An SSH tunnel works too:
+        <span className="mono">ssh -L 47831:127.0.0.1:47831 user@host</span> then connect to <span className="mono">127.0.0.1</span>.
+      </details>
       <div className="peer-pair-row">
         <input
           className="peer-input mono"
-          placeholder="host or ip[:port]"
+          placeholder="ip, my-pc.local or name.tailnet.ts.net[:port]"
           value={addr}
           autoFocus
           onChange={(e) => setAddr(e.target.value)}

@@ -20,6 +20,7 @@ import {
   rpcActivityKind,
   READ_METHODS,
   WRITE_METHODS,
+  isIpLiteral,
   RESULT_SHAPED_METHODS,
 } from '../../src/main/peer-protocol'
 
@@ -181,5 +182,12 @@ describe('peer-protocol: pairing + tokens', () => {
     l.recordFailure(0)
     l.recordFailure(2000) // first one aged out
     expect(l.isLocked(2000)).toBe(false)
+  })
+})
+
+describe('peer-protocol: isIpLiteral', () => {
+  it('tells IP literals from names', () => {
+    for (const ip of ['192.168.1.20', '100.101.102.103', '::1', 'fe80::1%en0', '[fe80::1]', '2001:db8::5']) expect(isIpLiteral(ip), ip).toBe(true)
+    for (const name of ['studio-pc.tail1234.ts.net', 'my-pc.local', 'localhost', 'box', 'git.example.com']) expect(isIpLiteral(name), name).toBe(false)
   })
 })

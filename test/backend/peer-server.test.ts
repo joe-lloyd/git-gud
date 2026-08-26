@@ -102,6 +102,16 @@ describe('peer server ⇄ client over loopback', () => {
     await expect(conn.rpc(repo, 'getLog', [10])).rejects.toMatchObject({ code: 'tls' })
   })
 
+  it('works when the host is addressed by name (pin is fingerprint-based, not hostname-based)', async () => {
+    const { info } = await PeerConnection.probe('localhost', port)
+    expect(info.fingerprint).toBe(tlsId.fingerprint)
+    const { token } = await PeerConnection.pair('localhost', port, server.code, { peerId: 'aa3eaa3eaa3eaa3e', name: 'Named' }, tlsId.certPem)
+    const conn = new PeerConnection({ ...endpoint(token), host: 'localhost' }, { peerId: 'aa3eaa3eaa3eaa3e', name: 'Named' })
+    const log = await conn.rpc<Array<{ message: string }>>(repo, 'getLog', [50])
+    expect(log.length).toBeGreaterThan(0)
+    store.revokePaired('aa3eaa3eaa3eaa3e')
+  })
+
   it('rejects RPC without a valid token', async () => {
     const conn = new PeerConnection(endpoint('f'.repeat(64)), self)
     await expect(conn.rpc(repo, 'getLog', [10])).rejects.toMatchObject({ code: 'unauthorized' })
