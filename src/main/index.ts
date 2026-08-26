@@ -136,6 +136,7 @@ function startRepoWatchers(repoPath: string) {
   // Remote repos: change events arrive over the peer stream instead.
   if (isPeerRepoPath(repoPath)) return
   stopActiveWatcher = createRepoWatcher(repoPath, (kind) => {
+    if (kind === 'repo') peerService?.notifyRepoChanged(repoPath)
     mainWindow?.webContents.send(kind === 'repo' ? 'git:repo-changed' : 'git:gitignore-changed')
   })
 }
@@ -366,11 +367,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('peer:get-state', async () => peerService?.getState() ?? null)
   ipcMain.handle('peer:set-device-read-only', async (_event, peerId: string, readOnly: boolean) => peerService?.setDeviceReadOnly(peerId, readOnly) ?? false)
-  ipcMain.handle('peer:set-server', async (_event, patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean }) => {
+  ipcMain.handle('peer:set-server', async (_event, patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean }) => {
     if (!peerService) return null
     return peerService.setServer(patch ?? {})
   })
   ipcMain.handle('peer:regenerate-code', async () => peerService?.regenerateCode() ?? '')
+  ipcMain.handle('peer:pairing-qr', async () => peerService?.pairingQr() ?? null)
   ipcMain.handle('peer:revoke-device', async (_event, peerId: string) => peerService?.revokeDevice(peerId) ?? false)
   ipcMain.handle('peer:probe', async (_event, host: string, port: number) => {
     if (!peerService) return { success: false, error: 'Not available' }

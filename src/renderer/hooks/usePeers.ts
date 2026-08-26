@@ -7,7 +7,8 @@ import { parsePeerPath } from '../lib/peerPath'
 // hook mirrors it and exposes the actions the Peers modal / Settings need.
 
 export interface PeerActions {
-  setServer: (patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean }) => Promise<void>
+  setServer: (patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean }) => Promise<void>
+  pairingQr: () => Promise<{ payload: string; svg: string } | null>
   regenerateCode: () => Promise<void>
   revokeDevice: (peerId: string) => Promise<void>
   setDeviceReadOnly: (peerId: string, readOnly: boolean) => Promise<void>
@@ -43,6 +44,7 @@ export function usePeers(): UsePeers {
     regenerateCode: async () => { await window.peerApi.regenerateCode() },
     revokeDevice: async (peerId) => { await window.peerApi.revokeDevice(peerId) },
     setDeviceReadOnly: async (peerId, readOnly) => { await window.peerApi.setDeviceReadOnly(peerId, readOnly) },
+    pairingQr: () => window.peerApi.pairingQr(),
     probe: (host, port) => window.peerApi.probe(host, port),
     pair: (host, port, code) => window.peerApi.pair(host, port, code),
     connect: async (peerId) => { await window.peerApi.connect(peerId) },

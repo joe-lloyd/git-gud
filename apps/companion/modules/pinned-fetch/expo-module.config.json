@@ -1,0 +1,5 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": { "modules": ["PinnedFetchModule"] },
+  "android": { "modules": ["expo.modules.pinnedfetch.PinnedFetchModule"] }
+}

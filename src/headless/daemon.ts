@@ -15,6 +15,8 @@ import { startControlServer, type ControlRequest } from "./control";
 import type { Logger } from "./log";
 import { ConfigRepoAllowList } from "./repos";
 import { AuditLog } from "./audit";
+import { createRepoWatcher, pushSubscribers } from "../main/peer-host-core";
+import { PushNotifier } from "../main/peer-push";
 
 export interface DaemonOptions {
   paths: HeadlessPaths;
@@ -74,6 +76,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
     readOnly: () => cfg.readOnly,
     denyMethods: () => new Set(cfg.denyMethods),
     pairingOpen,
+    pushEnabled: () => cfg.push,
     onPaired: (peerId, name) => {
       pairingUntil = 0; // one code, one pairing
       audit.write("paired", { peerId: peerId.slice(0, 8), name });
@@ -90,6 +93,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
     }
     baseRegister(peerId, name, token, o);
   };
+
+  // Push: watch every served repo while opted in (SSE watchers only exist
+  // while a client is connected; phones in the background have no stream).
+  const push = new PushNotifier({ enabled: () => cfg.push, subscribers: () => pushSubscribers(store), machineName: () => cfg.name, log: (m) => log.level("warn", m) });
+  const pushWatchers = new Map<string, () => void>();
+  const applyPushWatchers = () => {
+    const want = cfg.push ? [...allow.current().keys()] : [];
+    for (const [p, stop] of pushWatchers) if (!want.includes(p)) { stop(); pushWatchers.delete(p); }
+    for (const p of want) if (!pushWatchers.has(p)) pushWatchers.set(p, createRepoWatcher(p, (kind) => { if (kind === "repo") push.notify(p, "repo-changed"); }, { worktree: true }));
+  };
+  applyPushWatchers();
 
   const server = new PeerServer(host);
   const bindAddress = resolveBindAddress(cfg.bind);
@@ -133,6 +147,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
       allow.refresh();
       repos.prune();
       applyDiscovery();
+      applyPushWatchers();
       log("reloaded", { repos: allow.current().size, readOnly: cfg.readOnly });
     } catch (e) {
       log.level("error", `reload failed: ${String(e)} — keeping previous config`);
@@ -142,6 +157,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
   const socketPath = join(paths.runtimeDir, "control.sock");
   let control: NetServer | null = null;
   const stop = async () => {
+    for (const s of pushWatchers.values()) s();
+    push.stop();
     discovery?.stop();
     server.stop();
     await new Promise<void>((r) => (control ? control.close(() => r()) : r()));

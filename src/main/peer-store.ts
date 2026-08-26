@@ -10,7 +10,7 @@ import { generateSelfSigned, validateIdentity, certFingerprint, type TlsIdentity
 // host side only ever stores token *hashes*.
 
 export type PeerIdentity = { peerId: string; name: string };
-export type PeerSettings = { enabled: boolean; port: number; name: string; readOnly: boolean };
+export type PeerSettings = { enabled: boolean; port: number; name: string; readOnly: boolean; push: boolean };
 // A device allowed to connect TO me. Only the SHA-256 of its token is kept.
 export type PairedDevice = {
   peerId: string;
@@ -22,6 +22,8 @@ export type PairedDevice = {
   readOnly?: boolean;
   kind?: "desktop" | "companion" | "headless";
   lastSeenAt?: number;
+  // Companion push subscription (Expo push token + event kinds).
+  push?: { token: string; events: string[] };
 };
 // A peer I connect TO. `token` is the raw bearer token (encrypted on disk);
 // `certPem` is the host's pinned TLS certificate.
@@ -70,6 +72,7 @@ export class PeerStore {
       port: Number.isInteger(s.port) && (s.port as number) > 0 ? (s.port as number) : DEFAULT_SERVER_PORT,
       name: typeof s.name === "string" && s.name.trim() ? s.name.trim() : this.identity.name,
       readOnly: s.readOnly === true,
+      push: s.push === true,
     };
 
     this.paired = (this.readJson<PairedDevice[]>(this.pairedFile) ?? []).filter(
@@ -149,6 +152,14 @@ export class PeerStore {
     this.paired.push(dev);
     this.writeJson(this.pairedFile, this.paired);
     return { ...dev };
+  }
+
+  setPairedPush(peerId: string, push: { token: string; events: string[] } | null): boolean {
+    const d = this.paired.find((x) => x.peerId === peerId);
+    if (!d) return false;
+    if (push) d.push = push; else delete d.push;
+    this.writeJson(this.pairedFile, this.paired);
+    return true;
   }
 
   setPairedReadOnly(peerId: string, readOnly: boolean): boolean {

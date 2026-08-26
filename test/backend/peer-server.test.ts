@@ -25,6 +25,7 @@ describe('peer server ⇄ client over loopback', () => {
   let readOnly = false
   let denied: string[] = []
   let pairingOpen = true
+  let pushEnabled = false
   const watchers: Array<(ev: PeerEvent) => void> = []
   const self = { peerId: 'c11e47c11e47c11e', name: 'Client' }
   const tlsId = generateSelfSigned('Host')
@@ -55,6 +56,8 @@ describe('peer server ⇄ client over loopback', () => {
       registerPaired: (peerId, name, token, opts) => { store.addPaired(peerId, name, token, opts) },
       denyMethods: () => new Set(denied),
       pairingOpen: () => pairingOpen,
+      subscribePush: (device, token, events) => pushEnabled && (token === null || /^ExponentPushToken\[/.test(token)) && store.setPairedPush(device.peerId, token ? { token, events } : null),
+      touchDevice: (device) => store.touchPaired(device.peerId),
     }
     server = new PeerServer(host)
     port = await server.start(47900)
@@ -174,6 +177,19 @@ describe('peer server ⇄ client over loopback', () => {
       await conn.rpc(repo, 'discardChanges', [['a.txt'], { staged: false }])
       st = await conn.rpc<{ unstaged: unknown[]; staged: unknown[] }>(repo, 'getStatus', [])
       expect(st.unstaged).toHaveLength(0)
+    })
+
+    it('__whoami, __subscribePush (gated on host opt-in) and last-seen bookkeeping', async () => {
+      expect(await conn.rpc('', '__whoami', [])).toMatchObject({ peerId: self.peerId, name: 'Client', kind: 'desktop', readOnly: false })
+      await expect(conn.rpc('', '__subscribePush', [{ token: 'ExponentPushToken[cccccccccccccccc]', events: ['repo-changed'] }])).rejects.toMatchObject({ code: 'forbidden-method' })
+      pushEnabled = true
+      try {
+        expect(await conn.rpc('', '__subscribePush', [{ token: 'ExponentPushToken[cccccccccccccccc]', events: ['repo-changed'] }])).toEqual({ subscribed: true })
+        expect(store.listPaired().find((d) => d.peerId === self.peerId)?.push).toEqual({ token: 'ExponentPushToken[cccccccccccccccc]', events: ['repo-changed'] })
+        expect(await conn.rpc('', '__unsubscribePush', [])).toEqual({ subscribed: false })
+        expect(store.listPaired().find((d) => d.peerId === self.peerId)?.push).toBeUndefined()
+      } finally { pushEnabled = false }
+      expect(store.listPaired().find((d) => d.peerId === self.peerId)?.lastSeenAt).toBeGreaterThan(0)
     })
 
     it('policy deny-list refuses listed writes even for writable devices', async () => {

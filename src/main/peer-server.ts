@@ -48,6 +48,10 @@ export interface PeerServerHost {
   // When present and false, /pair answers 403: the host only accepts pairing
   // while someone asked for a code (headless daemon: `gitgud-headless pair`).
   pairingOpen?(): boolean;
+  // Companion push subscription (Expo token). Returns false if rejected.
+  subscribePush?(device: PairedDevice, token: string | null, events: string[]): boolean;
+  // Called on every authenticated request (last-seen bookkeeping).
+  touchDevice?(device: PairedDevice): void;
   log?(msg: string): void;
 }
 
@@ -173,6 +177,7 @@ export class PeerServer {
     if (!device) {
       return this.json(res, 401, { ok: false, error: "Not paired or access revoked", code: "unauthorized" satisfies RpcErrorCode });
     }
+    this.host.touchDevice?.(device);
 
     if (req.method === "POST" && path === "/gitgud/rpc") {
       return this.handleRpc(req, res, device);
@@ -239,6 +244,14 @@ export class PeerServer {
     // Host-level (non-repo) methods.
     if (method === "__listRepos") return reply({ id, ok: true, result: this.host.listRepos() });
     if (method === "__ping") return reply({ id, ok: true, result: { ts: Date.now() } });
+    if (method === "__whoami") return reply({ id, ok: true, result: { peerId: device.peerId, name: device.name, kind: device.kind ?? "desktop", readOnly: this.host.readOnly() || device.readOnly === true } });
+    if (method === "__subscribePush" || method === "__unsubscribePush") {
+      const a = (args[0] ?? {}) as { token?: unknown; events?: unknown };
+      const token = method === "__subscribePush" ? String(a.token ?? "") : null;
+      const events = Array.isArray(a.events) ? a.events.filter((e): e is string => typeof e === "string") : ["repo-changed"];
+      const ok = this.host.subscribePush ? this.host.subscribePush(device, token, events) : false;
+      return ok ? reply({ id, ok: true, result: { subscribed: token !== null } }) : reply({ id, ok: false, error: "Push notifications are not enabled on this host", code: "forbidden-method" }, 403);
+    }
 
     const access = methodAccess(method);
     if (access === "denied") {

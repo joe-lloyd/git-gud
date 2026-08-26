@@ -1,6 +1,9 @@
 import { PeerStore, type Crypter, type KnownPeer } from "./peer-store";
 import { PeerServer, type PeerServerHost } from "./peer-server";
-import { createPeerServerHost } from "./peer-host-core";
+import * as os from "os";
+import { createPeerServerHost, pushSubscribers } from "./peer-host-core";
+import { PushNotifier } from "./peer-push";
+import { renderQrSvg } from "./qr";
 import { PeerDiscovery } from "./peer-discovery";
 import { PeerConnection, createRemoteRepoProxy, type PeerStatus } from "./peer-client";
 import {
@@ -12,6 +15,7 @@ import {
   type PeerEvent,
   type PeerInfo,
   type PeerRepoSummary,
+  pairingQrPayload,
 } from "./peer-protocol";
 import type { GitActivity } from "./git-service";
 
@@ -27,6 +31,7 @@ export type PeerStateSnapshot = {
     running: boolean;
     port: number;
     readOnly: boolean;
+    push: boolean;
     pairingCode: string;
     fingerprint: string;
     error: string;
@@ -59,6 +64,7 @@ export class PeerService {
   private connections = new Map<string, PeerConnection>();
   private proxies = new Map<string, object>(); // peerRepoPath → proxy
   private serverError = "";
+  private push: PushNotifier;
   private publishTimer: NodeJS.Timeout | null = null;
 
   constructor(private deps: PeerServiceDeps) {
@@ -75,7 +81,14 @@ export class PeerService {
       version: deps.appVersion,
       platform: process.platform,
       readOnly: () => this.store.getSettings().readOnly,
+      pushEnabled: () => this.store.getSettings().push,
       onPaired: () => this.schedulePublish(),
+      log: deps.log,
+    });
+    this.push = new PushNotifier({
+      enabled: () => this.store.getSettings().push,
+      subscribers: () => pushSubscribers(this.store),
+      machineName: () => this.store.getSettings().name,
       log: deps.log,
     });
     this.server = new PeerServer(host);
@@ -146,7 +159,7 @@ export class PeerService {
 
   // ── Host (sharing) ──────────────────────────────────────────────────
 
-  async setServer(patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean }): Promise<PeerStateSnapshot> {
+  async setServer(patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean }): Promise<PeerStateSnapshot> {
     const before = this.store.getSettings();
     const after = this.store.updateSettings(patch);
     const restart = after.enabled && this.server.isListening && after.port !== before.port;
@@ -182,6 +195,25 @@ export class PeerService {
 
   broadcastActivity(rec: GitActivity): void {
     if (this.server.isListening) this.server.broadcastActivity(rec.repoPath, rec);
+    if (rec.kind === "write" && !rec.failed) this.push.notify(rec.repoPath, "activity", rec.args[0]);
+  }
+
+  // Local repo changed (watcher on this machine) → phones that subscribed.
+  notifyRepoChanged(repoPath: string): void {
+    this.push.notify(repoPath, "repo-changed");
+  }
+
+  // QR pairing payload for the companion app: current code + fingerprint +
+  // every address this host is likely reachable at.
+  pairingQr(): { payload: string; svg: string } | null {
+    if (!this.server.isListening) return null;
+    const port = this.server.listeningPort;
+    const addrs: string[] = [];
+    for (const list of Object.values(os.networkInterfaces())) for (const a of list ?? []) if ((a.family === "IPv4" || (a.family as unknown) === 4) && !a.internal) addrs.push(a.address);
+    const host = addrs[0] ?? os.hostname();
+    const alts = [...addrs.slice(1), os.hostname()].filter((h) => h !== host);
+    const payload = pairingQrPayload({ host, port, fingerprint: this.store.getTls().fingerprint, code: this.server.code, alts, name: this.store.getSettings().name });
+    return { payload, svg: renderQrSvg(payload, { size: 220 }) };
   }
 
   private async startServer(): Promise<void> {

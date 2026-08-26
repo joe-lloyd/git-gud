@@ -10,6 +10,7 @@ import { basename, join } from "path";
 import type { PeerEvent, PeerInfo, PeerRepoSummary } from "./peer-protocol";
 import type { PeerServerHost } from "./peer-server";
 import type { PeerStore } from "./peer-store";
+import { isExpoPushToken, type PushSubscriber } from "./peer-push";
 
 // ── Paths ───────────────────────────────────────────────────────────────
 
@@ -169,6 +170,8 @@ export interface PeerServerHostDeps {
   // Daemon: pairing only while a code was requested via the CLI.
   pairingOpen?(): boolean;
   onPaired?(peerId: string, name: string): void;
+  // Whether this host forwards change notifications to phones (opt-in).
+  pushEnabled?(): boolean;
   log?(msg: string): void;
 }
 
@@ -195,6 +198,17 @@ export function createPeerServerHost(d: PeerServerHostDeps): PeerServerHost {
       d.store.addPaired(peerId, name, token, opts);
       d.onPaired?.(peerId, name);
     },
+    subscribePush: (device, token, events) => {
+      if (!d.pushEnabled?.()) return false;
+      if (token !== null && !isExpoPushToken(token)) return false;
+      return d.store.setPairedPush(device.peerId, token ? { token, events } : null);
+    },
+    touchDevice: (device) => d.store.touchPaired(device.peerId),
     log: d.log,
   };
+}
+
+// Subscribers for the PushNotifier, straight from the paired-device list.
+export function pushSubscribers(store: PeerStore): PushSubscriber[] {
+  return store.listPaired().flatMap((p) => (p.push ? [{ peerId: p.peerId, pushToken: p.push.token, events: p.push.events as PushSubscriber["events"] }] : []));
 }

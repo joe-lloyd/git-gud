@@ -374,6 +374,11 @@ export const PeersSection: React.FC<{
   const [name, setName] = useState(s?.self.name ?? '')
   const [port, setPort] = useState(String(s?.server.port ?? 47831))
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
+  // QR for the companion app: address + fingerprint + current code. Refetched
+  // whenever the code rotates so a stale QR is never shown.
+  const [qr, setQr] = useState<{ payload: string; svg: string } | null>(null)
+  const toggleQr = () => { if (qr) setQr(null); else peers.actions.pairingQr().then(setQr) }
+  useEffect(() => { if (qr) peers.actions.pairingQr().then(setQr) }, [s?.server.pairingCode]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (s) { setName(s.self.name); setPort(String(s.server.port)) } }, [s?.self.name, s?.server.port])
   if (!s) return null
 
@@ -431,6 +436,9 @@ export const PeersSection: React.FC<{
             <button className="btn btn-ghost" disabled={!s.server.running} onClick={() => peers.actions.regenerateCode()} title="Generate a new code">
               <Icon name="refresh" size={12} /> New code
             </button>
+            <button className="btn btn-ghost" disabled={!s.server.running} onClick={() => toggleQr()} title="Show a QR code the Git Gud companion app can scan">
+              {qr ? 'Hide QR' : 'Show QR'}
+            </button>
           </div>
 
           <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, cursor: 'pointer' }}>
@@ -443,6 +451,17 @@ export const PeersSection: React.FC<{
 
           <div style={{ marginTop: 14 }}>
             <div style={{ ...hintText, fontWeight: 600, marginBottom: 6 }}>Paired devices ({s.server.paired.length})</div>
+
+          {/* Push notifications for phones (opt-in: the one third-party call) */}
+          <div style={{ ...row, borderBottom: 'none', padding: '8px 0' }}>
+            <div style={labelWrap}>
+              <span style={{ ...labelText, fontSize: 12 }}>Notify phones on changes</span>
+              <span style={hintText}>Sends "repo changed on {s.self.name}" to paired companion apps via Expo push — machine and repo name only, never content.</span>
+            </div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={s.server.push} onChange={(e) => peers.actions.setServer({ push: e.target.checked })} />
+            </label>
+          </div>
             {s.server.paired.length === 0 && <div style={hintText}>None yet — pair from the other machine's Peers window.</div>}
             {s.server.paired.map((d) => (
               <div key={d.peerId} className="peer-paired-row">

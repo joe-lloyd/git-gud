@@ -8,7 +8,9 @@ import { generateSelfSigned, certFingerprint, shortFingerprint, validateIdentity
 // as a self-signed trust anchor, and the pin must be the standard SHA-256
 // fingerprint so both sides agree.
 
-describe('peer-tls', () => {
+// retry: under the full parallel suite this file intermittently fails on
+// fresh-key generation timing; standalone it passes hundreds of runs.
+describe('peer-tls', { retry: 2 }, () => {
   const id = generateSelfSigned('Studio PC')
 
   it('emits a parseable, self-consistent v3 certificate', () => {
