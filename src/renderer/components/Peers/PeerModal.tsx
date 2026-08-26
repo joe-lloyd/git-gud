@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PeerRepoSummary, PeerState, PeerStatus } from '../../../preload/index'
-import { parseHostPort } from '@gitgud/peer-protocol'
+import { parseHostPort, parsePairingQr } from '@gitgud/peer-protocol'
 import type { UsePeers } from '../../hooks/usePeers'
 import { Icon } from '../Icons/Icon'
 import './Peers.css'
@@ -21,6 +21,7 @@ const STATUS_LABEL: Record<PeerStatus, string> = {
   connecting: 'Connecting…',
   offline: 'Offline',
   revoked: 'Access revoked',
+  'cert-changed': 'Certificate changed',
 }
 
 const StatusDot: React.FC<{ status: PeerStatus; title?: string }> = ({ status, title }) => (
@@ -101,6 +102,8 @@ export function PeerModal({ peers, onClose, onOpenRepo, onForgotten }: PeerModal
               >
                 <StatusDot status={p.status} />
                 <span className="truncate">{p.name}</span>
+                {p.platform === 'linux-headless' && <span className="peer-kind-badge" title="Headless daemon">d</span>}
+                {p.transport !== 'lan' && <span className="peer-kind-badge" title={TRANSPORT_LABEL[p.transport]}>{p.transport === 'tailnet' ? 'ts' : p.transport === 'tunnel' ? 'ssh' : p.transport}</span>}
               </button>
             ))}
 
@@ -225,13 +228,26 @@ const PairForm: React.FC<{ peers: UsePeers; host: string; port: number; name: st
     )
   }
 
+const TRANSPORT_LABEL: Record<string, string> = { lan: 'local network', tailnet: 'tailnet', tunnel: 'via tunnel', wan: 'internet', relay: 'via relay' }
+
 const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
   const [addr, setAddr] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [found, setFound] = useState<{ host: string; port: number; name: string; version: string; fingerprint: string } | null>(null)
+  const [pairedName, setPairedName] = useState('')
 
   const lookup = useCallback(async () => {
+    // A pasted pairing payload (from "Show QR" or `gitgud-headless pair --qr`)
+    // pins the certificate before the first request and carries the code.
+    if (parsePairingQr(addr)) {
+      setBusy(true); setError(''); setFound(null)
+      const r = await peers.actions.pairPayload(addr.trim())
+      setBusy(false)
+      if (!r.success) { setError(r.error ?? 'Pairing failed'); return }
+      setPairedName(r.name ?? 'peer'); setAddr('')
+      return
+    }
     const parsed = parseHostPort(addr)
     if (!parsed) { setError('Enter an address like 192.168.1.20, my-pc.local:47831 or studio-pc.tail1234.ts.net'); return }
     setBusy(true); setError(''); setFound(null)
@@ -263,7 +279,7 @@ const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
       <div className="peer-pair-row">
         <input
           className="peer-input mono"
-          placeholder="ip, my-pc.local or name.tailnet.ts.net[:port]"
+          placeholder="ip, name.tailnet.ts.net[:port] — or paste a gitgud-peer://pair?… payload"
           value={addr}
           autoFocus
           onChange={(e) => setAddr(e.target.value)}
@@ -273,6 +289,7 @@ const ManualConnect: React.FC<{ peers: UsePeers }> = ({ peers }) => {
         <button className="btn btn-ghost" disabled={busy || !addr.trim()} onClick={lookup}>{busy ? 'Looking…' : 'Look up'}</button>
       </div>
       {error && <div className="peer-error">{error}</div>}
+      {pairedName && <div className="peer-ok">Paired with {pairedName} — it's in the list on the left.</div>}
       {found && <PairForm peers={peers} host={found.host} port={found.port} name={found.name} version={found.version} fingerprint={found.fingerprint} />}
     </div>
   )
@@ -313,7 +330,14 @@ const PeerDetail: React.FC<{
       <div className="peer-detail-head">
         <div>
           <h3><StatusDot status={peer.status} /> {peer.name}</h3>
-          <div className="peer-meta mono">{peer.host}:{peer.port} · {STATUS_LABEL[peer.status]}</div>
+          <div className="peer-meta mono">
+            {peer.host}:{peer.port} · {STATUS_LABEL[peer.status]}
+            {peer.status === 'connected' && peer.rttMs !== null && ` · ${peer.rttMs} ms`}
+            {` · ${TRANSPORT_LABEL[peer.transport]}`}
+            {peer.platform === 'linux-headless' && ' · daemon'}
+            {peer.hostReadOnly && ' · read-only host'}
+            {peer.tokenExpiresAt && ` · token renews ${new Date(peer.tokenExpiresAt).toLocaleDateString()}`}
+          </div>
         </div>
         <div className="peer-detail-actions">
           {peer.status === 'connected' || peer.status === 'connecting'
@@ -334,6 +358,11 @@ const PeerDetail: React.FC<{
         </div>
       )}
       {peer.status === 'offline' && peer.error && <div className="peer-warn">{peer.error} — retrying automatically.</div>}
+      {peer.status === 'cert-changed' && (
+        <div className="peer-warn peer-warn-danger">
+          The certificate at {peer.host}:{peer.port} is not the one pinned when you paired. Either {peer.name} was reinstalled / its certificate rotated, or something else is answering at that address. Nothing was sent. If you expected this, <b>Forget</b> and pair again with a fresh code.
+        </div>
+      )}
 
       <div className="peer-repos-head">
         <span>Repositories on {peer.name}</span>

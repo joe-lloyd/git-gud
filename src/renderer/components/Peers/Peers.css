@@ -178,3 +178,7 @@
 .peer-qr-card { display: flex; gap: 14px; align-items: center; margin: 10px 0; padding: 10px; border: 1px dashed var(--accent-border); border-radius: 8px; }
 .peer-qr { flex: none; width: 160px; height: 160px; background: #fff; border-radius: 6px; padding: 6px; }
 .peer-qr svg { width: 100%; height: 100%; display: block; }
+
+.peer-warn-danger { border-color: var(--danger, #ff5555); color: var(--text-primary); }
+.peer-ok { color: var(--success, #50fa7b); font-size: 12px; margin-top: 8px; }
+.peer-dot-cert-changed { background: var(--danger); box-shadow: 0 0 0 2px var(--danger) inset, 0 0 6px var(--danger); }

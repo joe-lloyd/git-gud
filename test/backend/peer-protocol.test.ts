@@ -202,3 +202,36 @@ describe('shared package parity', () => {
     expect(Object.keys(shared)).not.toContain('pairingProof') // node-only, deliberately not in the pure package
   })
 })
+
+describe('addresses & limiter (M4)', () => {
+  it('matches CIDRs incl. IPv4-mapped IPv6 and classifies transports', () => {
+    expect(shared.ipInCidr('100.101.5.9', '100.64.0.0/10')).toBe(true)
+    expect(shared.ipInCidr('::ffff:192.168.1.7', '192.168.0.0/16')).toBe(true)
+    expect(shared.ipInCidr('8.8.8.8', '10.0.0.0/8')).toBe(false)
+    expect(shared.ipInCidr('192.168.1.5', '192.168.1.5')).toBe(true)
+    expect(shared.isPublicAddress('203.0.113.4')).toBe(true)
+    expect(shared.isPublicAddress('0.0.0.0')).toBe(true)
+    expect(shared.isPublicAddress('127.0.0.1')).toBe(false)
+    expect(shared.isPublicAddress('100.70.1.1')).toBe(false)
+    expect(shared.isPublicAddress('192.168.0.9')).toBe(false)
+    expect(shared.classifyTransport('127.0.0.1')).toBe('tunnel')
+    expect(shared.classifyTransport('nas.tail1234.ts.net')).toBe('tailnet')
+    expect(shared.classifyTransport('100.64.3.3')).toBe('tailnet')
+    expect(shared.classifyTransport('192.168.1.20')).toBe('lan')
+    expect(shared.classifyTransport('my-pc.local')).toBe('lan')
+    expect(shared.classifyTransport('git.example.com')).toBe('wan')
+    expect(shared.classifyTransport('relay://r.example.com/abc')).toBe('relay')
+  })
+  it('escalates lockouts 1→2→4… minutes up to an hour and resets on success', () => {
+    const l = new shared.PairRateLimiter(2, 60_000, 60_000)
+    let now = 1_000_000
+    l.recordFailure(now); l.recordFailure(now)
+    expect(l.lockedFor(now)).toBe(60_000)
+    now += 61_000; l.recordFailure(now); l.recordFailure(now)
+    expect(l.lockedFor(now)).toBe(120_000)
+    for (let i = 0; i < 10; i++) { now += 10_000_000; l.recordFailure(now); l.recordFailure(now) }
+    expect(l.lockedFor(now)).toBe(shared.PAIR_LOCKOUT_MAX_MS)
+    l.reset(); l.recordFailure(now); l.recordFailure(now)
+    expect(l.lockedFor(now)).toBe(60_000)
+  })
+})

@@ -24,10 +24,12 @@ export type PairedDevice = {
   lastSeenAt?: number;
   // Companion push subscription (Expo push token + event kinds).
   push?: { token: string; events: string[] };
+  // Token expiry (ms epoch). Absent = never. Clients rotate before it hits.
+  expiresAt?: number;
 };
 // A peer I connect TO. `token` is the raw bearer token (encrypted on disk);
 // `certPem` is the host's pinned TLS certificate.
-export type KnownPeer = { peerId: string; name: string; host: string; port: number; token: string; certPem: string; pairedAt: number };
+export type KnownPeer = { peerId: string; name: string; host: string; port: number; token: string; certPem: string; pairedAt: number; tokenExpiresAt?: number };
 
 export interface Crypter {
   encrypt(plain: string): Buffer;
@@ -136,7 +138,7 @@ export class PeerStore {
     return this.paired.map((d) => ({ ...d }));
   }
 
-  addPaired(peerId: string, name: string, token: string, opts: { readOnly?: boolean; kind?: PairedDevice["kind"] } = {}): PairedDevice {
+  addPaired(peerId: string, name: string, token: string, opts: { readOnly?: boolean; kind?: PairedDevice["kind"]; ttlMs?: number } = {}): PairedDevice {
     // Re-pairing the same device replaces its old token but keeps an explicit
     // read-only choice the user made for it earlier.
     const prev = this.paired.find((d) => d.peerId === peerId);
@@ -148,6 +150,7 @@ export class PeerStore {
       createdAt: Date.now(),
       kind: opts.kind ?? prev?.kind ?? "desktop",
       readOnly: prev?.readOnly ?? opts.readOnly ?? false,
+      ...(opts.ttlMs ? { expiresAt: Date.now() + opts.ttlMs } : {}),
     };
     this.paired.push(dev);
     this.writeJson(this.pairedFile, this.paired);
@@ -190,7 +193,27 @@ export class PeerStore {
     const h = hashToken(token);
     // Hash comparison is already constant-length; a plain compare of hex
     // digests leaks nothing useful about the token.
-    return this.paired.find((d) => d.tokenHash === h) ?? null;
+    const d = this.paired.find((x) => x.tokenHash === h) ?? null;
+    if (d?.expiresAt && Date.now() > d.expiresAt) return null; // expired → 401 → client re-pairs
+    return d;
+  }
+
+  // Replace a device's token in place (authenticated __rotateToken). Keeps
+  // read-only/kind/push; extends expiry by the same TTL if one was set.
+  rotatePairedToken(peerId: string, newToken: string, ttlMs?: number): PairedDevice | null {
+    const d = this.paired.find((x) => x.peerId === peerId);
+    if (!d) return null;
+    d.tokenHash = hashToken(newToken);
+    if (ttlMs) d.expiresAt = Date.now() + ttlMs; else delete d.expiresAt;
+    this.writeJson(this.pairedFile, this.paired);
+    return { ...d };
+  }
+
+  // New TLS identity: every paired device must re-pair (their pin breaks).
+  rotateTls(): TlsIdentity {
+    for (const f of [this.tlsKeyFile, this.tlsCertFile]) { try { fs.unlinkSync(f); } catch { /* absent */ } }
+    this.tls = null;
+    return this.getTls();
   }
 
   // ── Peers I connect to (client side) ────────────────────────────────
@@ -210,6 +233,15 @@ export class PeerStore {
     this.known.push(full);
     this.writeEncrypted();
     return { ...full };
+  }
+
+  // Client side: the host rotated our token.
+  setKnownToken(peerId: string, token: string, expiresAt?: number): void {
+    const p = this.known.find((k) => k.peerId === peerId);
+    if (!p) return;
+    p.token = token;
+    p.tokenExpiresAt = expiresAt;
+    this.writeEncrypted();
   }
 
   // Address/name refresh from discovery — token untouched.

@@ -26,6 +26,9 @@ describe('peer server ⇄ client over loopback', () => {
   let denied: string[] = []
   let pairingOpen = true
   let pushEnabled = false
+  let allowSources: string[] = []
+  let infoPublic = true
+  let ttlMs = 0
   const watchers: Array<(ev: PeerEvent) => void> = []
   const self = { peerId: 'c11e47c11e47c11e', name: 'Client' }
   const tlsId = generateSelfSigned('Host')
@@ -56,6 +59,9 @@ describe('peer server ⇄ client over loopback', () => {
       registerPaired: (peerId, name, token, opts) => { store.addPaired(peerId, name, token, opts) },
       denyMethods: () => new Set(denied),
       pairingOpen: () => pairingOpen,
+      allowSource: (ip) => allowSources.length === 0 || allowSources.some((c) => ip.endsWith(c)),
+      infoPublic: () => infoPublic,
+      rotateToken: (device) => { const t = 'ab'.repeat(32).replace(/^ab/, 'cd'); const d = store.rotatePairedToken(device.peerId, t, ttlMs || undefined); return d ? { token: t, expiresAt: d.expiresAt } : null },
       subscribePush: (device, token, events) => pushEnabled && (token === null || /^ExponentPushToken\[/.test(token)) && store.setPairedPush(device.peerId, token ? { token, events } : null),
       touchDevice: (device) => store.touchPaired(device.peerId),
     }
@@ -103,10 +109,11 @@ describe('peer server ⇄ client over loopback', () => {
     expect(status).toBe(401)
   })
 
-  it('refuses to talk to a host whose certificate does not match the pin', async () => {
+  it('refuses to talk to a host whose certificate does not match the pin → status cert-changed', async () => {
     const other = generateSelfSigned('Other')
     const conn = new PeerConnection(endpoint('f'.repeat(64), other.certPem), self)
     await expect(conn.rpc(repo, 'getLog', [10])).rejects.toMatchObject({ code: 'tls' })
+    expect(conn.status).toBe('cert-changed')
   })
 
   it('works when the host is addressed by name (pin is fingerprint-based, not hostname-based)', async () => {
@@ -190,6 +197,34 @@ describe('peer server ⇄ client over loopback', () => {
         expect(store.listPaired().find((d) => d.peerId === self.peerId)?.push).toBeUndefined()
       } finally { pushEnabled = false }
       expect(store.listPaired().find((d) => d.peerId === self.peerId)?.lastSeenAt).toBeGreaterThan(0)
+    })
+
+    it('minimal /info when infoPublic=false; source filter drops foreign connections', async () => {
+      infoPublic = false
+      try {
+        const { info } = await PeerConnection.probe('127.0.0.1', port)
+        expect(info.name).toBe(''); expect(info.peerId).toBe(''); expect(info.fingerprint).toBe(tlsId.fingerprint)
+      } finally { infoPublic = true }
+      allowSources = ['10.99.99.99'] // nothing from loopback matches
+      try {
+        await expect(PeerConnection.probe('127.0.0.1', port)).rejects.toThrow()
+      } finally { allowSources = [] }
+    })
+
+    it('__rotateToken swaps the bearer token; expired tokens are refused', async () => {
+      const oldToken = conn.endpoint.token
+      expect(await conn.rotateToken()).toBe(true)
+      expect(conn.endpoint.token).not.toBe(oldToken)
+      expect(await conn.rpc(repo, 'getLog', [1])).toBeTruthy()
+      const stale = new PeerConnection(endpoint(oldToken), self)
+      await expect(stale.rpc(repo, 'getLog', [1])).rejects.toMatchObject({ code: 'unauthorized' })
+      // expiry: rotate with a TTL already in the past → 401 on next use
+      ttlMs = -1000
+      try { await conn.rotateToken() } finally { ttlMs = 0 }
+      await expect(conn.rpc(repo, 'getLog', [1])).rejects.toMatchObject({ code: 'unauthorized' })
+      // re-pair for the remaining tests
+      const { token } = await PeerConnection.pair('127.0.0.1', port, server.code, self, tlsId.certPem)
+      conn = new PeerConnection(endpoint(token), self)
     })
 
     it('policy deny-list refuses listed writes even for writable devices', async () => {

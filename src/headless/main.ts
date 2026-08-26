@@ -35,6 +35,7 @@ Usage:
   gitgud-headless revoke <peerId or first 8 chars>
   gitgud-headless reload | stop
   gitgud-headless audit [-n 50]
+  gitgud-headless tls show | tls rotate --yes
   gitgud-headless update [--channel stable|dev] [--check]
   gitgud-headless --version | --help
 
@@ -120,6 +121,13 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "reload": await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "reload" }); out("reloaded"); return 0;
+    case "tls": {
+      const action = args[0] === "rotate" ? "rotate" : "show";
+      if (action === "rotate" && !has(args, "--yes")) { out("This replaces the certificate: EVERY paired device must pair again. Re-run with --yes to confirm."); return 1; }
+      const r = (await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "tls", action })) as { fingerprint: string; rotated: boolean };
+      out(`${r.rotated ? "new " : ""}certificate: ${r.fingerprint}`);
+      return 0;
+    }
     case "stop": await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "stop" }); out("stopping"); return 0;
 
     case "audit": {

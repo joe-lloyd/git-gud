@@ -44,6 +44,11 @@ code. Pairing is *closed* until you run `pair`; one code = one pairing.
 | `denyMethods` | `["setConfig","writeFileContent"]` | Refused even when writable (both can execute code here) |
 | `pairingWindowMinutes` | 10 | |
 | `push` | false | Expo push for companion devices (opt-in) |
+| `allowSourceCidrs` | `[]` | Only accept TCP from these networks, e.g. `["100.64.0.0/10"]` for your tailnet. Enforced before parsing |
+| `infoPublic` | true | `false` → unauthenticated `/info` reveals only protocol + fingerprint |
+| `tokenTtlDays` | 0 | Bearer tokens expire after N days; Git Gud clients rotate automatically (`__rotateToken`) when < 7 days remain |
+| `heartbeatSeconds` | 15 | SSE keep-alive (5–60) |
+| `allowWritesOnPublicBind` | false | A public bind (not loopback / RFC1918 / tailnet) **forces read-only** unless this is true |
 
 Reload after editing: `gitgud-headless reload` (or `systemctl --user reload gitgud-headless`).
 
@@ -55,6 +60,8 @@ gitgud-headless devices       # paired devices, read-only flag, last seen
 gitgud-headless revoke 1a2b3c4d
 gitgud-headless audit -n 100  # JSONL trail: pairings, writes, revocations
 gitgud-headless update        # self-update from GitHub Releases (--channel dev for pre-releases)
+gitgud-headless tls show      # certificate fingerprint
+gitgud-headless tls rotate --yes   # new certificate — every paired device must pair again
 ```
 
 Files: config `~/.config/gitgud-headless/`, identity + TLS key + paired
@@ -69,6 +76,16 @@ Put both machines on a Tailscale tailnet, set `"bind": "tailscale0"`, and
 connect by its MagicDNS name. Or keep `127.0.0.1` and tunnel:
 `ssh -N -L 47831:127.0.0.1:47831 box` → connect by address `127.0.0.1`.
 Do not port-forward 47831 on your router.
+
+## Exposing it directly (port-forward) — only after reading this
+
+Prefer Tailscale or an SSH tunnel. If you must forward the port: bind to the
+public interface, set `allowSourceCidrs` to the networks you connect from,
+`infoPublic: false`, `tokenTtlDays: 90`, keep `readOnly: true` (the daemon
+forces it on a public bind anyway unless `allowWritesOnPublicBind` is set),
+and add `IPAddressAllow=`/`IPAddressDeny=any` to the systemd unit. Pairing
+attempts and every write land in `audit.log` with the source IP; the pairing
+endpoint locks out for 1 → 2 → 4 … 60 minutes on repeated failures.
 
 ## Security notes
 

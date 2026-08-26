@@ -373,6 +373,9 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('peer:regenerate-code', async () => peerService?.regenerateCode() ?? '')
   ipcMain.handle('peer:pairing-qr', async () => peerService?.pairingQr() ?? null)
+  ipcMain.handle('peer:pair-payload', async (_event, text: string) => {
+    try { const r = await peerService!.pairPayload(text); return { success: true, ...r } } catch (e) { return { success: false, error: String(e instanceof Error ? e.message : e) } }
+  })
   ipcMain.handle('peer:revoke-device', async (_event, peerId: string) => peerService?.revokeDevice(peerId) ?? false)
   ipcMain.handle('peer:probe', async (_event, host: string, port: number) => {
     if (!peerService) return { success: false, error: 'Not available' }

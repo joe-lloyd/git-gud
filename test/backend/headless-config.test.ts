@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { execSync } from 'child_process'
-import { stripJsonComments, parseConfig, renderDefaultConfig, resolvePaths, resolveBindAddress, DEFAULT_CONFIG } from '../../src/headless/config'
+import { stripJsonComments, parseConfig, renderDefaultConfig, resolvePaths, resolveBindAddress, effectiveReadOnly, DEFAULT_CONFIG } from '../../src/headless/config'
 import { scanForRepos, ConfigRepoAllowList } from '../../src/headless/repos'
 
 describe('headless config', () => {
@@ -32,6 +32,17 @@ describe('headless config', () => {
     expect(p.runtimeDir).toBe('/run/user/1/gitgud-headless')
     expect(resolvePaths({ GITGUD_HEADLESS_HOME: '/one' }).dataDir).toBe('/one/data')
   })
+  it('forces read-only on a public bind unless explicitly allowed', () => {
+    expect(effectiveReadOnly({ readOnly: false, allowWritesOnPublicBind: false }, '203.0.113.4')).toEqual({ readOnly: true, forced: true })
+    expect(effectiveReadOnly({ readOnly: false, allowWritesOnPublicBind: false }, '0.0.0.0')).toEqual({ readOnly: true, forced: true })
+    expect(effectiveReadOnly({ readOnly: false, allowWritesOnPublicBind: false }, '100.64.0.5')).toEqual({ readOnly: false, forced: false })
+    expect(effectiveReadOnly({ readOnly: false, allowWritesOnPublicBind: false }, '127.0.0.1')).toEqual({ readOnly: false, forced: false })
+    expect(effectiveReadOnly({ readOnly: false, allowWritesOnPublicBind: true }, '203.0.113.4')).toEqual({ readOnly: false, forced: false })
+    expect(effectiveReadOnly({ readOnly: true, allowWritesOnPublicBind: true }, '127.0.0.1')).toEqual({ readOnly: true, forced: false })
+    expect(() => parseConfig('{"allowSourceCidrs": ["nope!"]}')).toThrow(/CIDR/)
+    expect(parseConfig(renderDefaultConfig()).allowSourceCidrs).toEqual([])
+  })
+
   it('resolves interface names to IPv4 addresses and passes IPs through', () => {
     const ifs = () => ({ tailscale0: [{ address: '100.64.0.5', family: 'IPv4', internal: false } as any, { address: 'fd7a::1', family: 'IPv6', internal: false } as any] })
     expect(resolveBindAddress('tailscale0', ifs)).toBe('100.64.0.5')

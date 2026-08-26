@@ -52,6 +52,16 @@ export interface PeerServerHost {
   subscribePush?(device: PairedDevice, token: string | null, events: string[]): boolean;
   // Called on every authenticated request (last-seen bookkeeping).
   touchDevice?(device: PairedDevice): void;
+  // Source filter (allowSourceCidrs). False → 403 before anything is parsed.
+  allowSource?(remoteAddress: string): boolean;
+  // When false, unauthenticated /info reveals only protocol + fingerprint.
+  infoPublic?(): boolean;
+  // Audit hook for the pairing endpoint.
+  onPairAttempt?(remoteAddress: string, ok: boolean, peerId8: string, name: string): void;
+  // Authenticated token rotation; returns the new token (+ expiry) or null.
+  rotateToken?(device: PairedDevice): { token: string; expiresAt?: number } | null;
+  // SSE heartbeat interval (default 15 s).
+  heartbeatMs?(): number;
   log?(msg: string): void;
 }
 
@@ -124,6 +134,10 @@ export class PeerServer {
         });
       });
       srv.keepAliveTimeout = 65_000;
+      // Slowloris guards: headers within 15 s, whole request within 90 s.
+      // Responses (SSE) are unaffected.
+      srv.headersTimeout = 15_000;
+      srv.requestTimeout = 90_000;
       srv.on("error", (e) => reject(e));
       srv.listen(port, this.bind, () => {
         srv.removeAllListeners("error");
@@ -162,11 +176,20 @@ export class PeerServer {
   // ── Routing ─────────────────────────────────────────────────────────
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const remote = req.socket.remoteAddress ?? "";
+    if (this.host.allowSource && !this.host.allowSource(remote)) {
+      req.socket.destroy();
+      return;
+    }
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
 
     if (req.method === "GET" && path === "/gitgud/info") {
-      return this.json(res, 200, this.host.info());
+      const info = this.host.info();
+      if (this.host.infoPublic && !this.host.infoPublic() && !this.authenticate(req)) {
+        return this.json(res, 200, { peerId: "", name: "", version: "", platform: "", protocol: info.protocol, fingerprint: info.fingerprint, readOnly: info.readOnly } satisfies PeerInfo);
+      }
+      return this.json(res, 200, info);
     }
     if (req.method === "POST" && path === "/gitgud/pair") {
       return this.handlePair(req, res);
@@ -200,7 +223,7 @@ export class PeerServer {
       return this.json(res, 403, { ok: false, error: "Pairing is closed on this host — request a pairing code there first." } satisfies PairResponse);
     }
     if (this.limiter.isLocked()) {
-      return this.json(res, 429, { ok: false, error: "Too many attempts — pairing is locked for a minute." } satisfies PairResponse);
+      return this.json(res, 429, { ok: false, error: `Too many attempts — pairing is locked for ${Math.ceil(this.limiter.lockedFor() / 60_000)} min.` } satisfies PairResponse);
     }
     const body = await this.readJson(req);
     if (!body) return this.json(res, 400, { ok: false, error: "Bad request" } satisfies PairResponse);
@@ -217,13 +240,20 @@ export class PeerServer {
     const expected = pairingProof(this.pairingCode, this.host.tls().fingerprint);
     if (!/^[0-9a-f]{64}$/.test(proof) || !safeEqual(proof, expected)) {
       this.limiter.recordFailure();
+      this.host.onPairAttempt?.(req.socket.remoteAddress ?? "", false, peerId.slice(0, 8), name);
       this.host.log?.(`peer-server: pairing refused for ${name} (${peerId.slice(0, 8)})`);
       return this.json(res, 401, { ok: false, error: "Wrong pairing code" } satisfies PairResponse);
     }
     const token = generateToken();
     // Phones are viewers by default; the host's owner can flip it later.
     const readOnly = kind === "companion";
-    this.host.registerPaired(peerId, name, token, { kind, readOnly });
+    try {
+      this.host.registerPaired(peerId, name, token, { kind, readOnly });
+    } catch (e) {
+      this.host.onPairAttempt?.(req.socket.remoteAddress ?? "", false, peerId.slice(0, 8), name);
+      return this.json(res, 403, { ok: false, error: String(e instanceof Error ? e.message : e) } satisfies PairResponse);
+    }
+    this.host.onPairAttempt?.(req.socket.remoteAddress ?? "", true, peerId.slice(0, 8), name);
     // One code, one pairing — rotate so a shoulder-surfed code is useless.
     this.regenerateCode();
     this.host.log?.(`peer-server: paired with ${name} (${kind})`);
@@ -244,7 +274,11 @@ export class PeerServer {
     // Host-level (non-repo) methods.
     if (method === "__listRepos") return reply({ id, ok: true, result: this.host.listRepos() });
     if (method === "__ping") return reply({ id, ok: true, result: { ts: Date.now() } });
-    if (method === "__whoami") return reply({ id, ok: true, result: { peerId: device.peerId, name: device.name, kind: device.kind ?? "desktop", readOnly: this.host.readOnly() || device.readOnly === true } });
+    if (method === "__whoami") return reply({ id, ok: true, result: { peerId: device.peerId, name: device.name, kind: device.kind ?? "desktop", readOnly: this.host.readOnly() || device.readOnly === true, expiresAt: device.expiresAt ?? null } });
+    if (method === "__rotateToken") {
+      const r = this.host.rotateToken?.(device) ?? null;
+      return r ? reply({ id, ok: true, result: r }) : reply({ id, ok: false, error: "Token rotation is not supported by this host", code: "not-found" }, 404);
+    }
     if (method === "__subscribePush" || method === "__unsubscribePush") {
       const a = (args[0] ?? {}) as { token?: unknown; events?: unknown };
       const token = method === "__subscribePush" ? String(a.token ?? "") : null;
@@ -316,7 +350,7 @@ export class PeerServer {
       stops.push(this.host.watchRepo(p, (ev) => this.write(client, encodeSseEvent(ev))));
     }
 
-    const ping = setInterval(() => this.write(client, encodeSseEvent({ type: "ping" })), 15_000);
+    const ping = setInterval(() => this.write(client, encodeSseEvent({ type: "ping" })), this.host.heartbeatMs?.() ?? 15_000);
     const cleanup = () => {
       clearInterval(ping);
       for (const s of stops) { try { s(); } catch { /* ignore */ } }

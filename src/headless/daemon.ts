@@ -10,7 +10,8 @@ import { createPeerServerHost, createRepoHost } from "../main/peer-host-core";
 import { PeerServer } from "../main/peer-server";
 import { PeerStore, plainCrypter } from "../main/peer-store";
 import { shortFingerprint } from "../main/peer-tls";
-import { configPath, ensureDirs, loadConfig, resolveBindAddress, type HeadlessConfig, type HeadlessPaths } from "./config";
+import { configPath, effectiveReadOnly, ensureDirs, loadConfig, resolveBindAddress, type HeadlessConfig, type HeadlessPaths } from "./config";
+import { ipInAnyCidr } from "@gitgud/peer-protocol";
 import { startControlServer, type ControlRequest } from "./control";
 import type { Logger } from "./log";
 import { ConfigRepoAllowList } from "./repos";
@@ -68,12 +69,28 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
   let pairingUntil = 0;
   const pairingOpen = () => Date.now() < pairingUntil;
 
+  let bindAddress = resolveBindAddress(cfg.bind);
+  const readOnlyNow = () => {
+    const r = effectiveReadOnly(cfg, bindAddress);
+    return r.readOnly;
+  };
+  const warnIfForced = () => {
+    const r = effectiveReadOnly(cfg, bindAddress);
+    if (r.forced) log.level("warn", `bind ${bindAddress} is a public address: forcing read-only (set allowWritesOnPublicBind to override — and read docs/headless.md first)`);
+  };
+  warnIfForced();
+
   const host = createPeerServerHost({
     store,
     repos,
     version: opts.version,
     platform: "linux-headless",
-    readOnly: () => cfg.readOnly,
+    readOnly: readOnlyNow,
+    allowSource: (ip) => cfg.allowSourceCidrs.length === 0 || ipInAnyCidr(ip, cfg.allowSourceCidrs),
+    infoPublic: () => cfg.infoPublic,
+    tokenTtlMs: () => cfg.tokenTtlDays * 86_400_000,
+    heartbeatMs: () => cfg.heartbeatSeconds * 1000,
+    onPairAttempt: (ip, ok, peerId8, name) => audit.write(ok ? "pair-ok" : "pair-refused", { ip, peerId8, name }),
     denyMethods: () => new Set(cfg.denyMethods),
     pairingOpen,
     pushEnabled: () => cfg.push,
@@ -106,9 +123,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
   applyPushWatchers();
 
   const server = new PeerServer(host);
-  const bindAddress = resolveBindAddress(cfg.bind);
   const port = await server.start(cfg.port, bindAddress, 0);
-  log("serving", { bind: `${bindAddress}:${port}`, readOnly: cfg.readOnly, repos: allow.current().size, fingerprint: shortFingerprint(tls.fingerprint) });
+  log("serving", { bind: `${bindAddress}:${port}`, readOnly: readOnlyNow(), repos: allow.current().size, fingerprint: shortFingerprint(tls.fingerprint), sourceFilter: cfg.allowSourceCidrs.join(",") || "any" });
 
   let discovery: PeerDiscovery | null = null;
   const applyDiscovery = () => {
@@ -144,6 +160,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
     try {
       if (!opts.config) cfg = loadConfig(paths);
       store.updateSettings({ name: cfg.name, readOnly: cfg.readOnly });
+      try { bindAddress = resolveBindAddress(cfg.bind); } catch (e) { log.level("warn", `reload: ${String(e)} — keeping ${bindAddress} until restart`); }
+      warnIfForced();
       allow.refresh();
       repos.prune();
       applyDiscovery();
@@ -170,7 +188,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
       case "status":
         return {
           version: opts.version, peerId: store.getIdentity().peerId, name: cfg.name, bind: `${bindAddress}:${port}`,
-          readOnly: cfg.readOnly, fingerprint: tls.fingerprint, repos: [...allow.current().keys()],
+          readOnly: readOnlyNow(), readOnlyForced: effectiveReadOnly(cfg, bindAddress).forced, fingerprint: tls.fingerprint, repos: [...allow.current().keys()],
+          allowSourceCidrs: cfg.allowSourceCidrs, tokenTtlDays: cfg.tokenTtlDays, infoPublic: cfg.infoPublic,
           paired: store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, kind: d.kind, readOnly: d.readOnly === true, connected: server.connectedDevices().some((c) => c.peerId === d.peerId) })),
           pairingOpen: pairingOpen(), pairingExpiresAt: pairingUntil || null, configFile: configPath(paths), pid: process.pid,
         };
@@ -182,6 +201,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
         return { revoked: ok };
       }
       case "reload": reload(); return { reloaded: true };
+      case "tls": {
+        if (req.action === "rotate") {
+          const next = store.rotateTls();
+          server.stop();
+          await server.start(cfg.port, bindAddress, 0);
+          audit.write("tls-rotated", { fingerprint: next.fingerprint });
+          log("tls rotated — every paired device must pair again", { fingerprint: shortFingerprint(next.fingerprint) });
+          return { fingerprint: next.fingerprint, rotated: true };
+        }
+        return { fingerprint: tls.fingerprint, rotated: false };
+      }
       case "stop": setTimeout(() => { stop().then(() => process.exit(0)); }, 50); return { stopping: true };
       default: throw new Error(`unknown command`);
     }

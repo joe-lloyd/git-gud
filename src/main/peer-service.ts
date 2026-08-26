@@ -4,6 +4,7 @@ import * as os from "os";
 import { createPeerServerHost, pushSubscribers } from "./peer-host-core";
 import { PushNotifier } from "./peer-push";
 import { renderQrSvg } from "./qr";
+import { certFingerprint } from "./peer-tls";
 import { PeerDiscovery } from "./peer-discovery";
 import { PeerConnection, createRemoteRepoProxy, type PeerStatus } from "./peer-client";
 import {
@@ -16,6 +17,9 @@ import {
   type PeerInfo,
   type PeerRepoSummary,
   pairingQrPayload,
+  parsePairingQr,
+  classifyTransport,
+  type TransportKind,
 } from "./peer-protocol";
 import type { GitActivity } from "./git-service";
 
@@ -38,7 +42,7 @@ export type PeerStateSnapshot = {
     paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string }>;
   };
   discovered: Array<{ peerId: string; name: string; address: string; port: number; version: string; known: boolean }>;
-  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string }>;
+  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string; rttMs: number | null; transport: TransportKind; platform: string; hostReadOnly: boolean; tokenExpiresAt: number | null }>;
 };
 
 export interface PeerServiceDeps {
@@ -65,6 +69,7 @@ export class PeerService {
   private proxies = new Map<string, object>(); // peerRepoPath → proxy
   private serverError = "";
   private push: PushNotifier;
+  private rttTimer: NodeJS.Timeout | null = null;
   private publishTimer: NodeJS.Timeout | null = null;
 
   constructor(private deps: PeerServiceDeps) {
@@ -128,6 +133,7 @@ export class PeerService {
   }
 
   shutdown(): void {
+    if (this.rttTimer) { clearInterval(this.rttTimer); this.rttTimer = null; }
     this.server.stop();
     this.discovery.stop();
     for (const c of this.connections.values()) c.disconnect();
@@ -152,7 +158,11 @@ export class PeerService {
       discovered: this.discovery.list().map((d) => ({ peerId: d.peerId, name: d.name, address: d.address, port: d.port, version: d.version, known: knownIds.has(d.peerId) })),
       peers: this.store.listKnown().map((k) => {
         const c = this.connections.get(k.peerId);
-        return { peerId: k.peerId, name: k.name, host: k.host, port: k.port, status: c?.status ?? "offline", error: c?.lastError ?? "" };
+        return {
+          peerId: k.peerId, name: k.name, host: k.host, port: k.port, status: c?.status ?? "offline", error: c?.lastError ?? "",
+          rttMs: c?.rttMs ?? null, transport: classifyTransport(k.host), platform: c?.info?.platform ?? "", hostReadOnly: c?.info?.readOnly === true,
+          tokenExpiresAt: c?.tokenExpiresAt ?? k.tokenExpiresAt ?? null,
+        };
       }),
     };
   }
@@ -245,6 +255,28 @@ export class PeerService {
   // Settings before typing the code.
   async probe(host: string, port: number): Promise<PeerInfo> {
     return (await PeerConnection.probe(host, port)).info;
+  }
+
+  // Pair from a pasted/scanned `gitgud-peer://pair?…` payload: the
+  // fingerprint arrives out of band, so the first contact is verified
+  // against it instead of trusted (no TOFU window).
+  async pairPayload(text: string): Promise<{ peerId: string; name: string }> {
+    const qr = parsePairingQr(text);
+    if (!qr) throw new Error("Not a Git Gud pairing payload");
+    const candidates = [{ host: qr.host, port: qr.port }, ...(qr.alts ?? []).map((h) => ({ host: h, port: qr.port }))];
+    let lastErr: unknown = null;
+    for (const a of candidates) {
+      try {
+        const { info, certPem } = await PeerConnection.probe(a.host, a.port);
+        if (certFingerprint(certPem) !== qr.fingerprint) throw new Error(`Certificate at ${a.host} does not match the payload — refusing to pair.`);
+        if (info.peerId === this.store.getIdentity().peerId) throw new Error("That's this instance — pick another machine.");
+        return await this.pair(a.host, a.port, qr.code);
+      } catch (e) {
+        lastErr = e;
+        if (/does not match|this instance/.test(String((e as Error).message))) throw e;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error("No address in the payload answered");
   }
 
   async pair(host: string, port: number, code: string): Promise<{ peerId: string; name: string }> {
@@ -350,7 +382,14 @@ export class PeerService {
     c = new PeerConnection({ peerId: k.peerId, name: k.name, host: k.host, port: k.port, token: k.token, certPem: k.certPem }, this.store.getIdentity());
     c.on("status", () => this.schedulePublish());
     c.on("event", (ev: PeerEvent) => this.onPeerEvent(k.peerId, ev));
+    c.on("info", () => this.schedulePublish());
+    c.on("rtt", () => this.schedulePublish());
+    c.on("token", (t: { token: string; expiresAt: number | null }) => { this.store.setKnownToken(k.peerId, t.token, t.expiresAt ?? undefined); this.deps.log?.(`peer: rotated token for ${k.name}`); });
     this.connections.set(k.peerId, c);
+    if (!this.rttTimer) {
+      // Connection-quality sampling while anything is connected.
+      this.rttTimer = setInterval(() => { for (const conn of this.connections.values()) if (conn.status === "connected") conn.ping().catch(() => {}); }, 30_000);
+    }
     return c;
   }
 

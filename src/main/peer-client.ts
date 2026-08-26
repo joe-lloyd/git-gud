@@ -30,7 +30,9 @@ import type { GitActivity } from "./git-service";
 // that peer — plus an explicit fingerprint check on every handshake. Nothing
 // here ever trusts the system CA store.
 
-export type PeerStatus = "connected" | "connecting" | "offline" | "revoked";
+// `cert-changed`: the pinned certificate no longer matches — never auto-
+// recovers; the user must forget + re-pair (or the host was replaced).
+export type PeerStatus = "connected" | "connecting" | "offline" | "revoked" | "cert-changed";
 
 export type PeerEndpoint = { peerId: string; name: string; host: string; port: number; token: string; certPem: string };
 
@@ -111,6 +113,10 @@ export class PeerConnection extends EventEmitter {
   status: PeerStatus = "offline";
   lastError = "";
   info: PeerInfo | null = null;
+  // Last measured round-trip of a __ping (ms), or null.
+  rttMs: number | null = null;
+  // Token expiry the host reported (ms epoch) — null = never.
+  tokenExpiresAt: number | null = null;
 
   private stream: https.ClientRequest | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
@@ -217,7 +223,7 @@ export class PeerConnection extends EventEmitter {
     } catch (e) {
       const timeout = e instanceof Error && e.name === "AbortError";
       if (!timeout && isTlsError(e)) {
-        this.setStatus("offline", "TLS certificate check failed — the peer's identity changed.");
+        this.setStatus("cert-changed", "TLS certificate check failed — the peer's identity changed.");
         throw new PeerRpcError(`${this.endpoint.name}: certificate check failed. If you reinstalled Git Gud there, forget this peer and pair again.`, "tls");
       }
       throw new PeerRpcError(
@@ -238,6 +244,41 @@ export class PeerConnection extends EventEmitter {
 
   listRepos(): Promise<PeerRepoSummary[]> {
     return this.rpc<PeerRepoSummary[]>("", "__listRepos");
+  }
+
+  // Round-trip time of a host-level ping; also refreshes `rttMs`.
+  async ping(): Promise<number> {
+    const t0 = Date.now();
+    await this.rpc("", "__ping");
+    this.rttMs = Date.now() - t0;
+    this.emit("rtt", this.rttMs);
+    return this.rttMs;
+  }
+
+  // Ask the host for a fresh bearer token (M4 token TTLs). Emits "token" so
+  // the owner can persist it; the old token stops working immediately.
+  async rotateToken(): Promise<boolean> {
+    try {
+      const r = await this.rpc<{ token: string; expiresAt?: number }>("", "__rotateToken");
+      if (!r?.token) return false;
+      this.endpoint.token = r.token;
+      this.tokenExpiresAt = r.expiresAt ?? null;
+      this.emit("token", { token: r.token, expiresAt: r.expiresAt ?? null });
+      return true;
+    } catch { return false; }
+  }
+
+  // After the stream is up: learn the host's info (platform, read-only) and
+  // our token expiry; rotate when less than 7 days remain.
+  private async afterConnected(): Promise<void> {
+    try {
+      const r = await request({ host: this.endpoint.host, port: this.endpoint.port, path: "/gitgud/info", method: "GET", ...pinOptions(this.endpoint.certPem), timeoutMs: PROBE_TIMEOUT_MS });
+      if (r.status === 200) { this.info = JSON.parse(r.body) as PeerInfo; this.emit("info", this.info); }
+      const me = await this.rpc<{ expiresAt: number | null }>("", "__whoami");
+      this.tokenExpiresAt = me?.expiresAt ?? null;
+      if (this.tokenExpiresAt && this.tokenExpiresAt - Date.now() < 7 * 86_400_000) await this.rotateToken();
+      await this.ping();
+    } catch { /* best effort — status stays connected */ }
   }
 
   // ── SSE stream ──────────────────────────────────────────────────────
@@ -273,6 +314,7 @@ export class PeerConnection extends EventEmitter {
         }
         this.backoff = BACKOFF_MIN_MS;
         this.setStatus("connected", "");
+        void this.afterConnected();
         const parser = new SseParser();
         res.setEncoding("utf8");
         // If the host stops pinging we treat the stream as dead.
@@ -289,7 +331,10 @@ export class PeerConnection extends EventEmitter {
       },
     );
     req.on("timeout", () => { req.destroy(new Error("timeout")); });
-    req.on("error", (e) => this.streamFailed(isTlsError(e) ? "TLS certificate check failed — the peer's identity changed" : e.message));
+    req.on("error", (e) => {
+      if (isTlsError(e)) { this.stream = null; this.setStatus("cert-changed", "TLS certificate check failed — the peer's identity changed"); return; } // no retry: only a re-pair fixes this
+      this.streamFailed(e.message);
+    });
     req.end();
     this.stream = req;
   }

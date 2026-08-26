@@ -222,10 +222,13 @@ export function parsePeerRepoPath(path: string): { peerId: string; remotePath: s
 }
 
 // ── Pairing rate limit ──────────────────────────────────────────────────
-// Sliding-window brute-force guard for the pairing endpoint.
+// Sliding-window brute-force guard for the pairing endpoint. Each lockout
+// doubles the previous one (60 s → 2 min → … → 1 h) until a success resets.
+export const PAIR_LOCKOUT_MAX_MS = 60 * 60_000;
 export class PairRateLimiter {
   private attempts: number[] = [];
   private lockedUntil = 0;
+  private lockouts = 0;
   constructor(
     private max = PAIR_MAX_ATTEMPTS,
     private windowMs = PAIR_WINDOW_MS,
@@ -236,11 +239,17 @@ export class PairRateLimiter {
     return now < this.lockedUntil;
   }
 
+  // Milliseconds until the current lockout ends (0 when not locked).
+  lockedFor(now = Date.now()): number {
+    return Math.max(0, this.lockedUntil - now);
+  }
+
   recordFailure(now = Date.now()): void {
     this.attempts = this.attempts.filter((t) => now - t < this.windowMs);
     this.attempts.push(now);
     if (this.attempts.length >= this.max) {
-      this.lockedUntil = now + this.lockoutMs;
+      this.lockedUntil = now + Math.min(PAIR_LOCKOUT_MAX_MS, this.lockoutMs * 2 ** this.lockouts);
+      this.lockouts++;
       this.attempts = [];
     }
   }
@@ -248,7 +257,63 @@ export class PairRateLimiter {
   reset(): void {
     this.attempts = [];
     this.lockedUntil = 0;
+    this.lockouts = 0;
   }
+}
+
+// ── Addresses ───────────────────────────────────────────────────────────
+
+function ipv4ToInt(ip: string): number | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip.trim());
+  if (!m) return null;
+  const parts = m.slice(1).map(Number);
+  if (parts.some((n) => n > 255)) return null;
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+// IPv4 CIDR match ("10.0.0.0/8", "100.64.0.0/10", "192.168.1.5" = /32).
+// IPv6 sources are matched only by exact literal or "::1". Node reports
+// IPv4-mapped IPv6 ("::ffff:1.2.3.4") — unwrapped here.
+export function ipInCidr(ip: string, cidr: string): boolean {
+  const addr = ip.replace(/^::ffff:/i, "");
+  const [base, bitsStr] = cidr.trim().split("/");
+  if (addr.includes(":") || base.includes(":")) return addr.toLowerCase() === base.toLowerCase();
+  const a = ipv4ToInt(addr), b = ipv4ToInt(base);
+  if (a === null || b === null) return false;
+  const bits = bitsStr === undefined ? 32 : Number(bitsStr);
+  if (!Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+  if (bits === 0) return true;
+  const mask = (~0 << (32 - bits)) >>> 0;
+  return ((a & mask) >>> 0) === ((b & mask) >>> 0);
+}
+
+export function ipInAnyCidr(ip: string, cidrs: string[]): boolean {
+  return cidrs.some((c) => ipInCidr(ip, c));
+}
+
+export const PRIVATE_CIDRS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "127.0.0.0/8"];
+export const TAILNET_CIDRS = ["100.64.0.0/10"];
+
+// Is this address one we'd call "public" (reachable from the internet)?
+export function isPublicAddress(host: string): boolean {
+  const h = host.replace(/^::ffff:/i, "");
+  if (h === "::1" || h === "::" || h === "0.0.0.0") return h === "0.0.0.0" || h === "::"; // wildcard binds count as public
+  if (!isIpLiteral(h)) return false; // names are resolved later; caller decides
+  if (h.includes(":")) return !/^(fe80|fc|fd)/i.test(h); // link-local / ULA are private
+  return !ipInAnyCidr(h, [...PRIVATE_CIDRS, ...TAILNET_CIDRS]);
+}
+
+export type TransportKind = "lan" | "tailnet" | "tunnel" | "wan" | "relay";
+
+// Heuristic label for how we reach a peer, from its address alone.
+export function classifyTransport(host: string): TransportKind {
+  const h = host.trim().toLowerCase();
+  if (h.startsWith("relay://")) return "relay";
+  if (h === "localhost" || h === "::1" || ipInCidr(h, "127.0.0.0/8")) return "tunnel";
+  if (h.endsWith(".ts.net") || ipInAnyCidr(h, TAILNET_CIDRS)) return "tailnet";
+  if (h.endsWith(".local") || h.endsWith(".lan") || h.endsWith(".home") || ipInAnyCidr(h, PRIVATE_CIDRS)) return "lan";
+  if (!isIpLiteral(h) && !h.includes(".")) return "lan"; // bare hostname → local resolver
+  return "wan";
 }
 
 // ── Discovery beacon ────────────────────────────────────────────────────

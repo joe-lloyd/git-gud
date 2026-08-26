@@ -578,7 +578,8 @@ const uiApi = {
 // and whose reads + sync ops run on that machine. Tokens never reach the
 // renderer — only status.
 
-export type PeerStatus = 'connected' | 'connecting' | 'offline' | 'revoked'
+export type PeerStatus = 'connected' | 'connecting' | 'offline' | 'revoked' | 'cert-changed'
+export type TransportKind = 'lan' | 'tailnet' | 'tunnel' | 'wan' | 'relay'
 export type PeerInfo = { peerId: string; name: string; version: string; platform: string; protocol: number; fingerprint: string }
 export type PeerRepoSummary = { path: string; name: string; open: boolean }
 export type PeerState = {
@@ -596,7 +597,7 @@ export type PeerState = {
     paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string }>
   }
   discovered: Array<{ peerId: string; name: string; address: string; port: number; version: string; known: boolean }>
-  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string }>
+  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string; rttMs: number | null; transport: TransportKind; platform: string; hostReadOnly: boolean; tokenExpiresAt: number | null }>
 }
 
 const peerApi = {
@@ -611,6 +612,7 @@ const peerApi = {
     ipcRenderer.invoke('peer:set-server', patch),
   regenerateCode: (): Promise<string> => ipcRenderer.invoke('peer:regenerate-code'),
   pairingQr: (): Promise<{ payload: string; svg: string } | null> => ipcRenderer.invoke('peer:pairing-qr'),
+  pairPayload: (text: string): Promise<{ success: boolean; peerId?: string; name?: string; error?: string }> => ipcRenderer.invoke('peer:pair-payload', text),
   revokeDevice: (peerId: string): Promise<boolean> => ipcRenderer.invoke('peer:revoke-device', peerId),
   setDeviceReadOnly: (peerId: string, readOnly: boolean): Promise<boolean> => ipcRenderer.invoke('peer:set-device-read-only', peerId, readOnly),
   // Client side

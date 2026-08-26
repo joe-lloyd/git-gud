@@ -4,6 +4,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import { join } from "path";
+import { isPublicAddress } from "@gitgud/peer-protocol";
 
 export interface ScanRoot { path: string; depth: number }
 
@@ -28,6 +29,20 @@ export interface HeadlessConfig {
   // Expo push opt-in (M3). Off by default: the only place the host talks to
   // a third party.
   push: boolean;
+  // ── Hardening (M4) ──
+  // Only accept TCP connections from these CIDRs (empty = any). Tailnet:
+  // ["100.64.0.0/10"]. Enforced before any parsing; also set systemd
+  // IPAddressAllow for a kernel-level belt-and-braces.
+  allowSourceCidrs: string[];
+  // Unauthenticated /info shows only protocol + fingerprint when false.
+  infoPublic: boolean;
+  // Bearer tokens expire after N days (0 = never). Clients rotate before.
+  tokenTtlDays: number;
+  // SSE heartbeat seconds (5-60).
+  heartbeatSeconds: number;
+  // A public bind (not loopback/RFC1918/tailnet) forces read-only unless
+  // this is true — writes over the open internet are opt-in twice.
+  allowWritesOnPublicBind: boolean;
 }
 
 export const DEFAULT_CONFIG: HeadlessConfig = {
@@ -43,6 +58,11 @@ export const DEFAULT_CONFIG: HeadlessConfig = {
   pairingWindowMinutes: 10,
   rendezvous: null,
   push: false,
+  allowSourceCidrs: [],
+  infoPublic: true,
+  tokenTtlDays: 0,
+  heartbeatSeconds: 15,
+  allowWritesOnPublicBind: false,
 };
 
 // ── XDG paths ───────────────────────────────────────────────────────────
@@ -127,6 +147,11 @@ function pick(raw: Record<string, unknown>): Partial<HeadlessConfig> {
   if (Array.isArray(raw.allowPeerIds)) out.allowPeerIds = raw.allowPeerIds.filter((x): x is string => typeof x === "string");
   if (Array.isArray(raw.denyMethods)) out.denyMethods = raw.denyMethods.filter((x): x is string => typeof x === "string");
   if (typeof raw.pairingWindowMinutes === "number") out.pairingWindowMinutes = raw.pairingWindowMinutes;
+  if (Array.isArray(raw.allowSourceCidrs)) out.allowSourceCidrs = raw.allowSourceCidrs.filter((x): x is string => typeof x === "string");
+  if (typeof raw.infoPublic === "boolean") out.infoPublic = raw.infoPublic;
+  if (typeof raw.tokenTtlDays === "number") out.tokenTtlDays = raw.tokenTtlDays;
+  if (typeof raw.heartbeatSeconds === "number") out.heartbeatSeconds = raw.heartbeatSeconds;
+  if (typeof raw.allowWritesOnPublicBind === "boolean") out.allowWritesOnPublicBind = raw.allowWritesOnPublicBind;
   if (raw.rendezvous && typeof raw.rendezvous === "object") {
     const r = raw.rendezvous as { url?: unknown; token?: unknown };
     if (typeof r.url === "string" && typeof r.token === "string") out.rendezvous = { url: r.url, token: r.token };
@@ -139,6 +164,17 @@ export function validate(cfg: HeadlessConfig): void {
   if (!cfg.bind) throw new Error("config: bind must be an IP or interface name");
   if (!Number.isFinite(cfg.pairingWindowMinutes) || cfg.pairingWindowMinutes < 1) throw new Error("config: pairingWindowMinutes must be ≥ 1");
   for (const r of cfg.repos) if (!r.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(r)) throw new Error(`config: repos entries must be absolute paths (got "${r}")`);
+  for (const c of cfg.allowSourceCidrs) if (!/^[0-9a-f.:]+(\/\d{1,3})?$/i.test(c)) throw new Error(`config: allowSourceCidrs entry "${c}" is not an IP or CIDR`);
+  if (!Number.isFinite(cfg.tokenTtlDays) || cfg.tokenTtlDays < 0) throw new Error("config: tokenTtlDays must be ≥ 0");
+  if (!Number.isInteger(cfg.heartbeatSeconds) || cfg.heartbeatSeconds < 5 || cfg.heartbeatSeconds > 60) throw new Error("config: heartbeatSeconds must be 5-60");
+}
+
+// Read-only is forced on a public bind unless explicitly allowed: exposing
+// write access to the internet must be a deliberate, double opt-in.
+export function effectiveReadOnly(cfg: Pick<HeadlessConfig, "readOnly" | "allowWritesOnPublicBind">, bindAddress: string): { readOnly: boolean; forced: boolean } {
+  if (cfg.readOnly) return { readOnly: true, forced: false };
+  if (isPublicAddress(bindAddress) && !cfg.allowWritesOnPublicBind) return { readOnly: true, forced: true };
+  return { readOnly: false, forced: false };
 }
 
 export function configPath(p: HeadlessPaths): string {
@@ -181,7 +217,17 @@ export function renderDefaultConfig(overrides: Partial<HeadlessConfig> = {}): st
   // Reverse connection to a rendezvous/relay (see docs). null = off.
   "rendezvous": ${JSON.stringify(c.rendezvous)},
   // Send push notifications for companion-app devices via Expo (opt-in).
-  "push": ${c.push}
+  "push": ${c.push},
+  // ── Hardening — matters once this box is reachable beyond your LAN ──
+  // Accept connections only from these networks (empty = any). Tailnet = ["100.64.0.0/10"].
+  "allowSourceCidrs": ${JSON.stringify(c.allowSourceCidrs)},
+  // false → unauthenticated /info shows only protocol + fingerprint.
+  "infoPublic": ${c.infoPublic},
+  // Tokens expire after N days (0 = never); Git Gud clients rotate automatically.
+  "tokenTtlDays": ${c.tokenTtlDays},
+  "heartbeatSeconds": ${c.heartbeatSeconds},
+  // A public bind forces read-only unless this is true. Think twice.
+  "allowWritesOnPublicBind": ${c.allowWritesOnPublicBind}
 }
 `;
 }

@@ -7,7 +7,7 @@
 //   gitgud-headless ┘      (allow-list, GitService cache, watchers)
 import * as fs from "fs";
 import { basename, join } from "path";
-import type { PeerEvent, PeerInfo, PeerRepoSummary } from "./peer-protocol";
+import { generateToken, type PeerEvent, type PeerInfo, type PeerRepoSummary } from "./peer-protocol";
 import type { PeerServerHost } from "./peer-server";
 import type { PeerStore } from "./peer-store";
 import { isExpoPushToken, type PushSubscriber } from "./peer-push";
@@ -172,6 +172,12 @@ export interface PeerServerHostDeps {
   onPaired?(peerId: string, name: string): void;
   // Whether this host forwards change notifications to phones (opt-in).
   pushEnabled?(): boolean;
+  // Hardening knobs (daemon): source CIDRs, minimal /info, token TTL, heartbeat.
+  allowSource?(remoteAddress: string): boolean;
+  infoPublic?(): boolean;
+  tokenTtlMs?(): number; // 0 = never expires
+  heartbeatMs?(): number;
+  onPairAttempt?(remoteAddress: string, ok: boolean, peerId8: string, name: string): void;
   log?(msg: string): void;
 }
 
@@ -195,9 +201,18 @@ export function createPeerServerHost(d: PeerServerHostDeps): PeerServerHost {
     watchRepo: (p, cb) => d.repos.watchRepo(p, cb),
     verifyToken: (t) => d.store.findByToken(t),
     registerPaired: (peerId, name, token, opts) => {
-      d.store.addPaired(peerId, name, token, opts);
+      d.store.addPaired(peerId, name, token, { ...opts, ttlMs: d.tokenTtlMs?.() || undefined });
       d.onPaired?.(peerId, name);
     },
+    rotateToken: (device) => {
+      const token = generateToken();
+      const dev = d.store.rotatePairedToken(device.peerId, token, d.tokenTtlMs?.() || undefined);
+      return dev ? { token, expiresAt: dev.expiresAt } : null;
+    },
+    allowSource: d.allowSource,
+    infoPublic: d.infoPublic,
+    heartbeatMs: d.heartbeatMs,
+    onPairAttempt: d.onPairAttempt,
     subscribePush: (device, token, events) => {
       if (!d.pushEnabled?.()) return false;
       if (token !== null && !isExpoPushToken(token)) return false;
