@@ -49,3 +49,33 @@ separate workspace with a small, pinned Expo module set (`expo-camera`,
 `expo-secure-store`, `expo-notifications`, `expo-crypto`, `expo-device`,
 `react-navigation`, `react-native-svg`). Installed with `--ignore-scripts`
 and the 3-day `minimumReleaseAge` like everything else.
+
+## Updates: OTA JS vs. new APK
+The app has two version halves, both shown at the bottom of **Machines**:
+`App 1.14.2 · JS v1.14.3 abc1234 (OTA 27 Aug 11:02)`.
+
+- **App** — the native build (APK). Changes only when you install a new APK
+  (scan the QR on a release).
+- **JS** — the bundle actually running: the release tag + commit it was built
+  from, and whether it is the one *built in* to the APK or an *OTA* update.
+
+OTA updates use `expo-updates` with the **fingerprint** runtime policy: a JS
+update only applies to APKs whose native code (Expo SDK, native modules,
+`pinned-fetch`) hashes the same — so a release that touched native code
+simply won't reach old APKs over the air, and the footer tells you to
+reinstall. The app checks on launch and on every return to the foreground
+(≤ once per 10 min) and asks before restarting; **Check for updates** forces it.
+
+Setup (one-time, needs an Expo account):
+1. `cd apps/companion && pnpm dlx eas-cli@latest init` → note the project id.
+2. Repo secrets: `EXPO_PROJECT_ID` (that id) and `EXPO_TOKEN`
+   (https://expo.dev/accounts/<you>/settings/access-tokens).
+3. Release as usual. CI stamps the id into `app.json`, builds the APK with OTA
+   enabled, and runs `eas update --branch production` (`dev` for pre-release
+   tags). Until the secrets exist the footer says *OTA updates are off in this
+   build* and every release is APK-only.
+
+## Safe areas
+Android 15+ draws edge-to-edge (`edgeToEdgeEnabled: true`). The stack header
+clears the status bar/cutout; every `Screen` pads by the bottom system inset
+(`react-native-safe-area-context`), so buttons never sit under the gesture bar.

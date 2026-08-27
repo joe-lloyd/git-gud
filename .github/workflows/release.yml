@@ -148,21 +148,32 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Stamp version from tag
+      # Version + provenance stamp. `extra.build` is what the app shows in its
+      # footer (tag + sha) for both the APK and any OTA JS update, so every
+      # running combination is traceable. With EXPO_PROJECT_ID set, OTA
+      # updates are enabled and pointed at that EAS Update project.
+      - name: Stamp version, build info and OTA config
         working-directory: apps/companion
+        env:
+          EXPO_PROJECT_ID: ${{ secrets.EXPO_PROJECT_ID }}
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"
           node -e '
             const fs = require("fs");
-            const [version] = process.argv.slice(1);
+            const [version, sha, projectId] = process.argv.slice(1);
             const [maj, min, pat] = version.split("-")[0].split(".").map(Number);
             const a = JSON.parse(fs.readFileSync("app.json", "utf8"));
             a.expo.version = version;
             a.expo.android.versionCode = maj * 1000000 + min * 1000 + pat;
+            a.expo.extra = { ...(a.expo.extra || {}), build: { tag: "v" + version, sha } };
+            if (projectId) {
+              a.expo.extra.eas = { projectId };
+              a.expo.updates = { ...(a.expo.updates || {}), enabled: true, url: "https://u.expo.dev/" + projectId };
+            }
             fs.writeFileSync("app.json", JSON.stringify(a, null, 2) + "\n");
-            console.log("companion", a.expo.version, "versionCode", a.expo.android.versionCode);
-          ' "$VERSION"
+            console.log("companion", a.expo.version, "versionCode", a.expo.android.versionCode, "ota", a.expo.updates.enabled, "sha", sha);
+          ' "$VERSION" "$GITHUB_SHA" "${EXPO_PROJECT_ID:-}"
       - name: Generate native project
         working-directory: apps/companion
         env:
@@ -185,6 +196,19 @@ jobs:
       - name: Build APK
         working-directory: apps/companion/android
         run: ./gradlew assembleRelease --no-daemon --stacktrace
+      # OTA: publish this JS to EAS Update so phones on a compatible native
+      # build (same fingerprint) update without a new APK. Skipped without
+      # the secrets — the APK alone still ships.
+      - name: Publish OTA JS update (EAS Update)
+        if: ${{ secrets.EXPO_TOKEN != '' && secrets.EXPO_PROJECT_ID != '' }}
+        working-directory: apps/companion
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH=production; [[ "$TAG" == *-* ]] && BRANCH=dev
+          pnpm dlx eas-cli@latest update --branch "$BRANCH" --message "$TAG ($GITHUB_SHA)" --non-interactive --json | tee eas-update.json
+          node -e 'const u=JSON.parse(require("fs").readFileSync("eas-update.json","utf8"));for(const x of [].concat(u))console.log("published",x.platform,x.runtimeVersion,x.id)' || true
       - name: Upload APK + QR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

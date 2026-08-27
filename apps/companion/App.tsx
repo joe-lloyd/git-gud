@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react'
 import { StatusBar } from 'expo-status-bar'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { useAutoUpdate } from './src/updates'
 import { DarkTheme, NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import * as Notifications from 'expo-notifications'
@@ -29,6 +31,7 @@ const navTheme = { ...DarkTheme, colors: { ...DarkTheme.colors, background: them
 
 const Root: React.FC = () => {
   const { client, machines } = useAppState()
+  useAutoUpdate()
   useEffect(() => { if (client && machines.length) registerPush(client, machines).catch(() => {}) }, [client, machines.length]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setupNotificationActions()
@@ -55,9 +58,11 @@ const Root: React.FC = () => {
 
 export default function App() {
   return (
-    <AppStateProvider>
-      <StatusBar style="light" />
-      <Root />
-    </AppStateProvider>
+    <SafeAreaProvider>
+      <AppStateProvider>
+        <StatusBar style="light" />
+        <Root />
+      </AppStateProvider>
+    </SafeAreaProvider>
   )
 }

@@ -1,10 +1,15 @@
 import React from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { theme } from './theme'
 
-export const Screen: React.FC<{ children: React.ReactNode; style?: ViewStyle }> = ({ children, style }) => (
-  <View style={[styles.screen, style]}>{children}</View>
-)
+// Every screen sits below the navigation header (which already clears the
+// status bar / camera cutout) and above the gesture/navigation bar. Android
+// 15+ draws edge-to-edge, so the bottom inset is real, not zero.
+export const Screen: React.FC<{ children: React.ReactNode; style?: ViewStyle }> = ({ children, style }) => {
+  const insets = useSafeAreaInsets()
+  return <View style={[styles.screen, { paddingBottom: insets.bottom }, style]}>{children}</View>
+}
 export const Card: React.FC<{ children: React.ReactNode; onPress?: () => void; style?: ViewStyle }> = ({ children, onPress, style }) =>
   onPress ? <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { backgroundColor: theme.bgHover }, style]}>{children}</Pressable> : <View style={[styles.card, style]}>{children}</View>
 export const Title: React.FC<{ children: React.ReactNode }> = ({ children }) => <Text style={styles.title}>{children}</Text>

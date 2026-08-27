@@ -22,7 +22,8 @@
       },
       "permissions": [
         "CAMERA"
-      ]
+      ],
+      "edgeToEdgeEnabled": true
     },
     "plugins": [
       [
@@ -37,11 +38,24 @@
         {
           "color": "#ff79c6"
         }
-      ]
+      ],
+      "expo-updates"
     ],
     "extra": {
-      "eas": {}
+      "eas": {},
+      "build": {
+        "tag": "dev",
+        "sha": ""
+      }
     },
-    "icon": "./assets/icon.png"
+    "icon": "./assets/icon.png",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

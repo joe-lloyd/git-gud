@@ -5,11 +5,15 @@ import { Badge, Button, Card, Dot, Empty, Hint, Mono, Screen, Title } from '../u
 import { theme } from '../ui/theme'
 import { useAppState } from '../state/AppState'
 import type { RootStack } from '../navigation'
+import { checkForUpdate, promptReload, versionInfo, versionLabel, type UpdateStatus } from '../updates'
 
 // Machines: every paired host, live reachability, repo count.
 export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machines'>> = ({ navigation }) => {
   const { machines, client, updateMachine } = useAppState()
   const [status, setStatus] = useState<Record<string, { state: 'connected' | 'offline' | 'connecting' | 'revoked'; repos?: number; error?: string }>>({})
+  const [upd, setUpd] = useState<{ status: UpdateStatus; error?: string }>({ status: 'idle' })
+  const v = versionInfo()
+  const checkUpdates = async () => { setUpd({ status: 'checking' }); const r = await checkForUpdate(); setUpd(r); if (r.status === 'ready') promptReload() }
 
   const refresh = useCallback(async () => {
     if (!client) return
@@ -58,7 +62,15 @@ export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machine
         }}
         onRefresh={refresh}
         refreshing={false}
-        ListFooterComponent={<View style={{ padding: 12, gap: 8 }}><Button primary label="Pair a machine (scan QR)" onPress={() => navigation.navigate('Pair')} /><Hint>Read-only by design: the phone can see history, working trees and diffs on the machines it is paired with and never runs writes. Revoke it any time from the host's Settings → Paired devices.</Hint></View>}
+        ListFooterComponent={<View style={{ padding: 12, gap: 8 }}><Button primary label="Pair a machine (scan QR)" onPress={() => navigation.navigate('Pair')} /><Hint>Read-only by design: the phone can see history, working trees and diffs on the machines it is paired with and never runs writes. Revoke it any time from the host's Settings → Paired devices.</Hint>
+          <View style={{ marginTop: 16, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 12, gap: 6 }}>
+            <Mono>{versionLabel(v)}</Mono>
+            {v.runtimeVersion && <Hint>runtime {v.runtimeVersion}{v.channel ? ` · channel ${v.channel}` : ''}{v.updateId ? ` · update ${v.updateId.slice(0, 8)}` : ''}</Hint>}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Button label={upd.status === 'checking' ? 'Checking…' : upd.status === 'downloading' ? 'Downloading…' : 'Check for updates'} disabled={upd.status === 'checking' || !v.otaEnabled} onPress={checkUpdates} />
+              <Hint>{!v.otaEnabled ? 'OTA updates are off in this build — updates ship as new APKs.' : upd.status === 'up-to-date' ? 'Up to date.' : upd.status === 'ready' ? 'Update downloaded — restart to apply.' : upd.status === 'error' ? `Update check failed: ${upd.error ?? ''}` : 'JS updates install without a new APK; native changes still need one.'}</Hint>
+            </View>
+          </View></View>}
       />
     </Screen>
   )

@@ -5,9 +5,9 @@ import type { PeerEvent } from '@gitgud/peer-protocol'
 import { Badge, Button, Card, Empty, Hint, Loading, Mono, Screen, Title } from '../ui/atoms'
 import { theme } from '../ui/theme'
 import { useAppState } from '../state/AppState'
-import { assignLanes, LANE_COLORS, type LogRow } from '../net/lanes'
+import type { LogRow } from '../net/lanes'
 import type { RootStack } from '../navigation'
-import { LaneGlyph } from '../ui/LaneGlyph'
+import { CommitGraph, type FileChange as CommitFile } from '../ui/Graph'
 
 type Tab = 'graph' | 'tree' | 'activity'
 type FileChange = { path: string; status?: string; add?: number; del?: number }
@@ -70,7 +70,6 @@ export const RepoScreen: React.FC<NativeStackScreenProps<RootStack, 'Repo'>> = (
   }, [client, m, repoPath, load, navigation, name])
 
   if (!m) return <Screen><Empty>Machine not found.</Empty></Screen>
-  const lanes = log ? assignLanes(log) : []
   const dirty = status ? status.staged.length + status.unstaged.length + status.untracked.length : 0
 
   return (
@@ -97,20 +96,11 @@ export const RepoScreen: React.FC<NativeStackScreenProps<RootStack, 'Repo'>> = (
         ))}
       </View>
 
-      {tab === 'graph' && (log === null ? <Loading label="Loading history…" /> : (
-        <FlatList data={lanes} keyExtractor={(r) => r.sha} renderItem={({ item: r }) => (
-          <Pressable onPress={() => navigation.navigate('Commit', { peerId: m.peerId, repoPath, sha: r.sha, subject: r.row.message.split('\n')[0] })} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, backgroundColor: pressed ? theme.bgHover : 'transparent' })}>
-            <LaneGlyph lane={r.lane} lanes={r.lanes} parents={r.parentsLanes} color={LANE_COLORS[r.lane % LANE_COLORS.length]} />
-            <View style={{ flex: 1, marginLeft: 8 }}>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                {(r.row.refs ?? []).slice(0, 3).map((ref) => <Badge key={ref} label={ref.replace(/^refs\/(heads|remotes|tags)\//, '')} color={/^refs\/tags|^tag:/.test(ref) ? theme.yellow : theme.accent} />)}
-                <Text style={{ color: theme.text, fontSize: 13 }} numberOfLines={1}>{r.row.message.split('\n')[0]}</Text>
-              </View>
-              <Mono>{r.sha.slice(0, 7)}{r.row.author ? ` · ${r.row.author}` : ''}{r.row.date ? ` · ${ago(r.row.date)}` : ''}</Mono>
-            </View>
-          </Pressable>
-        )} />
-      ))}
+      {tab === 'graph' && (
+        <CommitGraph log={log}
+          load={{ files: (sha) => client!.rpc<CommitFile[]>(m, repoPath, 'getCommitFiles', [sha]), message: (sha) => client!.rpc<string>(m, repoPath, 'getCommitMessage', [sha]) }}
+          onOpenFile={(sha, path) => navigation.navigate('Diff', { peerId: m.peerId, repoPath, path, sha })} />
+      )}
 
       {tab === 'tree' && (status === null ? <Loading /> : (
         <ScrollView>
@@ -140,9 +130,3 @@ export const RepoScreen: React.FC<NativeStackScreenProps<RootStack, 'Repo'>> = (
   )
 }
 
-function ago(d: string | number): string {
-  const t = typeof d === 'number' ? d : Date.parse(d)
-  if (!Number.isFinite(t)) return String(d)
-  const s = Math.max(0, (Date.now() - t) / 1000)
-  if (s < 60) return 'just now'; if (s < 3600) return `${Math.floor(s / 60)}m ago`; if (s < 86400) return `${Math.floor(s / 3600)}h ago`; return `${Math.floor(s / 86400)}d ago`
-}
