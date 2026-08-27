@@ -200,12 +200,14 @@ jobs:
       # build (same fingerprint) update without a new APK. Skipped without
       # the secrets — the APK alone still ships.
       - name: Publish OTA JS update (EAS Update)
-        if: ${{ secrets.EXPO_TOKEN != '' && secrets.EXPO_PROJECT_ID != '' }}
         working-directory: apps/companion
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PROJECT_ID: ${{ secrets.EXPO_PROJECT_ID }}
         run: |
           set -euo pipefail
+          # `secrets` cannot be used in `if:` — decide here instead.
+          if [ -z "${EXPO_TOKEN:-}" ] || [ -z "${EXPO_PROJECT_ID:-}" ]; then echo "EXPO_TOKEN / EXPO_PROJECT_ID not set — skipping OTA publish (APK only)"; exit 0; fi
           BRANCH=production; [[ "$TAG" == *-* ]] && BRANCH=dev
           pnpm dlx eas-cli@latest update --branch "$BRANCH" --message "$TAG ($GITHUB_SHA)" --non-interactive --json | tee eas-update.json
           node -e 'const u=JSON.parse(require("fs").readFileSync("eas-update.json","utf8"));for(const x of [].concat(u))console.log("published",x.platform,x.runtimeVersion,x.id)' || true
