@@ -1,18 +1,17 @@
+// Expo SDK 53 local module: the expo-module-gradle-plugin supplies compileSdk /
+// minSdk / kotlin config from the root project, so nothing else is declared here.
 apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
 
 group = 'expo.modules.pinnedfetch'
 version = '0.1.0'
 
-def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
-apply from: expoModulesCorePlugin
-applyKotlinExpoModulesCorePlugin()
-useCoreDependencies()
-useExpoPublishing()
-
 android {
   namespace "expo.modules.pinnedfetch"
-  defaultConfig { versionCode 1; versionName "0.1.0" }
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
 }
 
 dependencies {

@@ -10,6 +10,14 @@ on:
   push:
     tags:
       - 'v*'
+  # Re-run only the companion APK + release-notes tidy for an existing release
+  # (the desktop installers are not rebuilt — re-publishing them would 422 on
+  # the existing blockmaps). Builds from the dispatched ref (normally main).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to attach the APK to (e.g. v1.14.0)'
+        required: true
 
 permissions:
   contents: write  # needed for electron-builder to create the GitHub Release
@@ -24,6 +32,7 @@ env:
 jobs:
   build:
     name: Build (${{ matrix.os }})
+    if: github.event_name == 'push'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -71,6 +80,7 @@ jobs:
   # uploaded next to the installers with a sha256 the install script checks.
   headless:
     name: Build headless daemon
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -123,6 +133,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -139,7 +151,7 @@ jobs:
         working-directory: apps/companion
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           node -e '
             const fs = require("fs");
             const [version] = process.argv.slice(1);
@@ -177,20 +189,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           APK="Git-Gud-Companion-${VERSION}.apk"
           cp apps/companion/android/app/build/outputs/apk/release/app-release.apk "$APK"
           sha256sum "$APK" > "$APK.sha256"
-          pnpm qr:png "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${APK}" "companion-qr-${VERSION}.png"
-          for i in $(seq 1 30); do gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break; sleep 20; done
-          gh release upload "$GITHUB_REF_NAME" "$APK" "$APK.sha256" "companion-qr-${VERSION}.png" --repo "$GITHUB_REPOSITORY" --clobber
+          pnpm qr:png "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${APK}" "companion-qr-${VERSION}.png"
+          for i in $(seq 1 30); do gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break; sleep 20; done
+          gh release upload "$TAG" "$APK" "$APK.sha256" "companion-qr-${VERSION}.png" --repo "$GITHUB_REPOSITORY" --clobber
 
   tidy-release:
     name: Tidy release assets
     needs: [build, headless, companion-android]
     # The APK build is the slowest and most fragile job; still write the notes
     # if it fails (the companion row is only added when the asset exists).
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.headless.result == 'success' }}
+    if: ${{ !cancelled() && contains(fromJSON('["success","skipped"]'), needs.build.result) && contains(fromJSON('["success","skipped"]'), needs.headless.result) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -198,7 +210,7 @@ jobs:
       - name: Delete unused blockmaps + write download guide
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
