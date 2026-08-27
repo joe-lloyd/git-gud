@@ -156,6 +156,8 @@ export class PeerService {
         running: this.server.isListening,
         port: this.server.isListening ? this.server.listeningPort : s.port,
         readOnly: s.readOnly,
+        push: s.push === true,
+        relay: this.relayStatus(),
         pairingCode: this.server.isListening ? this.server.code : "",
         fingerprint: this.server.isListening ? this.store.getTls().fingerprint : "",
         error: this.serverError,

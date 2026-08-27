@@ -488,7 +488,7 @@ export const PeersSection: React.FC<{
               <span style={hintText}>Sends "repo changed on {s.self.name}" to paired companion apps via Expo push — machine and repo name only, never content.</span>
             </div>
             <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-              <input type="checkbox" checked={s.server.push} onChange={(e) => peers.actions.setServer({ push: e.target.checked })} />
+              <input type="checkbox" checked={s.server.push === true} onChange={(e) => peers.actions.setServer({ push: e.target.checked })} />
             </label>
           </div>
 
@@ -498,14 +498,14 @@ export const PeersSection: React.FC<{
               <span style={{ ...labelText, fontSize: 12 }}>Reachable via relay</span>
               <span style={hintText}>
                 Address of your <span className="mono">gitgud-relay</span> (e.g. <span className="mono">relay://relay.example.com:47833#FINGERPRINT</span>). This machine keeps an outbound connection there; peers that scan your QR from anywhere are spliced through. The relay only ever sees encrypted bytes.
-                {s.server.relay.url && <><br /><span style={{ color: s.server.relay.status === 'registered' ? 'var(--success)' : 'var(--text-primary)' }}>{s.server.relay.status === 'registered' ? 'Registered at relay' : s.server.relay.status === 'connecting' ? 'Connecting to relay…' : `Relay offline${s.server.relay.error ? ` — ${s.server.relay.error}` : ''}`}</span></>}
+                {(s.server.relay?.url ?? '') && <><br /><span style={{ color: s.server.relay?.status === 'registered' ? 'var(--success)' : 'var(--text-primary)' }}>{s.server.relay?.status === 'registered' ? 'Registered at relay' : s.server.relay?.status === 'connecting' ? 'Connecting to relay…' : `Relay offline${s.server.relay?.error ? ` — ${s.server.relay?.error}` : ''}`}</span></>}
               </span>
               <input
                 className="peer-input mono"
                 style={{ marginTop: 6 }}
                 placeholder="relay://host:47833#fingerprint (empty = off)"
-                defaultValue={s.server.relay.url}
-                onBlur={(e) => { const v = e.target.value.trim(); if (v !== s.server.relay.url) peers.actions.setServer({ relayUrl: v }) }}
+                defaultValue={(s.server.relay?.url ?? '')}
+                onBlur={(e) => { const v = e.target.value.trim(); if (v !== (s.server.relay?.url ?? '')) peers.actions.setServer({ relayUrl: v }) }}
               />
             </div>
           </div>
