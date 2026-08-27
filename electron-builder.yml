@@ -61,4 +61,8 @@ publish:
   provider: github
   owner: joe-lloyd
   repo: git-gud
-  releaseType: release
+  # Draft until every platform has uploaded. GitHub marks a release "latest"
+  # the moment the first (fastest) job publishes, and updaters then 404 on the
+  # other platforms' latest-*.yml for several minutes. The tidy-release job
+  # flips the draft public once all installers exist.
+  releaseType: draft

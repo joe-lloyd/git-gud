@@ -69,7 +69,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm release
 
-  # Runs after all three platform builds have published. Removes blockmaps no
+  # Runs after all three platform builds have published to the *draft*
+  # release. Removes blockmaps no
   # updater path reads (dmg blockmaps — mac updates ship as zip; mac zip
   # blockmaps — the custom MacUpdater full-downloads, it never does
   # differential) and writes a download guide as the release notes so people
@@ -275,3 +276,10 @@ jobs:
           Full walkthrough: https://joe-lloyd.github.io/git-gud/install/macos — updates are unaffected either way; the in-app updater downloads directly, so it never re-triggers Gatekeeper.
 
           All other files (\`.zip\`, \`latest-*.yml\`, \`.blockmap\`) belong to the in-app auto-updater — no need to download them."
+          # Everything is uploaded: make the release visible. Only now does it
+          # become "latest" for the updaters (drafts are invisible to them).
+          if [[ "$VERSION" == *-* ]]; then
+            gh release edit "$TAG" --repo "$REPO" --draft=false --prerelease
+          else
+            gh release edit "$TAG" --repo "$REPO" --draft=false --latest
+          fi
