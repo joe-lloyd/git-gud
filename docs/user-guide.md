@@ -21,6 +21,7 @@ git-command-by-command support matrix, see [Git feature coverage](git-features.m
 - [Recovery and maintenance](#recovery-and-maintenance)
 - [The console dock](#the-console-dock)
 - [Settings](#settings)
+- [Peer connections](#peer-connections)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 
 ## Getting started
@@ -181,6 +182,38 @@ The bottom dock (toggle it from the toolbar) has two halves:
 
 The gear icon opens Settings: UI zoom / text scaling, a high-contrast theme
 toggle, and the rerere switch.
+
+## Peer connections
+
+Git Gud can drive another machine's repositories. The other side is a
+*host* — a second Git Gud with **Settings → Share with other Git Gud
+instances** switched on, or a [`gitgud-headless`](headless.md) daemon on a
+Linux box — and every git command runs *there*: your GUI just renders the
+result and streams the host's working tree live (SSE), so staging, committing,
+fetch/pull/push, rebase and the rest all behave like a local repo.
+
+**Pairing.** Open **Peers** in the sidebar. Hosts on your LAN appear under
+*Nearby*; anything else goes through **Connect by address…** (hostname, IP,
+Tailscale MagicDNS name, or a pasted pairing payload from *Show QR* /
+`gitgud-headless pair --qr`). Compare the certificate fingerprint both sides
+show, type the host's 6-digit code, done — the host's self-signed certificate is
+pinned from then on, and a changed certificate is flagged instead of trusted.
+
+**Reach.** Same network works out of the box (UDP discovery on 47832, HTTPS on
+47831). Across buildings, install Tailscale on both machines and connect by the
+tailnet name — nothing else to configure. Without Tailscale, point both sides at
+a [relay](relay.md) you host; it only forwards ciphertext.
+
+**Trust controls** (per host, Settings → Share…): a global **Read-only**
+switch; per paired device a read-only tick plus *scopes* — writes a read-only
+device may still run (fetch, pull) with tap-to-approve on the phone; **Forget**
+/ **Revoke** on either side; tokens expire and rotate automatically. Each row
+shows the device kind (desktop, daemon, phone), transport (LAN / ts / ssh /
+relay) and round-trip time.
+
+**Phone.** The read-only [companion app](companion.md) pairs the same way by
+scanning the host's QR and can get a push notification when a repo changes
+(**Notify phones on changes**).
 
 ## Keyboard shortcuts
 

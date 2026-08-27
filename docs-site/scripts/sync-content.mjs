@@ -21,6 +21,9 @@ const GENERATED = ['guide', 'design', 'specs', 'public/screenshots']
 const PAGES = [
   { from: 'docs/user-guide.md', to: 'guide/user-guide.md' },
   { from: 'docs/git-features.md', to: 'guide/git-features.md' },
+  { from: 'docs/headless.md', to: 'guide/headless.md' },
+  { from: 'docs/companion.md', to: 'guide/companion.md' },
+  { from: 'docs/relay.md', to: 'guide/relay.md' },
   { from: 'docs/design/design-system.md', to: 'design/design-system.md' },
   { from: 'docs/design/icons.md', to: 'design/icons.md' },
 ]

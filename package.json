@@ -26,7 +26,8 @@
     "build:headless": "vite build --config vite.headless.config.ts && chmod +x out/headless/main.js",
     "headless": "node out/headless/main.js",
     "build:relay": "vite build --config vite.relay.config.ts && chmod +x out/relay/main.js",
-    "relay": "node out/relay/main.js"
+    "relay": "node out/relay/main.js",
+    "qr:png": "esbuild scripts/release-qr.ts --bundle --platform=node --format=cjs --log-level=warning --outfile=out/tools/release-qr.cjs && node out/tools/release-qr.cjs"
   },
   "dependencies": {
     "@octokit/rest": "^19.0.13",

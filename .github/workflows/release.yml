@@ -111,9 +111,86 @@ jobs:
           for i in $(seq 1 30); do gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break; sleep 20; done
           gh release upload "$GITHUB_REF_NAME" "gitgud-headless-${VERSION}.js" "gitgud-headless-${VERSION}.js.sha256" "gitgud-relay-${VERSION}.js" "gitgud-relay-${VERSION}.js.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
+  # Android build of the read-only companion app (apps/companion, Expo). The
+  # APK is uploaded next to the installers, plus a PNG QR code of its download
+  # URL so the release notes can be scanned from a phone to sideload it.
+  # Signing: if the COMPANION_KEYSTORE_* secrets exist the release is signed
+  # with that keystore; otherwise the React Native template's public
+  # debug.keystore is used (stable across builds, so upgrades install over each
+  # other — but anyone could sign an APK with it, so treat it as a test build).
+  companion-android:
+    name: Build companion (Android APK)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Stamp version from tag
+        working-directory: apps/companion
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e '
+            const fs = require("fs");
+            const [version] = process.argv.slice(1);
+            const [maj, min, pat] = version.split("-")[0].split(".").map(Number);
+            const a = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            a.expo.version = version;
+            a.expo.android.versionCode = maj * 1000000 + min * 1000 + pat;
+            fs.writeFileSync("app.json", JSON.stringify(a, null, 2) + "\n");
+            console.log("companion", a.expo.version, "versionCode", a.expo.android.versionCode);
+          ' "$VERSION"
+      - name: Generate native project
+        working-directory: apps/companion
+        env:
+          CI: 1
+        run: pnpm exec expo prebuild --platform android --no-install --clean
+      - name: Configure release signing (optional)
+        working-directory: apps/companion
+        env:
+          COMPANION_KEYSTORE_B64: ${{ secrets.COMPANION_KEYSTORE_B64 }}
+          COMPANION_KEYSTORE_PASSWORD: ${{ secrets.COMPANION_KEYSTORE_PASSWORD }}
+          COMPANION_KEY_ALIAS: ${{ secrets.COMPANION_KEY_ALIAS }}
+          COMPANION_KEY_PASSWORD: ${{ secrets.COMPANION_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${COMPANION_KEYSTORE_B64:-}" ]; then
+            echo "$COMPANION_KEYSTORE_B64" | base64 -d > android/app/release.keystore
+            export COMPANION_KEYSTORE_FILE=release.keystore
+          fi
+          node ../../scripts/companion-android-signing.mjs android/app/build.gradle
+      - name: Build APK
+        working-directory: apps/companion/android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+      - name: Upload APK + QR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          APK="Git-Gud-Companion-${VERSION}.apk"
+          cp apps/companion/android/app/build/outputs/apk/release/app-release.apk "$APK"
+          sha256sum "$APK" > "$APK.sha256"
+          pnpm qr:png "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${APK}" "companion-qr-${VERSION}.png"
+          for i in $(seq 1 30); do gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break; sleep 20; done
+          gh release upload "$GITHUB_REF_NAME" "$APK" "$APK.sha256" "companion-qr-${VERSION}.png" --repo "$GITHUB_REPOSITORY" --clobber
+
   tidy-release:
     name: Tidy release assets
-    needs: [build, headless]
+    needs: [build, headless, companion-android]
+    # The APK build is the slowest and most fragile job; still write the notes
+    # if it fails (the companion row is only added when the asset exists).
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.headless.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -134,6 +211,21 @@ jobs:
                 ;;
             esac
           done
+          COMPANION=""
+          if gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name' | grep -qx "Git-Gud-Companion-${VERSION}.apk"; then
+            COMPANION="| Android companion app | \`Git-Gud-Companion-${VERSION}.apk\` (+ \`.sha256\`) — or scan the QR below |"
+            COMPANION_QR="
+          ### Companion app (Android)
+
+          Scan with your phone to download and sideload the read-only companion app (allow *install unknown apps* for your browser when prompted). Then open it and scan the pairing QR from Git Gud → Peers → **Show QR** (or \`gitgud-headless pair --qr\`).
+
+          ![Install the Git Gud companion APK](https://github.com/${REPO}/releases/download/${TAG}/companion-qr-${VERSION}.png)
+
+          The APK is signed with the public React Native debug key unless the repo has \`COMPANION_KEYSTORE_*\` secrets — fine for your own phone, not a store build.
+          "
+          else
+            COMPANION_QR=""
+          fi
           DEV_NOTE=""
           if [[ "$VERSION" == *-* ]]; then
             DEV_NOTE="> **Dev build** — a pre-release for testing. Installs on the Stable update channel never see it; switch to **Dev** in Settings → Updates to receive dev builds automatically. To return to stable, pick Stable again — you move over at the next stable release (the app never downgrades).
@@ -150,7 +242,8 @@ jobs:
           | Linux | \`Git-Gud-${VERSION}.AppImage\` |
           | Linux headless daemon | \`gitgud-headless-${VERSION}.js\` (+ \`.sha256\`) — \`curl -fsSL https://raw.githubusercontent.com/joe-lloyd/git-gud/main/scripts/install-headless.sh | bash\` |
           | Rendezvous/relay service | \`gitgud-relay-${VERSION}.js\` (+ \`.sha256\`) — see docs/relay.md |
-
+          ${COMPANION}
+          ${COMPANION_QR}
           ### macOS first launch
 
           The app is unsigned, so a browser-downloaded DMG makes Gatekeeper claim the app is \"damaged\" (right-click → Open does **not** clear that dialog — that trick only works for the *unidentified developer* one). Two ways around it:

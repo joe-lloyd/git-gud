@@ -44,6 +44,10 @@ features:
     details: The Git Activity log shows every git command the app runs, with output and exit status. A real shell prompt covers whatever the UI doesn't.
     link: /guide/user-guide#the-console-dock
     linkText: Console dock
+  - title: Your other machines, in the same window
+    details: Pair with another Git Gud, a headless Linux daemon, or your phone. Every git command runs on the host; you see its working tree live — over LAN, Tailscale, or a relay you own.
+    link: /guide/user-guide#peer-connections
+    linkText: Peer connections
 ---
 
 ## What it looks like

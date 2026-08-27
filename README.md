@@ -29,6 +29,10 @@
   commit details.
 - **Transparent** — the Git Activity log shows every git command the app runs;
   a built-in console prompt covers the rest.
+- **Peer connections** — pair two Git Guds (LAN, Tailscale, or through the
+  relay) and drive the other machine's repos from your GUI: the host runs every
+  git command, you see its working tree live. Read-only mode and per-device
+  scopes for anything you don't fully trust.
 
 <table>
   <tr>
@@ -40,6 +44,20 @@
     <td align="center"><em>Word diff, side-by-side, chunk staging</em></td>
   </tr>
 </table>
+
+## The Git Gud family
+
+| App | What it is | Get it |
+| --- | --- | --- |
+| **Git Gud** (desktop) | The Electron GUI for macOS, Windows, Linux. | [Latest release](https://github.com/joe-lloyd/git-gud/releases/latest) · [install guide](https://joe-lloyd.github.io/git-gud/install/) |
+| **gitgud-headless** | A single-file Node daemon for Linux boxes without a display (NAS, dev server, Pi). Serves its repos over the peer protocol so a desktop Git Gud — or the phone — can pair with it and control git there. systemd unit included. | `curl -fsSL https://raw.githubusercontent.com/joe-lloyd/git-gud/main/scripts/install-headless.sh \| bash` · [docs/headless.md](docs/headless.md) |
+| **gitgud-relay** | Optional zero-dependency rendezvous service you host so two machines behind different NATs can reach each other without Tailscale. Only forwards ciphertext — the host's pinned TLS runs end to end through it. | `gitgud-relay-<version>.js` on each release · [docs/relay.md](docs/relay.md) |
+| **Companion app** (Android / iOS, Expo) | Read-only phone client: machines → repos → graph → working tree → diffs, live over SSE, optional push when a repo changes. Pairs by scanning a QR; refuses every write before it hits the wire. | Scan the QR in the [release notes](https://github.com/joe-lloyd/git-gud/releases/latest) to sideload the APK · [docs/companion.md](docs/companion.md) |
+
+All four speak one protocol (`packages/peer-protocol`): HTTPS JSON-RPC +
+SSE on port 47831, self-signed certificates pinned at pairing, 6-digit pairing
+codes, per-device read-only and scopes. Pairing details, Tailscale recipe,
+and the security model are in the [peer connections guide](docs/user-guide.md#peer-connections).
 
 ## Documentation
 
@@ -53,6 +71,7 @@ Same content, in the repo:
 
 - **[User guide](docs/user-guide.md)** — how to use everything, with screenshots.
 - **[Git feature coverage](docs/git-features.md)** — what we support, what's partial, what's planned.
+- **[Headless daemon](docs/headless.md)** · **[Companion app](docs/companion.md)** · **[Relay](docs/relay.md)** — the remote pieces.
 - **[Design system](docs/design/design-system.md)** — color tokens, typography, components; plus the **[icon reference](docs/design/icons.md)** every UI icon must come from.
 
 ## Provider sign-in (GitHub · GitLab · Bitbucket)
@@ -113,6 +132,19 @@ pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest
 pnpm test:repos   # build throwaway test repos under ~/Projects/MyProjects/git-gui-test-repos
 pnpm build:icon   # rebuild app icon from resources/icon.svg
+pnpm build:headless && pnpm headless --help   # single-file Linux daemon (out/headless/main.js)
+pnpm build:relay && pnpm relay --port 47833   # rendezvous/relay service (out/relay/main.js)
+```
+
+The companion app lives in `apps/companion` (Expo SDK 53) and the shared wire
+types in `packages/peer-protocol`; both are pnpm workspace members, so the root
+`pnpm install` covers them.
+
+```bash
+cd apps/companion
+pnpm exec expo prebuild --platform android --no-install   # generates android/ (gitignored)
+pnpm exec expo run:android                                 # needs Android Studio / SDK + JDK 17
+pnpm typecheck && pnpm test
 ```
 
 ## Docs site
@@ -174,8 +206,15 @@ itself). To ship an update:
 1. Bump `version` in `package.json` (semver — `0.1.0` → `0.2.0`).
 2. Commit: `git commit -am "release: v0.2.0"`.
 3. Tag and push: `git tag v0.2.0 && git push --follow-tags`.
-4. GitHub Actions (`.github/workflows/release.yml`) builds macOS / Linux / Windows installers and publishes them to the matching GitHub Release.
-5. Running apps see the new version within ~5 seconds of launch, download in background, and the new binary swaps in on next quit.
+4. GitHub Actions (`.github/workflows/release.yml`) builds macOS / Linux / Windows installers, the headless daemon + relay (`gitgud-headless-<v>.js`, `gitgud-relay-<v>.js`, with `.sha256`), and the Android companion APK, and publishes everything to the matching GitHub Release. The release notes get a **QR code of the APK's download URL** — scan it with your phone to sideload the companion app straight from the release.
+5. Running apps see the new version within ~5 seconds of launch, download in background, and the new binary swaps in on next quit. `gitgud-headless update` does the same for the daemon.
+
+The APK is signed with the React Native template's public `debug.keystore`
+unless you add repo secrets `COMPANION_KEYSTORE_B64` (base64 of a `.keystore`),
+`COMPANION_KEYSTORE_PASSWORD`, `COMPANION_KEY_ALIAS`, `COMPANION_KEY_PASSWORD`
+— then `scripts/companion-android-signing.mjs` switches the release build to
+that key. Either way the signing key is stable, so a newer APK installs over
+the old one. Switching keys later means uninstalling first.
 
 Local manual publish (skip Actions):
 
@@ -188,11 +227,15 @@ pnpm release               # reads .env, builds, uploads to the GitHub Release
 
 ## Layout
 
-- `src/main/` — Electron main process + GitService (wraps `simple-git` + raw git)
+- `src/main/` — Electron main process + GitService (wraps `simple-git` + raw git); `peer-*.ts` is the peer server/client/store, `qr.ts` the zero-dep QR encoder
 - `src/preload/` — IPC contract surfaced as `window.gitApi`
 - `src/renderer/` — React UI (Sidebar / Graph / DiffViewer / WorkingTree / right-panel slot)
+- `src/headless/` — the Linux daemon (CLI, JSONC config, control socket, systemd unit in `resources/`)
+- `src/relay/` — the rendezvous/relay service (`deploy/relay/Dockerfile`)
+- `packages/peer-protocol/` — shared wire types + method lists for every client
+- `apps/companion/` — Expo companion app (`modules/pinned-fetch` = native certificate pinning)
 - `resources/` — app icon source + generated assets
-- `scripts/` — build-time helpers
+- `scripts/` — build-time helpers, installers (`install-macos.sh`, `install-headless.sh`), release QR
 - `docs/` — user guide, feature coverage, README screenshots
 - `docs-site/` — VitePress site (install guides + everything above), deployed to GitHub Pages
 - `openspec/changes/` — in-flight feature plans (proposals, specs, tasks)

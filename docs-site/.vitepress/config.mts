@@ -55,6 +55,15 @@ export default defineConfig({
       { text: 'Install', link: '/install/' },
       { text: 'User guide', link: '/guide/user-guide' },
       { text: 'Git coverage', link: '/guide/git-features' },
+      {
+        text: 'Remote',
+        items: [
+          { text: 'Peer connections', link: '/guide/user-guide#peer-connections' },
+          { text: 'Headless daemon (Linux)', link: '/guide/headless' },
+          { text: 'Companion app (phone)', link: '/guide/companion' },
+          { text: 'Relay service', link: '/guide/relay' },
+        ],
+      },
       { text: 'Specs', link: '/specs/' },
       {
         text: 'Download',
@@ -85,6 +94,15 @@ export default defineConfig({
           items: [
             { text: 'User guide', link: '/guide/user-guide' },
             { text: 'Git feature coverage', link: '/guide/git-features' },
+          ],
+        },
+        {
+          text: 'Remote & companion',
+          items: [
+            { text: 'Peer connections', link: '/guide/user-guide#peer-connections' },
+            { text: 'Headless daemon (Linux)', link: '/guide/headless' },
+            { text: 'Companion app (phone)', link: '/guide/companion' },
+            { text: 'Relay service', link: '/guide/relay' },
           ],
         },
         {

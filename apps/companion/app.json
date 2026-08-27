@@ -7,13 +7,41 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#14151c",
-    "ios": { "bundleIdentifier": "com.joelloyd.gitgud.companion", "supportsTablet": true, "infoPlist": { "NSCameraUsageDescription": "Scan the pairing QR shown by Git Gud on your computer." } },
-    "android": { "package": "com.joelloyd.gitgud.companion", "adaptiveIcon": { "backgroundColor": "#14151c" }, "permissions": ["CAMERA"] },
+    "ios": {
+      "bundleIdentifier": "com.joelloyd.gitgud.companion",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan the pairing QR shown by Git Gud on your computer."
+      }
+    },
+    "android": {
+      "package": "com.joelloyd.gitgud.companion",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#14151c"
+      },
+      "permissions": [
+        "CAMERA"
+      ]
+    },
     "plugins": [
-      ["expo-camera", { "cameraPermission": "Scan the pairing QR shown by Git Gud on your computer." }],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the pairing QR shown by Git Gud on your computer."
+        }
+      ],
       "expo-secure-store",
-      ["expo-notifications", { "color": "#ff79c6" }]
+      [
+        "expo-notifications",
+        {
+          "color": "#ff79c6"
+        }
+      ]
     ],
-    "extra": { "eas": {} }
+    "extra": {
+      "eas": {}
+    },
+    "icon": "./assets/icon.png"
   }
 }
