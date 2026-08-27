@@ -1,4 +1,4 @@
-// Minimal QR code encoder (ISO/IEC 18004): byte mode, versions 1–10, error
+// Minimal QR code encoder (ISO/IEC 18004): byte mode, versions 1–20, error
 // correction level M, all 8 masks with penalty scoring. Zero dependencies.
 // Used for pairing: the host renders the payload (address + fingerprint +
 // code) as a QR the companion app scans, so nothing has to be typed or
@@ -7,7 +7,7 @@
 
 export type QrMatrix = boolean[][];
 
-// ── Tables (versions 1–10, EC level M) ──────────────────────────────────
+// ── Tables (versions 1–20, EC level M) ──────────────────────────────────
 // [total codewords, EC codewords per block, blocks group1, data cw group1, blocks group2, data cw group2]
 const EC_M: Array<[number, number, number, number, number, number]> = [
   [26, 10, 1, 16, 0, 0],
@@ -20,8 +20,23 @@ const EC_M: Array<[number, number, number, number, number, number]> = [
   [242, 22, 2, 38, 2, 39],
   [292, 22, 3, 36, 2, 37],
   [346, 26, 4, 43, 1, 44],
+  [404, 30, 1, 50, 4, 51],
+  [466, 22, 6, 36, 2, 37],
+  [532, 22, 8, 37, 1, 38],
+  [581, 24, 4, 40, 5, 41],
+  [655, 24, 5, 41, 5, 42],
+  [733, 28, 7, 45, 3, 46],
+  [815, 28, 10, 46, 1, 47],
+  [901, 26, 9, 43, 4, 44],
+  [991, 26, 3, 44, 11, 45],
+  [1085, 26, 3, 41, 13, 42],
 ];
-const ALIGN: number[][] = [[], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50]];
+const ALIGN: number[][] = [
+  [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50],
+  [6, 30, 54], [6, 32, 58], [6, 34, 62], [6, 26, 46, 66], [6, 26, 48, 70], [6, 26, 50, 74], [6, 30, 54, 78], [6, 30, 56, 82], [6, 30, 58, 86], [6, 34, 62, 90],
+];
+/** Largest byte payload the encoder accepts (version 20, EC level M). */
+export const QR_MAX_BYTES = 666;
 
 // ── GF(256) ─────────────────────────────────────────────────────────────
 const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
@@ -59,7 +74,7 @@ export function buildCodewords(text: string): { version: number; seq: number[] }
     const need = 4 + (v + 1 < 10 ? 8 : 16) + bytes.length * 8;
     if (need <= dataCw * 8) { version = v; break; }
   }
-  if (version < 0) throw new Error(`QR payload too long (${bytes.length} bytes; max 213 at version 10-M)`);
+  if (version < 0) throw new Error(`QR payload too long (${bytes.length} bytes; max ${QR_MAX_BYTES} at version 20-M)`);
 
   const [total, ecPerBlock, b1, d1, b2, d2] = EC_M[version];
   const dataCw = total - ecPerBlock * (b1 + b2);

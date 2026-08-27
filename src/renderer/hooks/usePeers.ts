@@ -8,7 +8,7 @@ import { parsePeerPath } from '../lib/peerPath'
 
 export interface PeerActions {
   setServer: (patch: { enabled?: boolean; port?: number; name?: string; readOnly?: boolean; push?: boolean; relayUrl?: string }) => Promise<void>
-  pairingQr: () => Promise<{ payload: string; svg: string } | null>
+  pairingQr: () => Promise<{ payload: string; svg: string; error?: string } | null>
   pairPayload: (text: string) => Promise<{ success: boolean; peerId?: string; name?: string; error?: string }>
   regenerateCode: () => Promise<void>
   revokeDevice: (peerId: string) => Promise<void>

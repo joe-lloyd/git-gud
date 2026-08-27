@@ -3,6 +3,7 @@ import type { PeerRepoSummary, PeerState, PeerStatus } from '../../../preload/in
 import { parseHostPort, parsePairingQr } from '@gitgud/peer-protocol'
 import type { UsePeers } from '../../hooks/usePeers'
 import { Icon } from '../Icons/Icon'
+import { CopyButton } from '../CopyButton/CopyButton'
 import './Peers.css'
 
 // Peer connections UI — three surfaces:
@@ -405,7 +406,7 @@ export const PeersSection: React.FC<{
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
   // QR for the companion app: address + fingerprint + current code. Refetched
   // whenever the code rotates so a stale QR is never shown.
-  const [qr, setQr] = useState<{ payload: string; svg: string } | null>(null)
+  const [qr, setQr] = useState<{ payload: string; svg: string; error?: string } | null>(null)
   const toggleQr = () => { if (qr) setQr(null); else peers.actions.pairingQr().then(setQr) }
   useEffect(() => { if (qr) peers.actions.pairingQr().then(setQr) }, [s?.server.pairingCode]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (s) { setName(s.self.name); setPort(String(s.server.port)) } }, [s?.self.name, s?.server.port])
@@ -469,6 +470,25 @@ export const PeersSection: React.FC<{
               {qr ? 'Hide QR' : 'Show QR'}
             </button>
           </div>
+
+          {qr && (
+            <div className="peer-qr-card" data-testid="peer-qr-card">
+              {qr.svg
+                ? <div className="peer-qr" dangerouslySetInnerHTML={{ __html: qr.svg }} />  /* SVG string generated in the main process by src/main/qr.ts — no user content */
+                : <div className="peer-qr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontSize: 11, textAlign: 'center' }}>QR unavailable</div>}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ ...hintText, fontWeight: 600 }}>Scan with the Git Gud companion app</div>
+                <div style={hintText}>
+                  Phone → <b>Pair a machine</b> → point it here. The code carries this machine's address, certificate fingerprint and the pairing code, so nothing is typed. It follows the pairing code: after a device pairs, the QR changes.
+                </div>
+                {qr.error && <div style={{ ...hintText, color: 'var(--danger)', marginTop: 4 }}>{qr.error}</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, minWidth: 0 }}>
+                  <span className="mono" style={{ ...hintText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={qr.payload}>{qr.payload}</span>
+                  <CopyButton text={qr.payload} label="Copy" title="Copy the pairing payload — paste it into another Git Gud's Connect by address" />
+                </div>
+              </div>
+            </div>
+          )}
 
           <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, cursor: 'pointer' }}>
             <span style={labelWrap}>

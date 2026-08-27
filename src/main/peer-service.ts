@@ -4,7 +4,7 @@ import * as os from "os";
 import { createPeerServerHost, pushSubscribers } from "./peer-host-core";
 import { PushNotifier } from "./peer-push";
 import { RelayLink } from "./peer-relay";
-import { renderQrSvg } from "./qr";
+import { renderQrSvg, QR_MAX_BYTES } from "./qr";
 import { certFingerprint } from "./peer-tls";
 import { PeerDiscovery } from "./peer-discovery";
 import { PeerConnection, createRemoteRepoProxy, type PeerStatus } from "./peer-client";
@@ -63,6 +63,27 @@ export interface PeerServiceDeps {
   // Push a fresh state snapshot to the renderer.
   publish(state: PeerStateSnapshot): void;
   log?(msg: string): void;
+}
+
+export { QR_MAX_BYTES };
+
+/**
+ * Build the pairing payload, dropping optional fields (display name, then
+ * alternate addresses, one at a time) until it fits in a scannable QR. Host,
+ * port, fingerprint, code and relay are never dropped.
+ */
+export function fitPairingPayload(p: { host: string; port: number; fingerprint: string; code: string; alts: string[]; name?: string; relay?: string }, maxBytes = QR_MAX_BYTES): string {
+  const size = (s: string) => Buffer.byteLength(s, "utf8");
+  let alts = [...p.alts];
+  let name: string | undefined = p.name;
+  let out = pairingQrPayload({ ...p, alts, name });
+  while (size(out) > maxBytes) {
+    if (name) name = undefined;
+    else if (alts.length) alts = alts.slice(0, -1);
+    else break;
+    out = pairingQrPayload({ ...p, alts, name });
+  }
+  return out;
 }
 
 export class PeerService {
@@ -234,7 +255,7 @@ export class PeerService {
 
   // QR pairing payload for the companion app: current code + fingerprint +
   // every address this host is likely reachable at.
-  pairingQr(): { payload: string; svg: string } | null {
+  pairingQr(): { payload: string; svg: string; error?: string } | null {
     if (!this.server.isListening) return null;
     const port = this.server.listeningPort;
     const addrs: string[] = [];
@@ -242,8 +263,13 @@ export class PeerService {
     const host = addrs[0] ?? os.hostname();
     const alts = [...addrs.slice(1), os.hostname()].filter((h) => h !== host);
     const relay = this.store.getSettings().relayUrl ? `${this.store.getSettings().relayUrl.replace(/#.*$/, "").replace(/\/$/, "")}/${this.store.getIdentity().peerId}${this.store.getSettings().relayUrl.includes("#") ? "#" + this.store.getSettings().relayUrl.split("#")[1] : ""}` : undefined;
-    const payload = pairingQrPayload({ host, port, fingerprint: this.store.getTls().fingerprint, code: this.server.code, alts, name: this.store.getSettings().name, relay });
-    return { payload, svg: renderQrSvg(payload, { size: 220 }) };
+    const payload = fitPairingPayload({ host, port, fingerprint: this.store.getTls().fingerprint, code: this.server.code, alts, name: this.store.getSettings().name, relay });
+    try {
+      return { payload, svg: renderQrSvg(payload, { size: 220 }) };
+    } catch (e) {
+      // Should not happen after fitPairingPayload, but never let the button do nothing.
+      return { payload, svg: "", error: `Could not render QR: ${String((e as Error).message ?? e)}` };
+    }
   }
 
   // Host side: keep a control connection to the configured relay so peers
