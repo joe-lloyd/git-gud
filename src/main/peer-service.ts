@@ -22,7 +22,7 @@ import {
   classifyTransport,
   type TransportKind,
   isRelayAddress,
-  parseRelayUrl,
+  parseRelayUrl, relayRouteFor,
 } from "./peer-protocol";
 import type { GitActivity } from "./git-service";
 
@@ -46,7 +46,7 @@ export type PeerStateSnapshot = {
     paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string; scopes: string[] }>;
   };
   discovered: Array<{ peerId: string; name: string; address: string; port: number; version: string; known: boolean }>;
-  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string; rttMs: number | null; transport: TransportKind; platform: string; hostReadOnly: boolean; tokenExpiresAt: number | null }>;
+  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string; rttMs: number | null; transport: TransportKind; platform: string; hostReadOnly: boolean; tokenExpiresAt: number | null; relay: string | null }>;
 };
 
 export interface PeerServiceDeps {
@@ -114,6 +114,7 @@ export class PeerService {
       readOnly: () => this.store.getSettings().readOnly,
       pushEnabled: () => this.store.getSettings().push,
       onPaired: () => this.schedulePublish(),
+      relayRoute: () => this.relayRouteForMe(),
       log: deps.log,
     });
     this.push = new PushNotifier({
@@ -189,7 +190,8 @@ export class PeerService {
         const c = this.connections.get(k.peerId);
         return {
           peerId: k.peerId, name: k.name, host: k.host, port: k.port, status: c?.status ?? "offline", error: c?.lastError ?? "",
-          rttMs: c?.rttMs ?? null, transport: classifyTransport(k.host), platform: c?.info?.platform ?? "", hostReadOnly: c?.info?.readOnly === true,
+          rttMs: c?.rttMs ?? null, transport: c?.via === "relay" ? "relay" : classifyTransport(k.host), platform: c?.info?.platform ?? "", hostReadOnly: c?.info?.readOnly === true,
+          relay: k.relay ?? null,
           tokenExpiresAt: c?.tokenExpiresAt ?? k.tokenExpiresAt ?? null,
         };
       }),
@@ -262,7 +264,7 @@ export class PeerService {
     for (const list of Object.values(os.networkInterfaces())) for (const a of list ?? []) if ((a.family === "IPv4" || (a.family as unknown) === 4) && !a.internal) addrs.push(a.address);
     const host = addrs[0] ?? os.hostname();
     const alts = [...addrs.slice(1), os.hostname()].filter((h) => h !== host);
-    const relay = this.store.getSettings().relayUrl ? `${this.store.getSettings().relayUrl.replace(/#.*$/, "").replace(/\/$/, "")}/${this.store.getIdentity().peerId}${this.store.getSettings().relayUrl.includes("#") ? "#" + this.store.getSettings().relayUrl.split("#")[1] : ""}` : undefined;
+    const relay = this.relayRouteForMe();
     const payload = fitPairingPayload({ host, port, fingerprint: this.store.getTls().fingerprint, code: this.server.code, alts, name: this.store.getSettings().name, relay });
     try {
       return { payload, svg: renderQrSvg(payload, { size: 220 }) };
@@ -270,6 +272,11 @@ export class PeerService {
       // Should not happen after fitPairingPayload, but never let the button do nothing.
       return { payload, svg: "", error: `Could not render QR: ${String((e as Error).message ?? e)}` };
     }
+  }
+
+  /** `relay://host:port/<myPeerId>#fp` when a relay is configured — what /info advertises and the QR carries. */
+  relayRouteForMe(): string | undefined {
+    return relayRouteFor(this.store.getSettings().relayUrl, this.store.getIdentity().peerId);
   }
 
   // Host side: keep a control connection to the configured relay so peers
@@ -340,7 +347,9 @@ export class PeerService {
         const { info, certPem } = await PeerConnection.probe(a.host, a.port);
         if (certFingerprint(certPem) !== qr.fingerprint) throw new Error(`Certificate at ${a.host} does not match the payload — refusing to pair.`);
         if (info.peerId === this.store.getIdentity().peerId) throw new Error("That's this instance — pick another machine.");
-        return await this.pair(a.host, a.port, qr.code);
+        const res = await this.pair(a.host, a.port, qr.code);
+        if (qr.relay) { const r = qr.relay.startsWith("relay://") ? qr.relay : `relay://${qr.relay}`; this.store.touchKnown(res.peerId, { relay: r }); this.connections.get(res.peerId)?.updateEndpoint({ relay: r }); }
+        return res;
       } catch (e) {
         lastErr = e;
         if (/does not match|this instance/.test(String((e as Error).message))) throw e;
@@ -357,7 +366,7 @@ export class PeerService {
       if (certFingerprint(certPem) !== qr.fingerprint) throw new Error("Certificate via relay does not match the payload — refusing to pair.");
       if (info.peerId === this.store.getIdentity().peerId) throw new Error("That's this instance — pick another machine.");
       const { token, peer } = await PeerConnection.pair("gitgud-peer", 0, qr.code, this.store.getIdentity(), certPem, "desktop", route);
-      const known = this.store.upsertKnown({ peerId: peer.peerId, name: peer.name, host: relayHost, port: 0, token, certPem });
+      const known = this.store.upsertKnown({ peerId: peer.peerId, name: peer.name, host: relayHost, port: 0, token, certPem, relay: relayHost });
       this.connections.get(peer.peerId)?.disconnect();
       this.connections.delete(peer.peerId);
       this.ensureConnection(known).connect();
@@ -467,7 +476,8 @@ export class PeerService {
   private ensureConnection(k: KnownPeer): PeerConnection {
     let c = this.connections.get(k.peerId);
     if (c) return c;
-    c = new PeerConnection({ peerId: k.peerId, name: k.name, host: k.host, port: k.port, token: k.token, certPem: k.certPem, ...(isRelayAddress(k.host) ? { relay: k.host } : {}) }, this.store.getIdentity());
+    c = new PeerConnection({ peerId: k.peerId, name: k.name, host: k.host, port: k.port, token: k.token, certPem: k.certPem, ...(k.relay || isRelayAddress(k.host) ? { relay: k.relay ?? k.host } : {}) }, this.store.getIdentity());
+    c.on("relay", (route: string) => { this.store.touchKnown(k.peerId, { relay: route }); this.schedulePublish(); });
     c.on("status", () => this.schedulePublish());
     c.on("event", (ev: PeerEvent) => this.onPeerEvent(k.peerId, ev));
     c.on("info", () => this.schedulePublish());

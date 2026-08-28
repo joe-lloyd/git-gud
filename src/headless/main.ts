@@ -33,7 +33,7 @@ Usage:
   gitgud-headless status
   gitgud-headless devices
   gitgud-headless revoke <peerId or first 8 chars>
-  gitgud-headless allow <peerId8> fetch,pull | none   (writes a read-only device may run)
+  gitgud-headless allow <peerId8> fetch,pull,push | none   (writes a read-only device may run; phones get --ff-only / non-force)
   gitgud-headless reload | stop
   gitgud-headless audit [-n 50]
   gitgud-headless tls show | tls rotate --yes
@@ -114,9 +114,9 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "allow": {
-      // gitgud-headless allow <peerId8> fetch,pull   |   allow <peerId8> none
+      // gitgud-headless allow <peerId8> fetch,pull,push   |   allow <peerId8> none
       const [id, list] = args;
-      if (!id) { out("usage: gitgud-headless allow <peerId or first 8 chars> <fetch,pull|none>"); return 1; }
+      if (!id) { out("usage: gitgud-headless allow <peerId or first 8 chars> <fetch,pull,push|none>"); return 1; }
       const ds = (await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "devices" })) as Array<{ peerId: string }>;
       const match = ds.filter((d) => d.peerId === id || d.peerId.startsWith(id));
       if (match.length !== 1) { out(match.length ? "ambiguous prefix" : "no such device"); return 1; }

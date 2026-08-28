@@ -42,6 +42,9 @@ export type PeerInfo = {
   fingerprint: string;
   // Host-wide read-only switch (additive; absent on v1.12 hosts).
   readOnly?: boolean;
+  // M7: how to reach this host from anywhere — `relay://host:port/<peerId>#fp`.
+  // Clients store it and fall back to it when direct addresses stop answering.
+  relay?: string;
 };
 
 // What kind of device is pairing. Hosts default `companion` (phone) devices
@@ -481,6 +484,19 @@ export function parseRelayFrame(line: string): RelayFrame | null {
     return j && typeof j.t === "string" ? j : null;
   } catch { return null; }
 }
+
+/** Configured relay (`relay://host:port#fp`) + this host's id → the route clients dial (`relay://host:port/<peerId>#fp`). */
+export function relayRouteFor(relayUrl: string | null | undefined, peerId: string): string | undefined {
+  if (!relayUrl) return undefined;
+  const u = relayUrl.trim();
+  if (!u) return undefined;
+  const hash = u.includes("#") ? "#" + u.split("#")[1] : "";
+  const base = u.replace(/#.*$/, "").replace(/\/+$/, "").replace(/\/[0-9a-f]{8,64}$/, "");
+  return `${base}/${peerId}${hash}`;
+}
+
+/** SNI host name a plain-HTTPS client uses to reach `peerId` through a relay (the relay routes on the first label). */
+export function relaySniHost(peerId: string): string { return `${peerId}.gitgud-relay`; }
 
 // relay://relay.example.com:47833[/<peerId>][#<relay cert fingerprint hex>]
 export function parseRelayUrl(input: string): { host: string; port: number; peerId?: string; fingerprint?: string } | null {

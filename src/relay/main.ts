@@ -1,11 +1,20 @@
 #!/usr/bin/env node
 // gitgud-relay — rendezvous + relay for Git Gud peers behind NATs.
 //
-// Zero dependencies. One TLS listener. Hosts register (peerId + token +
-// sha256(fingerprint)) and keep the connection as their control channel;
-// clients ask for a peerId + fingerprint hash; the relay tells the host to
-// dial back and splices the two streams. It never sees plaintext: the host's
-// pinned TLS runs end to end through the splice.
+// Zero dependencies. One listener, two kinds of client:
+//
+//  • Frame clients (hosts, desktop Git Gud): TLS to the relay, then newline
+//    JSON frames. Hosts register (peerId + token + sha256(fingerprint)) and
+//    keep the connection as their control channel; clients ask for a peerId +
+//    fingerprint hash; the relay tells the host to dial back and splices.
+//  • SNI clients (phone, anything that just speaks HTTPS): a plain TLS
+//    ClientHello whose server_name is `<peerId>.<anything>`. The relay reads
+//    the SNI *without* terminating TLS, asks the host to dial back and pipes
+//    the untouched ClientHello + everything after it to the host. The TLS
+//    session is therefore the host's own certificate, pinned by the client.
+//
+// Either way the relay never sees plaintext: the host's pinned TLS runs end
+// to end through the splice.
 //
 //   gitgud-relay [--port 47833] [--bind 0.0.0.0] [--data ~/.local/share/gitgud-relay] [--json]
 //
@@ -24,12 +33,61 @@ declare const __RELAY_VERSION__: string | undefined;
 const VERSION = typeof __RELAY_VERSION__ === "string" ? __RELAY_VERSION__ : "0.0.0-dev";
 
 type Host = { peerId: string; name: string; fph: string; sock: tls.TLSSocket; since: number };
-type Pending = { client: tls.TLSSocket; peerId: string; timer: NodeJS.Timeout; rest: Buffer };
+// `raw`: SNI client — no relay frames on its side; `rest` is its ClientHello.
+type Pending = { client: net.Socket; peerId: string; timer: NodeJS.Timeout; rest: Buffer; raw: boolean };
+
+/**
+ * Extract server_name from a TLS ClientHello. Returns:
+ *   string  – the SNI host name
+ *   null    – complete ClientHello without SNI, or not a TLS handshake
+ *   "more"  – need more bytes (record not complete yet)
+ */
+export function parseClientHelloSni(buf: Buffer): string | null | "more" {
+  if (buf.length < 5) return "more";
+  if (buf[0] !== 0x16 || buf[1] !== 0x03) return null; // not a TLS handshake record
+  const recLen = buf.readUInt16BE(3);
+  if (buf.length < 5 + recLen) return "more";
+  const hs = buf.subarray(5, 5 + recLen);
+  if (hs.length < 4 || hs[0] !== 0x01) return null; // not ClientHello
+  let o = 4 + 2 + 32; // handshake header, client_version, random
+  if (hs.length < o + 1) return null;
+  o += 1 + hs[o]; // session id
+  if (hs.length < o + 2) return null;
+  o += 2 + hs.readUInt16BE(o); // cipher suites
+  if (hs.length < o + 1) return null;
+  o += 1 + hs[o]; // compression methods
+  if (hs.length < o + 2) return null;
+  const extEnd = o + 2 + hs.readUInt16BE(o); o += 2;
+  while (o + 4 <= Math.min(extEnd, hs.length)) {
+    const type = hs.readUInt16BE(o), len = hs.readUInt16BE(o + 2); o += 4;
+    if (type === 0 && o + 2 <= hs.length) {
+      let p = o + 2; // skip server_name_list length
+      const end = Math.min(o + len, hs.length);
+      while (p + 3 <= end) {
+        const nameType = hs[p], nameLen = hs.readUInt16BE(p + 1); p += 3;
+        if (nameType === 0 && p + nameLen <= end) return hs.subarray(p, p + nameLen).toString("latin1").toLowerCase();
+        p += nameLen;
+      }
+      return null;
+    }
+    o += len;
+  }
+  return null;
+}
+
+/** `<peerId>.anything` → peerId (hex, 8–64 chars); anything else → null. */
+export function peerIdFromSni(sni: string | null): string | null {
+  if (!sni) return null;
+  const label = sni.split(".")[0];
+  return /^[0-9a-f]{8,64}$/.test(label) ? label : null;
+}
 
 export interface RelayOptions { port: number; bind: string; dataDir: string; log?: (m: string, f?: Record<string, unknown>) => void }
 
 export class RelayServer {
-  private server: tls.Server | null = null;
+  private server: net.Server | null = null;
+  // Not listening: terminates relay-TLS for frame clients after the SNI peek.
+  private tlsServer: tls.Server | null = null;
   private hosts = new Map<string, Host>();      // peerId → registered host
   private pending = new Map<string, Pending>(); // conn id → waiting client
   private tokens: Record<string, string> = {};  // peerId → bound token
@@ -55,11 +113,50 @@ export class RelayServer {
     try { this.tokens = JSON.parse(fs.readFileSync(tokFile, "utf8")); } catch { this.tokens = {}; }
     this.saveTokens = () => fs.writeFileSync(tokFile, JSON.stringify(this.tokens, null, 2), { mode: 0o600 });
 
+    this.tlsServer = tls.createServer({ key, cert, minVersion: "TLSv1.2" }, (sock) => this.onConnection(sock));
+    this.tlsServer.on("tlsClientError", () => { /* handshake failed — client gone */ });
+
     return new Promise((resolve, reject) => {
-      const srv = tls.createServer({ key, cert, minVersion: "TLSv1.2" }, (sock) => this.onConnection(sock));
+      const srv = net.createServer((sock) => this.onRawConnection(sock));
       srv.on("error", reject);
       srv.listen(this.o.port, this.o.bind, () => { srv.removeListener("error", reject); this.server = srv; resolve((srv.address() as net.AddressInfo).port); });
     });
+  }
+
+  // Peek the ClientHello. SNI naming a registered host → passthrough splice
+  // (the client is speaking TLS to the *host*, not to us). Anything else →
+  // terminate TLS here and expect relay frames.
+  private onRawConnection(sock: net.Socket): void {
+    let buf = Buffer.alloc(0);
+    const remote = sock.remoteAddress ?? "";
+    const idle = setTimeout(() => sock.destroy(), 10_000);
+    const done = () => { clearTimeout(idle); sock.off("data", onData); };
+    const onData = (d: Buffer) => {
+      buf = Buffer.concat([buf, d]);
+      const sni = parseClientHelloSni(buf);
+      if (sni === "more") { if (buf.length > 16_384) { done(); sock.destroy(); } return; }
+      done();
+      sock.pause();
+      const peerId = peerIdFromSni(sni);
+      if (peerId && this.hosts.has(peerId)) return this.connectRaw(sock, peerId, buf, remote);
+      // Relay-TLS (frames): give the consumed bytes back and let a tls.Server
+      // take the socket over exactly as if it had accepted it (the pause
+      // before unshift matters — a flowing socket loses the buffer).
+      sock.unshift(buf);
+      this.tlsServer!.emit("connection", sock);
+    };
+    sock.on("data", onData);
+    sock.on("error", () => { /* peer went away */ });
+  }
+
+  private connectRaw(sock: net.Socket, peerId: string, clientHello: Buffer, remote: string): void {
+    const host = this.hosts.get(peerId)!;
+    const conn = `${Date.now().toString(36)}-${++this.seq}`;
+    const timer = setTimeout(() => { this.pending.delete(conn); sock.destroy(); }, RELAY_ACCEPT_TIMEOUT_MS);
+    this.pending.set(conn, { client: sock, peerId, timer, rest: clientHello, raw: true });
+    sock.once("close", () => { const p = this.pending.get(conn); if (p) { clearTimeout(p.timer); this.pending.delete(conn); } });
+    host.sock.write(encodeRelayFrame({ t: "incoming", conn }));
+    this.log("sni connect", { peerId8: peerId.slice(0, 8), remote });
   }
   private saveTokens: () => void = () => {};
 
@@ -68,6 +165,7 @@ export class RelayServer {
     for (const p of this.pending.values()) { clearTimeout(p.timer); p.client.destroy(); }
     this.hosts.clear(); this.pending.clear();
     this.server?.close(); this.server = null;
+    this.tlsServer?.close(); this.tlsServer = null;
   }
 
   listHosts(): Array<{ peerId: string; name: string; since: number }> {
@@ -148,7 +246,7 @@ export class RelayServer {
       this.pending.delete(conn);
       sock.end(encodeRelayFrame({ t: "error", error: "host did not accept in time" }));
     }, RELAY_ACCEPT_TIMEOUT_MS);
-    this.pending.set(conn, { client: sock, peerId: f.peerId, timer, rest });
+    this.pending.set(conn, { client: sock, peerId: f.peerId, timer, rest, raw: false });
     sock.pause();
     sock.once("close", () => { const p = this.pending.get(conn); if (p) { clearTimeout(p.timer); this.pending.delete(conn); } });
     host.sock.write(encodeRelayFrame({ t: "incoming", conn }));
@@ -162,17 +260,18 @@ export class RelayServer {
     }
     clearTimeout(p.timer);
     this.pending.delete(f.conn);
-    // Both sides get "ok", then bytes flow untouched.
+    // Host gets "ok"; a frame client gets "ok" too, an SNI client gets nothing
+    // but its own TLS session with the host. Then bytes flow untouched.
     sock.write(encodeRelayFrame({ t: "ok" }));
-    p.client.write(encodeRelayFrame({ t: "ok" }));
+    if (!p.raw) p.client.write(encodeRelayFrame({ t: "ok" }));
     if (p.rest.length) sock.write(p.rest);
     if (rest.length) p.client.write(rest);
     this.splice(p.client, sock);
     this.stats.splices++;
-    this.log("spliced", { peerId8: f.peerId.slice(0, 8) });
+    this.log("spliced", { peerId8: f.peerId.slice(0, 8), sni: p.raw });
   }
 
-  private splice(a: tls.TLSSocket, b: tls.TLSSocket): void {
+  private splice(a: net.Socket, b: net.Socket): void {
     const count = (d: Buffer) => { this.stats.bytes += d.length; };
     a.on("data", count); b.on("data", count);
     a.pipe(b); b.pipe(a);

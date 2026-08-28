@@ -4,6 +4,8 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import okhttp3.Call
+import okhttp3.Dns
+import java.net.InetAddress
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -27,10 +29,10 @@ class PinnedFetchModule : Module() {
     Name("PinnedFetch")
     Events("chunk", "close")
 
-    AsyncFunction("request") { url: String, method: String, headers: Map<String, String>, body: String?, fingerprintHex: String, timeoutMs: Double, promise: Promise ->
+    AsyncFunction("request") { url: String, method: String, headers: Map<String, String>, body: String?, fingerprintHex: String, timeoutMs: Double, relayHost: String?, promise: Promise ->
       Thread {
         try {
-          val client = pinnedClient(fingerprintHex, timeoutMs.toLong())
+          val client = pinnedClient(fingerprintHex, timeoutMs.toLong(), relayHost)
           val b = Request.Builder().url(url)
           headers.forEach { (k, v) -> b.header(k, v) }
           val rb = if (method == "POST") (body ?: "").toRequestBody("application/json; charset=utf-8".toMediaType()) else null
@@ -46,8 +48,8 @@ class PinnedFetchModule : Module() {
       }.start()
     }
 
-    AsyncFunction("openStream") { id: String, url: String, headers: Map<String, String>, fingerprintHex: String, promise: Promise ->
-      val client = pinnedClient(fingerprintHex, 0)
+    AsyncFunction("openStream") { id: String, url: String, headers: Map<String, String>, fingerprintHex: String, relayHost: String?, promise: Promise ->
+      val client = pinnedClient(fingerprintHex, 0, relayHost)
       val b = Request.Builder().url(url)
       headers.forEach { (k, v) -> b.header(k, v) }
       val call = client.newCall(b.build())
@@ -75,7 +77,9 @@ class PinnedFetchModule : Module() {
     Function("closeStream") { id: String -> streams.remove(id)?.cancel() }
   }
 
-  private fun pinnedClient(fingerprintHex: String, timeoutMs: Long): OkHttpClient {
+  // relayHost: resolve every name to the relay's address; the URL host name
+  // (<peerId>.gitgud-relay) still goes out as TLS SNI, which the relay routes on.
+  private fun pinnedClient(fingerprintHex: String, timeoutMs: Long, relayHost: String?): OkHttpClient {
     val expected = fingerprintHex.uppercase()
     val tm = object : X509TrustManager {
       override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -91,6 +95,7 @@ class PinnedFetchModule : Module() {
     val b = OkHttpClient.Builder()
       .sslSocketFactory(ctx.socketFactory, tm)
       .hostnameVerifier { _, _ -> true } // identity is the pin, not the name
+    if (relayHost != null) b.dns(object : Dns { override fun lookup(hostname: String): List<InetAddress> = InetAddress.getAllByName(relayHost).toList() })
     if (timeoutMs > 0) b.callTimeout(timeoutMs, TimeUnit.MILLISECONDS) else b.readTimeout(0, TimeUnit.MILLISECONDS)
     return b.build()
   }

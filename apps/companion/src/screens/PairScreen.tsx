@@ -6,7 +6,7 @@ import { parsePairingQr } from '@gitgud/peer-protocol'
 import { Button, Card, Hint, Mono, Screen, Title } from '../ui/atoms'
 import { theme } from '../ui/theme'
 import { useAppState } from '../state/AppState'
-import { machineFromPairing } from '../net/peerClient'
+import { machineFromPairing, relayAddress } from '../net/peerClient'
 import type { RootStack } from '../navigation'
 
 // Pair by QR: the payload carries address(es), certificate fingerprint and
@@ -26,7 +26,9 @@ export const PairScreen: React.FC<NativeStackScreenProps<RootStack, 'Pair'>> = (
     if (!qr) { setError('Not a Git Gud pairing QR'); return }
     setBusy(true); setError('')
     try {
-      const { address, info } = await client.probeAny([{ host: qr.host, port: qr.port }, ...(qr.alts ?? []).map((h) => ({ host: h, port: qr.port }))], qr.fingerprint)
+      const relayPeer = qr.relay ? /\/([0-9a-f]{8,64})(#|$)/.exec(qr.relay)?.[1] : undefined
+      const relay = relayPeer ? relayAddress(qr.relay, relayPeer) : null
+      const { address, info } = await client.probeAny([{ host: qr.host, port: qr.port }, ...(qr.alts ?? []).map((h) => ({ host: h, port: qr.port })), ...(relay ? [relay] : [])], qr.fingerprint)
       const r = await client.pair(address, qr.fingerprint, qr.code)
       const m = machineFromPairing(qr, info, r.token, r.readOnly)
       m.lastGood = address
@@ -60,7 +62,7 @@ export const PairScreen: React.FC<NativeStackScreenProps<RootStack, 'Pair'>> = (
         <Button label="Pair" onPress={() => pairWith(manual)} disabled={busy || !manual.trim()} />
         {error && <Text style={{ color: theme.red, marginTop: 8, fontSize: 12 }}>{error}</Text>}
       </Card>
-      <Card><Hint>Reachability: same Wi-Fi works out of the box. From elsewhere, install Tailscale on the phone and the computer — the QR also carries the machine's tailnet name.</Hint><Mono>{''}</Mono></Card>
+      <Card><Hint>Reachability: same Wi-Fi works out of the box. From anywhere else the phone uses the machine's relay when it has one (Settings → Reachable via relay on the desktop, "rendezvous" in the daemon config) — the QR carries the route, and machines paired before a relay existed learn it on their next check. Tailscale works too.</Hint><Mono>{''}</Mono></Card>
     </Screen>
   )
 }

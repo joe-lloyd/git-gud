@@ -4,14 +4,40 @@ A tiny zero-dependency Node service you host (VPS, Azure Container App,
 Raspberry Pi with a public port) that lets a Git Gud client behind one NAT
 reach a Git Gud host behind another. **It never sees your data**: the host's
 own certificate-pinned TLS is negotiated end to end *through* the relay; the
-relay only forwards ciphertext and only for peers whose certificate
-fingerprint the client already knows (from the pairing QR).
+relay only forwards ciphertext.
+
+Once a host has a relay, **every device that has ever paired with it can
+reach it from anywhere** as long as the machine is on and Git Gud (or the
+daemon) is running: the host advertises its route in `/gitgud/info`, clients
+store it, try direct addresses first and fall back to the relay by themselves
+— then go back to direct when they are on the LAN again. No re-pairing.
+
+Two ways in, one splice:
+
+* **Frame clients** (desktop Git Gud, hosts): TLS to the relay, then JSON
+  frames (`register` / `connect` / `accept`).
+* **SNI clients** (the phone, or any plain HTTPS client): connect to the
+  relay with TLS server-name `<peerId>.gitgud-relay`. The relay reads the
+  name from the ClientHello without terminating TLS and pipes the connection
+  to that host, so the TLS session — and the certificate the phone pins — is
+  the host's own.
 
 ```
 GUI / phone ──TLS──▶ relay ◀──TLS── host (desktop or gitgud-headless)
              "connect peerId + sha256(fp)"        "register peerId + token + sha256(fp)"
                        └── splice ──┘   → inside: the host's pinned TLS + normal /gitgud/* traffic
 ```
+
+## One-command deploy on Azure
+
+```sh
+az login
+./deploy/relay/azure.sh          # Container App, public TCP 47833, Azure Files volume for /data
+```
+Prints `relay://<fqdn>:47833#<fingerprint>` plus the exact desktop/daemon
+settings. The `/data` volume matters: it holds the relay's TLS key (its
+fingerprint is what everyone pins) and the host-token bindings. Costs are a
+0.25 vCPU app + a file share; egress is only what you actually transfer.
 
 ## Run it
 
@@ -34,6 +60,15 @@ The host keeps one outbound connection registered (keep-alive every 25 s).
 The first registration of a peer id binds its token at the relay; a
 different token is refused (`gitgud-relay tokens` / `forget <peerId>`).
 
+## Phones
+
+The companion app needs no setup: when a machine it is paired with gains a
+relay, the phone learns the route on its next check (Machines shows
+*reachable anywhere*), and uses it whenever the direct addresses fail. New
+pairings get the route from the QR. Android only for now — iOS `URLSession`
+cannot connect to one address while sending another SNI, so iPhones reach
+hosts directly or via Tailscale until the relay grows an HTTP CONNECT front.
+
 ## Pair from anywhere
 
 Show the QR (desktop) or `gitgud-headless pair --qr`. The payload now carries
@@ -47,7 +82,7 @@ first request.
 | Can | Cannot |
 | --- | --- |
 | see which peer ids are online, their IPs, timing and byte counts | read or modify traffic (pinned TLS terminates on the host) |
-| deny service | forge RPCs, pair (proof is bound to the real fingerprint), or discover peers (a client must present `sha256(fingerprint)`) |
+| deny service | forge RPCs, pair (proof is bound to the real fingerprint), or discover peers (frame clients must present `sha256(fingerprint)`; SNI clients must know the 16-byte random peer id — the relay answers unknown names with its own certificate and nothing else) |
 
 ## Not yet: hole punching
 This is relay-first: every remote connection flows through the relay. A

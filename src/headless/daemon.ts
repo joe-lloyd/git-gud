@@ -11,7 +11,7 @@ import { PeerServer } from "../main/peer-server";
 import { PeerStore, plainCrypter } from "../main/peer-store";
 import { shortFingerprint } from "../main/peer-tls";
 import { configPath, effectiveReadOnly, ensureDirs, loadConfig, resolveBindAddress, type HeadlessConfig, type HeadlessPaths } from "./config";
-import { ipInAnyCidr } from "@gitgud/peer-protocol";
+import { ipInAnyCidr, relayRouteFor } from "@gitgud/peer-protocol";
 import { startControlServer, type ControlRequest } from "./control";
 import type { Logger } from "./log";
 import { ConfigRepoAllowList } from "./repos";
@@ -93,6 +93,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
     heartbeatMs: () => cfg.heartbeatSeconds * 1000,
     onPairAttempt: (ip, ok, peerId8, name) => audit.write(ok ? "pair-ok" : "pair-refused", { ip, peerId8, name }),
     denyMethods: () => new Set(cfg.denyMethods),
+    relayRoute: () => relayRouteFor(cfg.rendezvous?.url, store.getIdentity().peerId),
     pairingOpen,
     pushEnabled: () => cfg.push,
     onPaired: (peerId, name) => {
@@ -173,7 +174,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
     pairingUntil = Date.now() + cfg.pairingWindowMinutes * 60_000;
     audit.write("pairing-code-issued", {});
     log("pairing window opened", { minutes: cfg.pairingWindowMinutes });
-    const relayAddr = cfg.rendezvous?.url ? `${cfg.rendezvous.url.replace(/#.*$/, "").replace(/\/$/, "")}/${store.getIdentity().peerId}${cfg.rendezvous.url.includes("#") ? "#" + cfg.rendezvous.url.split("#")[1] : ""}` : undefined;
+    const relayAddr = relayRouteFor(cfg.rendezvous?.url, store.getIdentity().peerId);
     return { code, fingerprint: tls.fingerprint, expiresAt: pairingUntil, addresses: addresses(), relay: relayAddr };
   };
 

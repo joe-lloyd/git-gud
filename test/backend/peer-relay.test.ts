@@ -10,7 +10,10 @@ import { PeerConnection } from '../../src/main/peer-client'
 import { PeerStore } from '../../src/main/peer-store'
 import { generateSelfSigned } from '../../src/main/peer-tls'
 import { RelayLink, fingerprintHash } from '../../src/main/peer-relay'
-import { RelayServer } from '../../src/relay/main'
+import { RelayServer, parseClientHelloSni, peerIdFromSni } from '../../src/relay/main'
+import * as tls from 'tls'
+import * as https from 'https'
+import { relaySniHost, relayRouteFor } from '@gitgud/peer-protocol'
 import { pairingQrPayload, parsePairingQr, parseRelayUrl } from '@gitgud/peer-protocol'
 
 // Relay end to end, in-process: relay service ⇄ host (PeerServer + RelayLink
@@ -99,5 +102,53 @@ describe('rendezvous relay', () => {
     const other = generateSelfSigned('Other')
     const conn = new PeerConnection({ peerId: hostId, name: 'Host', host: relayUrl, port: 0, token: 'f'.repeat(64), certPem: other.certPem, relay: relayUrl }, self)
     await expect(conn.rpc(repo, 'getLog', [1])).rejects.toMatchObject({ code: expect.stringMatching(/tls|network/) })
+  })
+
+  it('SNI passthrough: a plain HTTPS client reaches the host through the relay with the HOST certificate pinned', async () => {
+    // No relay frames at all on this side — exactly what the phone's OkHttp does.
+    const sock = await new Promise<tls.TLSSocket>((resolve, reject) => {
+      const c = tls.connect({ host: '127.0.0.1', port: relayPort, servername: relaySniHost(hostId), rejectUnauthorized: false, checkServerIdentity: () => undefined }, () => resolve(c))
+      c.once('error', reject)
+    })
+    const presented = sock.getPeerCertificate().fingerprint256.replace(/:/g, '')
+    expect(presented).toBe(tlsId.fingerprint.replace(/:/g, '')) // host cert, not the relay's
+    expect(presented).not.toBe(relay.fingerprint.replace(/:/g, ''))
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = https.request({ host: 'gitgud-peer', path: '/gitgud/info', method: 'GET', createConnection: () => sock }, (res) => { let d = ''; res.on('data', (c) => (d += c)); res.on('end', () => resolve(d)) })
+      req.on('error', reject); req.end()
+    })
+    expect(JSON.parse(body)).toMatchObject({ peerId: hostId, name: 'Host' })
+    sock.destroy()
+  })
+
+  it('SNI for an unknown peer id or a non-TLS client is refused without leaking anything', async () => {
+    await expect(new Promise((resolve, reject) => {
+      const c = tls.connect({ host: '127.0.0.1', port: relayPort, servername: relaySniHost('deadbeefdeadbeef'), rejectUnauthorized: false, checkServerIdentity: () => undefined }, () => resolve(c.getPeerCertificate().fingerprint256))
+      c.once('error', reject); c.once('close', () => reject(new Error('closed')))
+    })).resolves.toBe(relay.fingerprint) // falls through to relay-TLS, where no frame follows → closed by idle timer later
+    expect(parseClientHelloSni(Buffer.from('GET / HTTP/1.1\r\n'))).toBeNull()
+    expect(parseClientHelloSni(Buffer.from([0x16, 0x03, 0x01, 0x00]))).toBe('more')
+    expect(peerIdFromSni('a0a0a0a0a0a0a0a0.gitgud-relay')).toBe('a0a0a0a0a0a0a0a0')
+    expect(peerIdFromSni('relay.example.com')).toBeNull()
+    expect(peerIdFromSni(null)).toBeNull()
+  })
+
+  it('a paired desktop falls back to the relay when the direct address dies, and reports transport=relay', async () => {
+    const paired = store.listPaired()[0]
+    const c = new PeerConnection({ peerId: hostId, name: 'Host', host: '10.255.255.1', port: 9, token: paired ? (await (async () => { const t = 'ab'.repeat(32); store.addPaired('c2c2c2c2c2c2c2c2', 'L2', t, { kind: 'desktop', readOnly: false }); return t })()) : '', certPem: tlsId.certPem, relay: relayRouteFor(relayUrl, hostId) }, { peerId: 'c2c2c2c2c2c2c2c2', name: 'L2' })
+    c.connect()
+    for (let i = 0; i < 200 && c.status !== 'connected'; i++) await new Promise((r) => setTimeout(r, 50))
+    expect(c.status).toBe('connected')
+    expect(c.via).toBe('relay')
+    const repos = await c.rpc<Array<{ path: string }>>('', '__listRepos')
+    expect(repos.map((r) => r.path)).toEqual([repo])
+    c.disconnect()
+  })
+
+  it('relayRouteFor builds the per-host route from a configured relay url', () => {
+    expect(relayRouteFor('relay://r.example.com:47833#ABCD', 'a0a0a0a0a0a0a0a0')).toBe('relay://r.example.com:47833/a0a0a0a0a0a0a0a0#ABCD')
+    expect(relayRouteFor('relay://r.example.com:47833/', 'a0a0a0a0a0a0a0a0')).toBe('relay://r.example.com:47833/a0a0a0a0a0a0a0a0')
+    expect(relayRouteFor('relay://r.example.com:47833/ffffffffffffffff#X', 'a0a0a0a0a0a0a0a0')).toBe('relay://r.example.com:47833/a0a0a0a0a0a0a0a0#X')
+    expect(relayRouteFor('', 'a0')).toBeUndefined(); expect(relayRouteFor(null, 'a0')).toBeUndefined()
   })
 })

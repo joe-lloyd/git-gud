@@ -5,6 +5,7 @@ import { Badge, Button, Card, Dot, Empty, Hint, Mono, Screen, Title } from '../u
 import { theme } from '../ui/theme'
 import { useAppState } from '../state/AppState'
 import type { RootStack } from '../navigation'
+import { withRelay } from '../net/peerClient'
 import { checkForUpdate, promptReload, versionInfo, versionLabel, type UpdateStatus } from '../updates'
 
 // Machines: every paired host, live reachability, repo count.
@@ -53,7 +54,8 @@ export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machine
                 {m.platform === 'linux-headless' && <Badge label="daemon" />}
               </View>
               <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
-                <Mono>{(m.lastGood ?? m.addresses[0]).host}:{(m.lastGood ?? m.addresses[0]).port}</Mono>
+                <Mono>{(m.lastGood ?? m.addresses[0]).relay ? `via relay ${(m.lastGood ?? m.addresses[0]).relay!.host}` : `${(m.lastGood ?? m.addresses[0]).host}:${(m.lastGood ?? m.addresses[0]).port}`}</Mono>
+                {!!m.addresses.find((a) => a.relay) && !(m.lastGood ?? m.addresses[0]).relay && <Badge label="reachable anywhere" color={theme.green} />}
                 <Text style={{ color: theme.textMuted, fontSize: 12 }}>{st?.state === 'connected' ? `${st.repos} repos` : st?.state === 'revoked' ? 'access revoked on host' : st?.state === 'connecting' ? 'connecting…' : 'offline'}</Text>
               </View>
               {st?.error && st.state !== 'connected' && <Hint>{st.error}</Hint>}

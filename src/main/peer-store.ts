@@ -34,7 +34,8 @@ export type PairedDevice = {
 };
 // A peer I connect TO. `token` is the raw bearer token (encrypted on disk);
 // `certPem` is the host's pinned TLS certificate.
-export type KnownPeer = { peerId: string; name: string; host: string; port: number; token: string; certPem: string; pairedAt: number; tokenExpiresAt?: number };
+// `relay`: route learned from pairing or /info (`relay://host:port/<peerId>#fp`) — the fallback when `host` stops answering.
+export type KnownPeer = { peerId: string; name: string; host: string; port: number; token: string; certPem: string; pairedAt: number; tokenExpiresAt?: number; relay?: string };
 
 export interface Crypter {
   encrypt(plain: string): Buffer;
@@ -269,10 +270,11 @@ export class PeerStore {
   }
 
   // Address/name refresh from discovery — token untouched.
-  touchKnown(peerId: string, patch: { host?: string; port?: number; name?: string }): void {
+  touchKnown(peerId: string, patch: { host?: string; port?: number; name?: string; relay?: string | null }): void {
     const p = this.known.find((k) => k.peerId === peerId);
     if (!p) return;
     let changed = false;
+    if (patch.relay !== undefined && (patch.relay ?? undefined) !== p.relay) { if (patch.relay) p.relay = patch.relay; else delete p.relay; changed = true; }
     if (patch.host && patch.host !== p.host) { p.host = patch.host; changed = true; }
     if (patch.port && patch.port !== p.port) { p.port = patch.port; changed = true; }
     if (patch.name && patch.name !== p.name) { p.name = patch.name; changed = true; }

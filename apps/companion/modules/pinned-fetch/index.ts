@@ -11,8 +11,10 @@ type Events = {
   close: (ev: { id: string; error?: string }) => void
 }
 declare class PinnedFetchNative extends NativeModule<Events> {
-  request(url: string, method: string, headers: Record<string, string>, body: string | null, fingerprintHex: string, timeoutMs: number): Promise<NativeResponse>
-  openStream(id: string, url: string, headers: Record<string, string>, fingerprintHex: string): Promise<void>
+  // relayHost: when set, TCP goes to this host (the URL's port) while TLS SNI
+  // stays the URL host name — how a relay routes us to the right Git Gud host.
+  request(url: string, method: string, headers: Record<string, string>, body: string | null, fingerprintHex: string, timeoutMs: number, relayHost: string | null): Promise<NativeResponse>
+  openStream(id: string, url: string, headers: Record<string, string>, fingerprintHex: string, relayHost: string | null): Promise<void>
   closeStream(id: string): void
 }
 
@@ -30,7 +32,7 @@ export function pinnedTransport(): PinnedTransport {
   return {
     async request(url, o) {
       try {
-        return await native.request(url, o.method, o.headers ?? {}, o.body ?? null, normalizeFingerprint(o.fingerprint), o.timeoutMs ?? 30_000)
+        return await native.request(url, o.method, o.headers ?? {}, o.body ?? null, normalizeFingerprint(o.fingerprint), o.timeoutMs ?? 30_000, o.viaRelay?.host ?? null)
       } catch (e) { throw mapError(e) }
     },
     stream(url, o) {
@@ -40,7 +42,7 @@ export function pinnedTransport(): PinnedTransport {
         native.addListener('close', (ev) => { if (ev.id === id) { cleanup(); o.onClose(ev.error ? mapError(new Error(ev.error)) : undefined) } }),
       ]
       const cleanup = () => { for (const s of subs) s.remove() }
-      native.openStream(id, url, o.headers ?? {}, normalizeFingerprint(o.fingerprint)).catch((e: unknown) => { cleanup(); o.onClose(mapError(e)) })
+      native.openStream(id, url, o.headers ?? {}, normalizeFingerprint(o.fingerprint), o.viaRelay?.host ?? null).catch((e: unknown) => { cleanup(); o.onClose(mapError(e)) })
       return () => { native.closeStream(id); cleanup() }
     },
   }

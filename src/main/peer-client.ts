@@ -19,6 +19,7 @@ import {
 } from "./peer-protocol";
 import { certFingerprint } from "./peer-tls";
 import { relayDial } from "./peer-relay";
+import { isRelayAddress } from "./peer-protocol";
 import type { GitActivity } from "./git-service";
 
 // Client side of a peer connection. `PeerConnection` speaks the HTTPS/SSE
@@ -35,7 +36,9 @@ import type { GitActivity } from "./git-service";
 // recovers; the user must forget + re-pair (or the host was replaced).
 export type PeerStatus = "connected" | "connecting" | "offline" | "revoked" | "cert-changed";
 
-// `relay`: reach the host through a rendezvous relay (relay://host:port[#fp])
+// `relay`: rendezvous route (relay://host:port/<peerId>#fp). With a direct
+// host too, the connection tries direct first and falls back to the relay;
+// with a relay-only host (paired through the relay) everything goes via relay.
 // instead of host:port. The pinned TLS handshake still runs end to end.
 export type PeerEndpoint = { peerId: string; name: string; host: string; port: number; token: string; certPem: string; relay?: string };
 export type RelayRoute = { url: string; peerId: string; fingerprint: string };
@@ -136,6 +139,10 @@ export class PeerConnection extends EventEmitter {
   rttMs: number | null = null;
   // Token expiry the host reported (ms epoch) — null = never.
   tokenExpiresAt: number | null = null;
+  // How the current/last stream was opened. Direct is retried first on every
+  // reconnect so a machine that comes back to the LAN leaves the relay again.
+  via: "direct" | "relay" = "direct";
+  private directFailedOnce = false;
 
   private stream: https.ClientRequest | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
@@ -202,9 +209,11 @@ export class PeerConnection extends EventEmitter {
     this.setStatus("offline", "");
   }
 
-  updateEndpoint(patch: Partial<Pick<PeerEndpoint, "host" | "port" | "name">>): void {
+  updateEndpoint(patch: Partial<Pick<PeerEndpoint, "host" | "port" | "name" | "relay">>): void {
     const changed = (patch.host && patch.host !== this.endpoint.host) || (patch.port && patch.port !== this.endpoint.port);
+    const relayChanged = patch.relay !== undefined && patch.relay !== this.endpoint.relay;
     Object.assign(this.endpoint, patch);
+    if (relayChanged && !changed && this.wantConnected && this.status !== "connected" && this.status !== "connecting") { this.backoff = BACKOFF_MIN_MS; this.closeStream(); if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; } this.openStream(); return; }
     // New address → reconnect right away instead of waiting out the backoff.
     if (changed && this.wantConnected) {
       this.backoff = BACKOFF_MIN_MS;
@@ -233,7 +242,7 @@ export class PeerConnection extends EventEmitter {
     let r: HttpResult;
     try {
       r = await request({
-        host: this.endpoint.host, port: this.endpoint.port, path: "/gitgud/rpc", method: "POST", relay: this.relayRoute(),
+        host: this.endpoint.host, port: this.endpoint.port, path: "/gitgud/rpc", method: "POST", relay: this.activeRelayRoute(),
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.endpoint.token}` },
         body: JSON.stringify({ id, repoPath, method, args }),
         ...pinOptions(this.endpoint.certPem),
@@ -291,8 +300,13 @@ export class PeerConnection extends EventEmitter {
   // our token expiry; rotate when less than 7 days remain.
   private async afterConnected(): Promise<void> {
     try {
-      const r = await request({ host: this.endpoint.host, port: this.endpoint.port, path: "/gitgud/info", method: "GET", ...pinOptions(this.endpoint.certPem), timeoutMs: PROBE_TIMEOUT_MS });
-      if (r.status === 200) { this.info = JSON.parse(r.body) as PeerInfo; this.emit("info", this.info); }
+      const r = await request({ host: this.endpoint.host, port: this.endpoint.port, path: "/gitgud/info", method: "GET", relay: this.activeRelayRoute(), ...pinOptions(this.endpoint.certPem), timeoutMs: PROBE_TIMEOUT_MS });
+      if (r.status === 200) {
+        this.info = JSON.parse(r.body) as PeerInfo;
+        // The host tells us how to reach it from anywhere; remember it.
+        if (this.info.relay && this.info.relay !== this.endpoint.relay) { this.endpoint.relay = this.info.relay; this.emit("relay", this.info.relay); }
+        this.emit("info", this.info);
+      }
       const me = await this.rpc<{ expiresAt: number | null }>("", "__whoami");
       this.tokenExpiresAt = me?.expiresAt ?? null;
       if (this.tokenExpiresAt && this.tokenExpiresAt - Date.now() < 7 * 86_400_000) await this.rotateToken();
@@ -304,12 +318,25 @@ export class PeerConnection extends EventEmitter {
     return this.endpoint.relay ? { url: this.endpoint.relay, peerId: this.endpoint.peerId, fingerprint: certFingerprint(this.endpoint.certPem) } : undefined;
   }
 
+  /** Relay-only endpoint (paired through the relay): no direct address to try. */
+  private relayOnly(): boolean { return isRelayAddress(this.endpoint.host) || !this.endpoint.host || this.endpoint.port === 0; }
+
+  /** The route the *current* stream uses — RPCs follow the stream. */
+  private activeRelayRoute(): RelayRoute | undefined {
+    if (this.relayOnly()) return this.relayRoute();
+    return this.via === "relay" ? this.relayRoute() : undefined;
+  }
+
   // ── SSE stream ──────────────────────────────────────────────────────
 
   private openStream(): void {
     if (!this.wantConnected) return;
     this.setStatus(this.status === "connected" ? "connected" : "connecting", "");
-    const route = this.relayRoute();
+    // Direct first (LAN / tailnet / DNS name); the relay only when that just
+    // failed and we know one. A relay-only endpoint always goes via relay.
+    const useRelay = !!this.endpoint.relay && (this.relayOnly() || this.directFailedOnce);
+    this.via = useRelay ? "relay" : "direct";
+    const route = useRelay ? this.relayRoute() : undefined;
     if (!route) { this.openStreamWith(null); return; }
     // Via relay: dial first (async), then run the same request over it.
     const marker = {} as https.ClientRequest; // placeholder so closeStream() can cancel the dial
@@ -348,6 +375,7 @@ export class PeerConnection extends EventEmitter {
           return;
         }
         this.backoff = BACKOFF_MIN_MS;
+        this.directFailedOnce = false; // next reconnect tries direct again first
         this.setStatus("connected", "");
         void this.afterConnected();
         const parser = new SseParser();
@@ -388,6 +416,14 @@ export class PeerConnection extends EventEmitter {
     if (!this.stream) return; // already closed on purpose
     this.stream = null;
     if (!this.wantConnected) return;
+    // Direct just failed and a relay is known → switch over right away.
+    if (this.via === "direct" && this.endpoint.relay && !this.directFailedOnce) {
+      this.directFailedOnce = true;
+      this.setStatus("connecting", `${reason} — trying the relay`);
+      this.retryTimer = setTimeout(() => { this.retryTimer = null; this.openStream(); }, 50);
+      return;
+    }
+    if (this.via === "relay" && !this.relayOnly()) this.directFailedOnce = false; // alternate: direct next time
     this.setStatus("offline", reason);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;

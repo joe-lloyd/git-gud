@@ -67,6 +67,14 @@ export interface PeerServerHost {
 
 type SseClient = { res: http.ServerResponse; repos: Set<string>; device: PairedDevice };
 
+/** Args a read-only-but-scoped device is allowed to run `method` with. */
+export function companionSafeArgs(method: string, args: unknown[]): unknown[] {
+  if (method === "pull") return [{ ffOnly: true, autoStash: false }];
+  if (method === "push") return [false];
+  if (method === "fetch") return [];
+  return args;
+}
+
 export class PeerServer {
   private server: https.Server | null = null;
   private port = 0;
@@ -321,6 +329,9 @@ export class PeerServer {
     // Callbacks don't survive JSON. commitStreaming's chunk sink is a no-op
     // over IPC locally too (output lands in the activity log), so mirror that.
     if (method === "commitStreaming") args = [args[0], () => {}];
+    // Scoped writes from a read-only device (the phone) only ever move refs
+    // forward, whatever the client sent: pull is --ff-only, push is never forced.
+    if (scoped) args = companionSafeArgs(method, args);
 
     try {
       const result = await withTimeout(

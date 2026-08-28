@@ -24,21 +24,34 @@ export const RepoScreen: React.FC<NativeStackScreenProps<RootStack, 'Repo'>> = (
   const [status, setStatus] = useState<RepoStatus | null>(null)
   const [activity, setActivity] = useState<Array<{ ts: number; text: string }>>([])
   const [live, setLive] = useState<'connecting' | 'live' | 'offline'>('connecting')
-  const [busyAction, setBusyAction] = useState<'fetch' | 'pull' | null>(null)
+  const [busyAction, setBusyAction] = useState<'fetch' | 'pull' | 'push' | null>(null)
   const scopes = m?.scopes ?? []
 
-  // Tap-to-approve writes (M6): only the methods the host granted this phone.
-  const runScoped = (action: 'fetch' | 'pull') => {
+  // Tap-to-approve writes (M6/M7): only the methods the host granted this
+  // phone, and only the safe variants — the host forces pull --ff-only and a
+  // non-force push for companion devices, so nothing here can rewrite history.
+  const LABEL = { fetch: 'Fetch', pull: 'Pull (fast-forward only)', push: 'Push' } as const
+  const runScoped = (action: 'fetch' | 'pull' | 'push') => {
     if (!client || !m) return
-    Alert.alert(`${action === 'fetch' ? 'Fetch' : 'Pull'} on ${m.name}?`, `Runs \`git ${action}\` in ${name} on ${m.name}.`, [
+    const what = action === 'fetch' ? 'git fetch --all --prune' : action === 'pull' ? 'git pull --ff-only' : `git push (${status?.branch ?? 'current branch'}, never forced)`
+    Alert.alert(`${LABEL[action]} on ${m.name}?`, `Runs \`${what}\` in ${name} on ${m.name}.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: action === 'fetch' ? 'Fetch' : 'Pull', onPress: async () => {
+      { text: LABEL[action].split(' ')[0], onPress: async () => {
         setBusyAction(action)
+        const note = (text: string) => setActivity((a) => [{ ts: Date.now(), text }, ...a].slice(0, 100))
         try {
-          if (action === 'fetch') { await client.fetch(m, repoPath); setActivity((a) => [{ ts: Date.now(), text: 'fetch (from phone) ✓' }, ...a]) }
-          else { const r = await client.pull(m, repoPath); setActivity((a) => [{ ts: Date.now(), text: r.success ? 'pull (from phone) ✓' : `pull failed: ${r.error ?? ''}` }, ...a]); if (!r.success) Alert.alert('Pull failed', r.error ?? 'unknown error') }
+          if (action === 'fetch') { await client.fetch(m, repoPath); note('fetch (from phone) ✓') }
+          else if (action === 'pull') {
+            const r = await client.pull(m, repoPath)
+            note(r.success ? 'pull --ff-only (from phone) ✓' : `pull refused: ${r.kind ?? 'error'}`)
+            if (!r.success) Alert.alert('Pull not possible', r.kind === 'diverged' || /not possible to fast-forward|non-fast-forward|diverg/i.test(r.error ?? '') ? 'The local branch has commits the remote does not — a fast-forward is not possible. Resolve that on the desktop.' : (r.error ?? 'unknown error'))
+          } else {
+            const r = await client.push(m, repoPath)
+            note(r.success ? 'push (from phone) ✓' : `push failed: ${r.error ?? ''}`)
+            if (!r.success) Alert.alert('Push failed', /rejected|non-fast-forward|fetch first/i.test(r.error ?? '') ? 'The remote has commits you do not have. Pull first (fast-forward) or sort it out on the desktop — the phone never force-pushes.' : (r.error ?? 'unknown error'))
+          }
           load()
-        } catch (e) { Alert.alert(`${action} failed`, String((e as Error).message)) } finally { setBusyAction(null) }
+        } catch (e) { Alert.alert(`${LABEL[action]} failed`, String((e as Error).message)) } finally { setBusyAction(null) }
       } },
     ])
   }
@@ -85,7 +98,8 @@ export const RepoScreen: React.FC<NativeStackScreenProps<RootStack, 'Repo'>> = (
       {scopes.length > 0 && (
         <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingTop: 10 }}>
           {scopes.includes('fetch') && <View style={{ flex: 1 }}><Button label={busyAction === 'fetch' ? 'Fetching…' : 'Fetch'} disabled={busyAction !== null} onPress={() => runScoped('fetch')} /></View>}
-          {scopes.includes('pull') && <View style={{ flex: 1 }}><Button label={busyAction === 'pull' ? 'Pulling…' : 'Pull'} primary disabled={busyAction !== null} onPress={() => runScoped('pull')} /></View>}
+          {scopes.includes('pull') && <View style={{ flex: 1 }}><Button label={busyAction === 'pull' ? 'Pulling…' : `Pull${status?.behind ? ` ↓${status.behind}` : ''}`} primary={!!status?.behind} disabled={busyAction !== null} onPress={() => runScoped('pull')} /></View>}
+          {scopes.includes('push') && <View style={{ flex: 1 }}><Button label={busyAction === 'push' ? 'Pushing…' : `Push${status?.ahead ? ` ↑${status.ahead}` : ''}`} primary={!!status?.ahead} disabled={busyAction !== null} onPress={() => runScoped('push')} /></View>}
         </View>
       )}
       <View style={{ flexDirection: 'row', margin: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.border, overflow: 'hidden' }}>

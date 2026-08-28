@@ -105,6 +105,7 @@ export function PeerModal({ peers, onClose, onOpenRepo, onForgotten }: PeerModal
                 <span className="truncate">{p.name}</span>
                 {p.platform === 'linux-headless' && <span className="peer-kind-badge" title="Headless daemon">d</span>}
                 {p.transport !== 'lan' && <span className="peer-kind-badge" title={TRANSPORT_LABEL[p.transport]}>{p.transport === 'tailnet' ? 'ts' : p.transport === 'tunnel' ? 'ssh' : p.transport}</span>}
+                {p.relay && p.transport !== 'relay' && <span className="peer-kind-badge" title={`Reachable from anywhere: falls back to ${p.relay} when the direct address stops answering`}>anywhere</span>}
               </button>
             ))}
 
@@ -545,8 +546,8 @@ export const PeersSection: React.FC<{
                   <input type="checkbox" checked={d.readOnly} onChange={(e) => peers.actions.setDeviceReadOnly(d.peerId, e.target.checked)} /> read-only
                 </label>
                 {d.readOnly && !s.server.readOnly && (
-                  <span className="peer-scopes" title="Writes this read-only device may still run (tap-to-approve on the phone)">
-                    {(['fetch', 'pull'] as const).map((m) => (
+                  <span className="peer-scopes" title="Writes this read-only device may still run (tap-to-approve on the phone). Phones always get the safe variants: pull is fast-forward only, push is never forced.">
+                    {(['fetch', 'pull', 'push'] as const).map((m) => (
                       <button key={m} className={`peer-scope-chip ${d.scopes.includes(m) ? 'on' : ''}`}
                         onClick={() => peers.actions.setDeviceScopes(d.peerId, d.scopes.includes(m) ? d.scopes.filter((x) => x !== m) : [...d.scopes, m])}>
                         {m}

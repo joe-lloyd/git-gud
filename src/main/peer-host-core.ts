@@ -178,6 +178,9 @@ export interface PeerServerHostDeps {
   tokenTtlMs?(): number; // 0 = never expires
   heartbeatMs?(): number;
   onPairAttempt?(remoteAddress: string, ok: boolean, peerId8: string, name: string): void;
+  // M7: relay route (`relay://host:port/<peerId>#fp`) advertised in /info so
+  // paired clients learn how to reach us from anywhere.
+  relayRoute?(): string | undefined;
   log?(msg: string): void;
 }
 
@@ -191,6 +194,7 @@ export function createPeerServerHost(d: PeerServerHostDeps): PeerServerHost {
       protocol: 1,
       fingerprint: d.store.getTls().fingerprint,
       readOnly: d.readOnly(),
+      ...(d.relayRoute?.() ? { relay: d.relayRoute() } : {}),
     }),
     tls: () => d.store.getTls(),
     readOnly: () => d.readOnly(),

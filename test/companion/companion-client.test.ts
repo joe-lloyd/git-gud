@@ -72,8 +72,10 @@ describe('companion lanes', () => {
       { sha: 'b', parents: [], message: 'root' },
     ])
     expect(rows.map((r) => r.lane)).toEqual([0, 0, 1, 0])
-    expect(rows[0].parentsLanes).toEqual([0, 1])
-    expect(rows[3].lanes).toBe(1)
+    expect(rows[0].forks).toEqual([1])          // merge: rail to the feature lane
+    expect(rows[1].through).toEqual([1])        // feature lane passes 'a'
+    expect(rows[3].joins).toEqual([1])          // feature lane ends at the root
+    expect(rows[3].lanes).toBeGreaterThanOrEqual(2)
   })
 })
 

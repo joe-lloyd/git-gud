@@ -598,7 +598,7 @@ export type PeerState = {
     paired: Array<{ peerId: string; name: string; createdAt: number; connected: boolean; readOnly: boolean; kind: string; scopes: string[] }>
   }
   discovered: Array<{ peerId: string; name: string; address: string; port: number; version: string; known: boolean }>
-  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string; rttMs: number | null; transport: TransportKind; platform: string; hostReadOnly: boolean; tokenExpiresAt: number | null }>
+  peers: Array<{ peerId: string; name: string; host: string; port: number; status: PeerStatus; error: string; rttMs: number | null; transport: TransportKind; platform: string; hostReadOnly: boolean; tokenExpiresAt: number | null ; relay: string | null }>
 }
 
 const peerApi = {

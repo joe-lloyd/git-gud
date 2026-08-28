@@ -5,12 +5,26 @@ hosts (desktop or `gitgud-headless`) as a **read-only device** and shows
 Machines → Repos → commit graph → working tree → diffs, live over SSE while a
 repo screen is open, with optional push notifications when a repo changes.
 
-## Why read-only
+## Why read-only (and the three writes that aren't)
 The phone never sends a `WRITE_METHODS` call: the client refuses them before
 the wire (`peerClient.ts`) and the host refuses them again (`PairedDevice.readOnly`,
 set automatically because the phone pairs with `kind: "companion"`). A lost
 phone can read your diffs until you revoke it — Settings → Paired devices →
 Revoke on each host — and nothing more.
+
+The host's owner can grant **scopes** per phone (Settings → Paired devices →
+chips, or `gitgud-headless allow <id> fetch,pull,push`): the repo screen then
+shows **Fetch**, **Pull ↓n** and **Push ↑n** buttons, each with a confirmation.
+The host enforces the safe variants regardless of what the client sends
+(`companionSafeArgs`): pull is `--ff-only` (refused instead of merging or
+rebasing when the branch diverged), push is never forced. Nothing a phone can
+do rewrites history.
+
+## Reaching machines from anywhere
+Same Wi-Fi works out of the box. From elsewhere the phone uses the machine's
+**relay** (see `relay.md`): the route arrives with the pairing QR, or later
+through `/gitgud/info` — Machines shows *reachable anywhere* once learned —
+and is tried after the direct addresses. Android only for now (see relay.md).
 
 ## Pairing
 Desktop: Settings → *Share with other Git Gud instances* → **Show QR**.

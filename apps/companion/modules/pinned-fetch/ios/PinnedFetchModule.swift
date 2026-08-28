@@ -12,7 +12,10 @@ public class PinnedFetchModule: Module {
     Name("PinnedFetch")
     Events("chunk", "close")
 
-    AsyncFunction("request") { (url: String, method: String, headers: [String: String], body: String?, fingerprintHex: String, timeoutMs: Double, promise: Promise) in
+    // relayHost is accepted for API parity but not honoured: URLSession offers no way to
+    // connect to one address while sending another SNI. iOS reaches hosts directly / via Tailscale.
+    AsyncFunction("request") { (url: String, method: String, headers: [String: String], body: String?, fingerprintHex: String, timeoutMs: Double, relayHost: String?, promise: Promise) in
+      if relayHost != nil { promise.reject("relay", "Relay connections are not supported on iOS yet"); return }
       guard let u = URL(string: url) else { promise.reject("bad_url", "Invalid URL"); return }
       var req = URLRequest(url: u)
       req.httpMethod = method
@@ -35,7 +38,8 @@ public class PinnedFetchModule: Module {
       task.resume()
     }
 
-    AsyncFunction("openStream") { (id: String, url: String, headers: [String: String], fingerprintHex: String, promise: Promise) in
+    AsyncFunction("openStream") { (id: String, url: String, headers: [String: String], fingerprintHex: String, relayHost: String?, promise: Promise) in
+      if relayHost != nil { promise.reject("relay", "Relay connections are not supported on iOS yet"); return }
       guard let u = URL(string: url) else { promise.reject("bad_url", "Invalid URL"); return }
       var req = URLRequest(url: u)
       req.timeoutInterval = 60 * 60
