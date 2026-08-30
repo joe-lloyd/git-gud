@@ -23,6 +23,7 @@ import {
   type TransportKind,
   isRelayAddress,
   parseRelayUrl, relayRouteFor,
+  generateToken, type PairReciprocal,
 } from "./peer-protocol";
 import type { GitActivity } from "./git-service";
 
@@ -114,6 +115,16 @@ export class PeerService {
       readOnly: () => this.store.getSettings().readOnly,
       pushEnabled: () => this.store.getSettings().push,
       onPaired: () => this.schedulePublish(),
+      onReciprocal: (p) => {
+        // Someone paired WITH us and offered the way back: they become a
+        // browsable peer here too — one ceremony, both directions.
+        const known = this.store.upsertKnown({ peerId: p.peerId, name: p.name, host: p.host, port: p.port, token: p.token, certPem: p.certPem, ...(p.relay ? { relay: p.relay } : {}) });
+        this.connections.get(p.peerId)?.disconnect();
+        this.connections.delete(p.peerId);
+        this.ensureConnection(known).connect();
+        this.deps.log?.(`peer-server: reciprocal pairing — ${p.name} is now browsable from here`);
+        this.schedulePublish();
+      },
       relayRoute: () => this.relayRouteForMe(),
       log: deps.log,
     });
@@ -274,6 +285,30 @@ export class PeerService {
     }
   }
 
+  private localAddresses(): string[] {
+    const addrs: string[] = [];
+    for (const list of Object.values(os.networkInterfaces())) for (const a of list ?? []) if ((a.family === "IPv4" || (a.family as unknown) === 4) && !a.internal) addrs.push(a.address);
+    addrs.push(os.hostname());
+    return addrs;
+  }
+
+  /** Credentials for the opposite direction, offered while pairing (only when we are sharing ourselves). */
+  private reciprocalOffer(): { offer: PairReciprocal; token: string } | null {
+    if (!this.server.isListening) return null;
+    const token = generateToken();
+    return {
+      token,
+      offer: {
+        token,
+        certPem: this.store.getTls().certPem,
+        port: this.server.listeningPort,
+        name: this.store.getSettings().name,
+        addresses: this.localAddresses(),
+        ...(this.relayRouteForMe() ? { relay: this.relayRouteForMe() } : {}),
+      },
+    };
+  }
+
   /** `relay://host:port/<myPeerId>#fp` when a relay is configured — what /info advertises and the QR carries. */
   relayRouteForMe(): string | undefined {
     return relayRouteFor(this.store.getSettings().relayUrl, this.store.getIdentity().peerId);
@@ -365,7 +400,9 @@ export class PeerService {
       const { info, certPem } = await PeerConnection.probe("gitgud-peer", 0, route);
       if (certFingerprint(certPem) !== qr.fingerprint) throw new Error("Certificate via relay does not match the payload — refusing to pair.");
       if (info.peerId === this.store.getIdentity().peerId) throw new Error("That's this instance — pick another machine.");
-      const { token, peer } = await PeerConnection.pair("gitgud-peer", 0, qr.code, this.store.getIdentity(), certPem, "desktop", route);
+      const recR = this.reciprocalOffer();
+      const { token, peer } = await PeerConnection.pair("gitgud-peer", 0, qr.code, this.store.getIdentity(), certPem, "desktop", route, recR?.offer);
+      if (recR) this.store.addPaired(peer.peerId, peer.name, recR.token, { kind: "desktop", readOnly: false });
       const known = this.store.upsertKnown({ peerId: peer.peerId, name: peer.name, host: relayHost, port: 0, token, certPem, relay: relayHost });
       this.connections.get(peer.peerId)?.disconnect();
       this.connections.delete(peer.peerId);
@@ -379,7 +416,10 @@ export class PeerService {
   async pair(host: string, port: number, code: string): Promise<{ peerId: string; name: string }> {
     const { info, certPem } = await PeerConnection.probe(host, port);
     if (info.peerId === this.store.getIdentity().peerId) throw new Error("That's this instance — pick another machine.");
-    const { token, peer } = await PeerConnection.pair(host, port, code, this.store.getIdentity(), certPem);
+    const rec = this.reciprocalOffer();
+    const { token, peer } = await PeerConnection.pair(host, port, code, this.store.getIdentity(), certPem, "desktop", undefined, rec?.offer);
+    // The host may now dial back with the offered token — recognise it.
+    if (rec) this.store.addPaired(peer.peerId, peer.name, rec.token, { kind: "desktop", readOnly: false });
     const known = this.store.upsertKnown({ peerId: peer.peerId, name: peer.name, host, port, token, certPem });
     // A fresh token replaces whatever connection state we had.
     this.connections.get(peer.peerId)?.disconnect();

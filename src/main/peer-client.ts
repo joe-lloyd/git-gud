@@ -16,6 +16,7 @@ import {
   type PeerRepoSummary,
   type RpcErrorCode,
   type RpcResponse,
+  type PairReciprocal, parsePeerRepoPath, isPeerRepoPath,
 } from "./peer-protocol";
 import { certFingerprint } from "./peer-tls";
 import { relayDial } from "./peer-relay";
@@ -177,13 +178,13 @@ export class PeerConnection extends EventEmitter {
   // to it and the proof binds the code to its fingerprint.
   static async pair(
     host: string, port: number, code: string, self: { peerId: string; name: string }, certPem: string,
-    kind: PeerDeviceKind = "desktop", relay?: RelayRoute,
+    kind: PeerDeviceKind = "desktop", relay?: RelayRoute, reciprocal?: PairReciprocal,
   ): Promise<{ token: string; peer: PeerInfo; readOnly: boolean }> {
     const fingerprint = certFingerprint(certPem);
     const r = await request({
       host, port, path: "/gitgud/pair", method: "POST", relay,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ proof: pairingProof(code, fingerprint), peerId: self.peerId, name: self.name, kind } satisfies PairRequest),
+      body: JSON.stringify({ proof: pairingProof(code, fingerprint), peerId: self.peerId, name: self.name, kind, ...(reciprocal ? { reciprocal } : {}) } satisfies PairRequest),
       ...pinOptions(certPem),
       timeoutMs: PROBE_TIMEOUT_MS,
     });
@@ -458,8 +459,16 @@ export function createRemoteRepoProxy(opts: RemoteRepoProxyOpts): object {
   const { connection, remotePath, peerRepoPath, onActivity } = opts;
   const peerId = connection.endpoint.peerId;
 
-  const call = async (method: string, args: unknown[]): Promise<unknown> => {
+  const call = async (method: string, argsIn: unknown[]): Promise<unknown> => {
     const start = Date.now();
+    // Path arguments round-trip: results rewrite host paths to peer URIs
+    // (worktree lists, …), so URIs coming back in as arguments must be
+    // translated to the host's real path again (switch/remove worktree).
+    const args = argsIn.map((a) => {
+      if (typeof a !== "string" || !isPeerRepoPath(a)) return a;
+      const parsed = parsePeerRepoPath(a);
+      return parsed && parsed.peerId === peerId ? parsed.remotePath : a;
+    });
     const kind = rpcActivityKind(method);
     let result: unknown;
     let failed = false;

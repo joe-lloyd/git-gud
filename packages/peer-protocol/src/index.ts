@@ -52,7 +52,12 @@ export type PeerInfo = {
 export type PeerDeviceKind = "desktop" | "companion" | "headless";
 
 // `proof` = pairingProof(code, hostFingerprint) — see below.
-export type PairRequest = { proof: string; peerId: string; name: string; kind?: PeerDeviceKind };
+// Reciprocal pairing (additive): a desktop that initiates pairing can hand
+// the host everything the host needs to browse *it* back — a bearer token the
+// initiator has pre-registered, its certificate to pin, and how to reach it.
+// One pairing ceremony, both directions. Hosts that predate this ignore it.
+export type PairReciprocal = { token: string; certPem: string; port: number; name: string; addresses?: string[]; relay?: string };
+export type PairRequest = { proof: string; peerId: string; name: string; kind?: PeerDeviceKind; reciprocal?: PairReciprocal };
 // `readOnly` tells the new device up front whether writes will be refused
 // (per-device flag OR host-wide switch) so UIs can grey out instead of 403.
 export type PairResponse = { ok: true; token: string; peer: PeerInfo; readOnly?: boolean } | { ok: false; error: string };

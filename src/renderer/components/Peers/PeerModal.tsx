@@ -211,7 +211,7 @@ const PairForm: React.FC<{ peers: UsePeers; host: string; port: number; name: st
         <h3>Pair with {name}</h3>
         <div className="peer-meta mono">{host}:{port}{version ? ` · Git Gud v${version}` : ''}</div>
         <p className="peer-hint">
-          Enter the 6-digit code shown on <strong>{name}</strong> under Settings → Share with other Git Gud instances.
+          Enter the 6-digit code shown on <strong>{name}</strong> under Settings → Share with other Git Gud instances. If sharing is on here too, pairing connects both ways — {name} can browse this machine without a second code.
           The code changes after every pairing.
         </p>
         <div className="peer-fp">

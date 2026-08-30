@@ -21,6 +21,7 @@ import {
   type RpcErrorCode,
   type RpcRequest,
   type RpcResponse,
+  type PairReciprocal,
 } from "./peer-protocol";
 import type { PairedDevice } from "./peer-store";
 
@@ -43,6 +44,7 @@ export interface PeerServerHost {
   watchRepo(repoPath: string, onEvent: (ev: PeerEvent) => void): () => void;
   verifyToken(token: string): PairedDevice | null;
   registerPaired(peerId: string, name: string, token: string, opts: { kind: PeerDeviceKind; readOnly: boolean }): void;
+  registerReciprocal?(peer: { peerId: string; name: string; token: string; certPem: string; host: string; port: number; relay?: string }): void;
   // Methods refused even for writable devices (host policy, e.g. setConfig).
   denyMethods?(): ReadonlySet<string>;
   // When present and false, /pair answers 403: the host only accepts pairing
@@ -270,6 +272,19 @@ export class PeerServer {
       return this.json(res, 403, { ok: false, error: String(e instanceof Error ? e.message : e) } satisfies PairResponse);
     }
     this.host.onPairAttempt?.(req.socket.remoteAddress ?? "", true, peerId.slice(0, 8), name);
+    // Reciprocal pairing: a desktop initiator hands us credentials to browse
+    // it back — one ceremony, both directions. Validated hard: this is the
+    // only place a client writes into our address book.
+    const rec = (body as { reciprocal?: unknown }).reciprocal as PairReciprocal | undefined;
+    if (rec && kind === "desktop" && this.host.registerReciprocal) {
+      const token2 = String(rec.token ?? ""), cert = String(rec.certPem ?? ""), rport = Number(rec.port);
+      const remote = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+      const rhost = String(rec.addresses?.[0] ?? remote).slice(0, 253) || remote;
+      const relay = typeof rec.relay === "string" && rec.relay.startsWith("relay://") ? rec.relay : undefined;
+      if (/^[0-9a-f]{32,128}$/.test(token2) && cert.startsWith("-----BEGIN CERTIFICATE-----") && cert.length < 16_384 && Number.isInteger(rport) && rport > 0 && rport < 65_536 && rhost) {
+        try { this.host.registerReciprocal({ peerId, name, token: token2, certPem: cert, host: rhost, port: rport, relay }); } catch { /* address book only — pairing still succeeds */ }
+      }
+    }
     // One code, one pairing — rotate so a shoulder-surfed code is useless.
     this.regenerateCode();
     this.host.log?.(`peer-server: paired with ${name} (${kind})`);

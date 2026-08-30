@@ -105,7 +105,7 @@ export function createRepoWatcher(
 // ── Repo host: allow-list + GitService cache + watchers ─────────────────
 
 // Anything that quacks like GitService (the server only needs `isRepo`).
-export interface RepoService { isRepo(): Promise<boolean> }
+export interface RepoService { isRepo(): Promise<boolean>; getWorktrees?(): Promise<Array<{ path: string }>> }
 
 export interface RepoHostDeps<S extends RepoService> {
   // Canonical path → "open in a tab" flag. Recomputed on every call so the
@@ -128,20 +128,46 @@ export interface RepoHost {
 
 export function createRepoHost<S extends RepoService>(deps: RepoHostDeps<S>): RepoHost {
   const served = new Map<string, S>();
+  // Worktrees of shared repos are servable too (switching worktrees on a
+  // remote repo opens their path): worktree path → owning shared repo.
+  const worktreeOwner = new Map<string, string>();
+  let worktreeScanAt = 0;
+
+  const serviceFor = async (repoPath: string): Promise<S | null> => {
+    const reused = deps.reuseService?.(repoPath);
+    if (reused) return reused;
+    let svc = served.get(repoPath);
+    if (!svc) {
+      svc = deps.factory(repoPath);
+      if (!(await svc.isRepo())) return null;
+      served.set(repoPath, svc);
+    }
+    return svc;
+  };
+
+  const rescanWorktrees = async (): Promise<void> => {
+    if (Date.now() - worktreeScanAt < 10_000) return; // misses are cheap, scans are not
+    worktreeScanAt = Date.now();
+    worktreeOwner.clear();
+    for (const [main] of deps.allowList()) {
+      const svc = await serviceFor(main).catch(() => null);
+      if (!svc?.getWorktrees) continue;
+      const list = await svc.getWorktrees().catch(() => null);
+      for (const w of list ?? []) if (w && typeof w.path === "string") worktreeOwner.set(canonicalPath(w.path), main);
+    }
+  };
+
   return {
     listRepos: () => [...deps.allowList()].map(([path, open]) => ({ path, name: basename(path) || path, open })),
     resolveRepo: async (requested) => {
       const repoPath = canonicalPath(requested);
-      if (!deps.allowList().has(repoPath)) return null;
-      const reused = deps.reuseService?.(repoPath);
-      if (reused) return reused;
-      let svc = served.get(repoPath);
-      if (!svc) {
-        svc = deps.factory(repoPath);
-        if (!(await svc.isRepo())) return null;
-        served.set(repoPath, svc);
+      if (!deps.allowList().has(repoPath)) {
+        // Not shared directly — maybe it's a worktree of a shared repo.
+        if (!worktreeOwner.has(repoPath)) await rescanWorktrees();
+        const owner = worktreeOwner.get(repoPath);
+        if (!owner || !deps.allowList().has(owner)) return null;
       }
-      return svc;
+      return serviceFor(repoPath);
     },
     watchRepo: (repoPath, onEvent) =>
       createRepoWatcher(
@@ -151,7 +177,10 @@ export function createRepoHost<S extends RepoService>(deps: RepoHostDeps<S>): Re
       ),
     prune: () => {
       const allowed = deps.allowList();
-      for (const p of [...served.keys()]) if (!allowed.has(p)) served.delete(p);
+      for (const p of [...served.keys()]) {
+        const owner = worktreeOwner.get(p);
+        if (!allowed.has(p) && !(owner && allowed.has(owner))) served.delete(p);
+      }
     },
   };
 }
@@ -178,6 +207,9 @@ export interface PeerServerHostDeps {
   tokenTtlMs?(): number; // 0 = never expires
   heartbeatMs?(): number;
   onPairAttempt?(remoteAddress: string, ok: boolean, peerId8: string, name: string): void;
+  // Reciprocal pairing: the pairing initiator offered credentials for the
+  // opposite direction — store them as a known peer and connect (GUI only).
+  onReciprocal?(peer: { peerId: string; name: string; token: string; certPem: string; host: string; port: number; relay?: string }): void;
   // M7: relay route (`relay://host:port/<peerId>#fp`) advertised in /info so
   // paired clients learn how to reach us from anywhere.
   relayRoute?(): string | undefined;
@@ -223,6 +255,7 @@ export function createPeerServerHost(d: PeerServerHostDeps): PeerServerHost {
       return d.store.setPairedPush(device.peerId, token ? { token, events } : null);
     },
     touchDevice: (device) => d.store.touchPaired(device.peerId),
+    registerReciprocal: d.onReciprocal,
     log: d.log,
   };
 }
