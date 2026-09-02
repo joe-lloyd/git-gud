@@ -1,21 +1,17 @@
-.search-overlay {
+/* Floating, non-blocking panel: sits top-right over the graph so matches are
+   visible (and dimming is visible) while you type. No backdrop on purpose. */
+.search-panel {
   position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 80px;
-  z-index: 200;
-  backdrop-filter: blur(3px);
-}
-.search-box {
-  width: 600px;
+  top: 56px;
+  right: 16px;
+  width: 520px;
+  max-width: calc(100vw - 32px);
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  z-index: 200;
 }
 .search-input-row {
   display: flex;
@@ -36,6 +32,15 @@
 .search-input:focus { box-shadow: none; }
 .search-clear { font-size: 13px; color: var(--text-muted); padding: 2px 6px; border-radius: 4px; }
 .search-clear:hover { background: var(--bg-hover); }
+.search-count { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.search-nav { display: inline-flex; gap: 2px; }
+.search-nav button { color: var(--text-muted); padding: 2px 4px; border-radius: 4px; display: inline-flex; }
+.search-nav button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.search-close { margin-left: auto; padding: 0 10px; color: var(--text-muted); display: inline-flex; align-items: center; }
+.search-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+.search-result-row.active { background: var(--bg-hover); box-shadow: inset 3px 0 0 var(--lane-0); }
+.search-result-row.active .search-msg { color: var(--text-primary); }
+.search-hint { padding: 6px 14px; font-size: 10.5px; color: var(--text-muted); border-top: 1px solid var(--border); }
 .search-results { max-height: 360px; overflow-y: auto; }
 .search-result-row {
   display: flex;
@@ -54,11 +59,14 @@
 
 .search-mode-tabs {
   display: flex;
-  gap: 0;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--border);
 }
 .search-mode {
-  flex: 1;
+  flex: 0 0 auto;
+  padding-left: 14px; padding-right: 14px;
   padding: 7px 0;
   font-size: 11px;
   font-weight: 600;

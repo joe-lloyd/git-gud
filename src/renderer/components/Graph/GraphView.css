@@ -119,6 +119,12 @@
   background: rgba(255, 255, 255, 0.11);
 }
 
+/* Search: rows that don't match fade so the matches read in place. Hovering
+   lifts one back so you can still peek at it. */
+.commit-row.is-dim { opacity: 0.22; transition: opacity 0.15s; }
+.commit-row.is-dim:hover { opacity: 0.7; }
+.commit-row.is-dim.selected { opacity: 1; }
+
 
 
 /* Ref pills — fixed-width column, LEFTMOST in each row (left of tree canvas) */

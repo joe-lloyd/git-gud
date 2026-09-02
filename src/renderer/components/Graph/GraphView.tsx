@@ -27,6 +27,7 @@ import "./GraphView.css";
 const GRAPH_WORKER_THRESHOLD = 5000;
 
 const ROW_H = 36; // px per commit row
+const DIM_ALPHA = 0.22; // opacity of commits that don't match the active search
 const NODE_R = 10; // node circle radius — matches the .cr-lead band height (20px diameter)
 const LANE_W = 18; // px per lane column
 const GRAPH_PAD = 10; // left padding
@@ -83,6 +84,12 @@ interface GraphViewProps {
    * clicking the graph must NOT scroll, so this is decoupled from selectedSha.
    */
   scrollRequest?: number;
+  /**
+   * Search: when set, every commit NOT in this set is drawn at low opacity
+   * (rows and canvas nodes/lines) so the matches stand out in place. Empty set
+   * = no matches (everything dims); null/undefined = no search active.
+   */
+  searchMatches?: Set<string> | null;
 }
 
 export const GraphView: React.FC<GraphViewProps> = ({
@@ -90,6 +97,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   selectedSha,
   selectedShas,
   scrollRequest = 0,
+  searchMatches = null,
   onSelectCommit,
   onContextMenu,
   onRefContextMenu,
@@ -254,7 +262,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         ctx.strokeStyle = conn.color;
         ctx.lineWidth = 2;
-        ctx.globalAlpha = dashed ? 0.7 : 0.85;
+        ctx.globalAlpha = (dashed ? 0.7 : 0.85) * (searchMatches && !(searchMatches.has(node.commit.sha) && searchMatches.has(conn.parentSha)) ? DIM_ALPHA : 1);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         if (dashed) ctx.setLineDash([4, 3]);
@@ -293,6 +301,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
       const isStash = stashShaSet.has(node.commit.sha);
       const isPseudo = node.commit.sha === WORKTREE_SHA;
       const radius = isSelected ? NODE_R + 1.5 : NODE_R;
+      // Search dimming: non-matching nodes fade so matches pop in place.
+      ctx.globalAlpha = searchMatches && !searchMatches.has(node.commit.sha) ? DIM_ALPHA : 1;
 
       if (isSelected) {
         ctx.beginPath();
@@ -362,7 +372,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
         ctx.stroke();
       }
     }
-  }, [nodes, windowTop, windowH, graphWidth, selectedSha, selectedShas, stashShaSet]);
+    ctx.globalAlpha = 1;
+  }, [nodes, windowTop, windowH, graphWidth, selectedSha, selectedShas, stashShaSet, searchMatches]);
 
   // Repaint whenever the row window, data, or selection changes (anything in
   // `draw`'s deps). No per-scroll repaint is needed for alignment — the canvas
@@ -449,6 +460,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   key={node.commit.sha}
                   node={node}
                   isSelected={node.commit.sha === selectedSha || (selectedShas?.has(node.commit.sha) ?? false)}
+                  isDim={!!searchMatches && !searchMatches.has(node.commit.sha)}
                   isStash={stashShaSet.has(node.commit.sha)}
                   isPseudo={node.commit.sha === WORKTREE_SHA}
                   onSelect={onSelectCommit}
@@ -476,6 +488,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 interface CommitRowProps {
   node: GraphNode;
   isSelected: boolean;
+  isDim?: boolean;
   isStash: boolean;
   isPseudo: boolean;
   onSelect: (sha: string, mods?: SelectModifiers) => void;
@@ -490,7 +503,7 @@ interface CommitRowProps {
 }
 
 const CommitRow: React.FC<CommitRowProps> = React.memo(
-  ({ node, isSelected, isStash, isPseudo, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth, refVisibility, refsWidth }) => {
+  ({ node, isSelected, isDim = false, isStash, isPseudo, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth, refVisibility, refsWidth }) => {
     const { commit } = node;
     const groups = useMemo(
       () => isPseudo ? [] : filterRefGroups(groupRefs(commit.refs, worktreeBranches), refVisibility),
@@ -503,7 +516,7 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
 
     return (
       <div
-        className={`commit-row ${isSelected ? "selected" : ""} ${isStash ? "is-stash" : ""} ${isPseudo ? "is-pseudo" : ""}`}
+        className={`commit-row ${isSelected ? "selected" : ""} ${isStash ? "is-stash" : ""} ${isPseudo ? "is-pseudo" : ""} ${isDim ? "is-dim" : ""}`}
         style={{ height: ROW_H, ["--row-tint" as string]: node.color } as React.CSSProperties}
         onClick={(e) => onSelect(commit.sha, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey })}
         onContextMenu={

@@ -92,6 +92,8 @@ export default function App() {
   const [pendingWorktree, setPendingWorktree] = useState<{ path: string; name: string; error: string } | null>(null)
   const [selectedRef, setSelectedRef]     = useState<string | null>(null)
   const [showSearch, setShowSearch]       = useState(false)
+  // Active search: SHAs that match (graph dims the rest); null = no search.
+  const [searchMatches, setSearchMatches] = useState<Set<string> | null>(null)
   const [activeDiff, setActiveDiff]       = useState<{ path: string; staged?: boolean; sha?: string } | null>(null)
   const [activeConflictFile, setActiveConflictFile] = useState<string | null>(null)
 
@@ -1390,6 +1392,7 @@ export default function App() {
                       selectedSha={repo.selectedSha}
                       selectedShas={new Set(selectedShas)}
                       scrollRequest={scrollRequest}
+                      searchMatches={showSearch ? searchMatches : null}
                       onSelectCommit={handleSelectCommit}
                       onContextMenu={handleCommitContextMenu}
                       onRefContextMenu={handleRefContextMenu}
@@ -1818,8 +1821,9 @@ export default function App() {
       {showSearch && (
         <SearchBar
           commits={repo.commits}
-          onSelect={(sha) => repo.setSelectedSha(sha)}
-          onClose={() => setShowSearch(false)}
+          onFocus={focusCommit}
+          onMatches={setSearchMatches}
+          onClose={() => { setShowSearch(false); setSearchMatches(null) }}
         />
       )}
 
