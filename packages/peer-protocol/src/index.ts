@@ -136,7 +136,8 @@ export const WRITE_METHODS: ReadonlySet<string> = new Set([
   "reset", "rebaseTo", "restoreFromReflog",
   // rebase / merge state machine
   "rebaseContinue", "rebaseAbort", "rebaseSkip", "mergeContinue", "mergeAbort",
-  "merge", "mergeCurrentInto", "runDragAction",
+  "operationContinue", "operationAbort", "operationSkip",
+  "merge", "mergeCurrentInto", "runDragAction", "autoFix",
   // branches / tags / remotes
   "checkout", "checkoutAutostash", "createBranch", "deleteBranch", "renameBranch", "deleteRemoteBranch",
   "createTag", "deleteTag", "renameTag", "pushTag", "deleteRemoteTag",
@@ -172,6 +173,11 @@ export const RESULT_SHAPED_METHODS: ReadonlySet<string> = new Set([
   "rebaseSkip",
   "mergeContinue",
   "mergeAbort",
+  "operationContinue",
+  "operationAbort",
+  "operationSkip",
+  "autoFix",
+  "checkout",
   "addWorktree",
   "removeWorktree",
   "restoreFromReflog",

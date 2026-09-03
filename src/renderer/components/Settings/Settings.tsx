@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { autoFixEnabled, setAutoFixEnabled } from '../../lib/autoFix'
 import { PeersSection } from '../Peers/PeerModal'
 import type { UsePeers } from '../../hooks/usePeers'
 import type { UpdateChannel } from '../../../preload/index'
@@ -93,6 +94,11 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
     window.gitApi.setConfig('rerere.enabled', next ? 'true' : 'false').catch(() => {})
   }
 
+  // Auto-fix: clear working-tree blockers (stash / set aside untracked) and
+  // retry instead of refusing with a popup. App-wide, persisted locally.
+  const [autoFix, setAutoFix] = useState<boolean>(() => autoFixEnabled())
+  const toggleAutoFix = (next: boolean) => { setAutoFix(next); setAutoFixEnabled(next) }
+
   const row: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '12px 0', borderBottom: '1px solid var(--border)', gap: 16,
@@ -140,6 +146,20 @@ export function SettingsModal({ zoom, setZoom, highContrast, setHighContrast, on
           </div>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={highContrast} onChange={(e) => setHighContrast(e.target.checked)} />
+          </label>
+        </div>
+
+        {/* Auto-fix blocked actions */}
+        <div style={row}>
+          <div style={labelWrap}>
+            <span style={labelText}>Auto-fix blocked actions</span>
+            <span style={hintText}>
+              When a pull, checkout, merge, cherry-pick or revert is refused because of uncommitted or untracked
+              files, stash them, retry, and re-apply — then show exactly what was done. Off: ask first.
+            </span>
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={autoFix} onChange={(e) => toggleAutoFix(e.target.checked)} />
           </label>
         </div>
 

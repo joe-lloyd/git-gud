@@ -14,6 +14,7 @@
     "preview": "electron-vite preview",
     "test": "vitest",
     "test:repos": "bash scripts/build-test-repos.sh",
+    "lab": "bash scripts/conflict-lab.sh",
     "build:icon": "electron scripts/render-icon.cjs",
     "typecheck": "tsc --noEmit",
     "dist": "pnpm build && electron-builder",

@@ -315,11 +315,48 @@ export interface RepoStatus {
   hooksPathBroken?: string;
 }
 
+export type ConflictOp = "merge" | "rebase" | "cherry-pick" | "revert" | "stash";
 export interface ConflictState {
   inMerge: boolean;
   inRebase: boolean;
   rebaseKind?: "apply" | "merge";
+  inCherryPick: boolean;
+  inRevert: boolean;
+  // Unmerged paths with no operation sentinel — a conflicted `stash pop/apply`.
+  inStashApply: boolean;
+  // The paused operation the UI should drive; undefined when the repo is idle.
+  op?: ConflictOp;
   conflictedFiles: string[];
+}
+
+// Serializable description of a working-tree-sensitive operation for
+// GitService.autoFix(). A plain object (not a closure) so the call survives
+// the peer proxy: a remote repo forwards `autoFix(label, op, opts)` verbatim
+// and the host dispatches it locally.
+export type AutoFixOp =
+  | { method: "merge"; args: [branch: string] }
+  | { method: "cherryPick"; args: [sha: string] }
+  | { method: "revert"; args: [sha: string] }
+  | { method: "cherryPickMany"; args: [shas: string[]] }
+  | { method: "revertMany"; args: [shas: string[]] };
+
+// Outcome of an operation run through GitService.autoFix(). `steps` is the
+// human-readable log of what the fixer did (shown verbatim in the toast so the
+// user always sees exactly which stash/retry happened on their behalf).
+export interface AutoFixResult {
+  success: boolean;
+  error?: string;
+  kind?: string;
+  // True when at least one automatic fix (a stash) was applied.
+  autoFixed: boolean;
+  steps: string[];
+  // Message of a stash the fixer left on the stack — either by design
+  // (checkout never re-applies onto the new branch) or because re-applying
+  // conflicted / was refused. Never silently dropped.
+  stashKept?: string;
+  // The operation (or the stash re-apply) is paused on conflicts; the conflict
+  // panel takes over from here.
+  conflict?: boolean;
 }
 
 export type ConflictSection =
@@ -735,27 +772,90 @@ export class GitService {
       if (!p) return false;
       try { await fs.access(p); return true; } catch { return false; }
     };
-    const [mergeHeadP, rebaseMergeP, rebaseApplyP] = await Promise.all([
+    const [mergeHeadP, rebaseMergeP, rebaseApplyP, cherryP, revertP] = await Promise.all([
       gitPath("MERGE_HEAD"),
       gitPath("rebase-merge"),
       gitPath("rebase-apply"),
+      gitPath("CHERRY_PICK_HEAD"),
+      gitPath("REVERT_HEAD"),
     ]);
-    const [inMerge, rebaseMerge, rebaseApply] = await Promise.all([
+    const [inMerge, rebaseMerge, rebaseApply, cherryHead, revertHead] = await Promise.all([
       exists(mergeHeadP),
       exists(rebaseMergeP),
       exists(rebaseApplyP),
+      exists(cherryP),
+      exists(revertP),
     ]);
     const inRebase = rebaseMerge || rebaseApply;
     const rebaseKind = rebaseMerge ? "merge" : rebaseApply ? "apply" : undefined;
+    // A rebase (merge backend) replays commits via the sequencer, so
+    // CHERRY_PICK_HEAD can exist while rebasing — the rebase owns the flow.
+    const inCherryPick = cherryHead && !inRebase;
+    const inRevert = revertHead && !inRebase;
 
+    // Unmerged paths are cheap to list and also reveal the sentinel-less case:
+    // a conflicted `stash pop/apply` leaves 'U' entries with no MERGE_HEAD.
     let conflictedFiles: string[] = [];
-    if (inMerge || inRebase) {
-      try {
-        const raw = await this.git.raw(["diff", "--name-only", "--diff-filter=U"]);
-        conflictedFiles = raw.trim().split("\n").filter(Boolean);
-      } catch { /* no diff yet */ }
-    }
-    return { inMerge, inRebase, rebaseKind, conflictedFiles };
+    try {
+      const raw = await this.git.raw(["diff", "--name-only", "--diff-filter=U"]);
+      conflictedFiles = raw.trim().split("\n").filter(Boolean);
+    } catch { /* no diff yet */ }
+    const inStashApply = !inMerge && !inRebase && !inCherryPick && !inRevert && conflictedFiles.length > 0;
+
+    const op: ConflictOp | undefined =
+      inRebase ? "rebase"
+      : inMerge ? "merge"
+      : inCherryPick ? "cherry-pick"
+      : inRevert ? "revert"
+      : inStashApply ? "stash"
+      : undefined;
+    return { inMerge, inRebase, rebaseKind, inCherryPick, inRevert, inStashApply, op, conflictedFiles };
+  }
+
+  // ── Paused-operation controls ──────────────────────────────────────────────
+  // One entry point per verb so the panel can drive whichever operation is
+  // paused without knowing git's per-command spelling. GIT_EDITOR=true keeps
+  // every continue from opening an interactive editor.
+  async operationContinue(op: ConflictOp): Promise<{ success: boolean; error?: string }> {
+    try {
+      const g = this.git.env({ ...process.env, GIT_EDITOR: "true" });
+      if (op === "rebase") await g.raw(["rebase", "--continue"]);
+      else if (op === "merge") await g.raw(["commit", "--no-edit"]);
+      else if (op === "cherry-pick") await g.raw(["cherry-pick", "--continue"]);
+      else if (op === "revert") await g.raw(["revert", "--continue"]);
+      // 'stash': once every file is staged there is nothing to continue — the
+      // re-applied changes simply sit in the index/working tree.
+      return { success: true };
+    } catch (e) { return { success: false, error: String(e) }; }
+  }
+  async operationAbort(op: ConflictOp): Promise<{ success: boolean; error?: string }> {
+    try {
+      if (op === "rebase") await this.git.raw(["rebase", "--abort"]);
+      else if (op === "merge") await this.git.raw(["merge", "--abort"]);
+      else if (op === "cherry-pick") await this.git.raw(["cherry-pick", "--abort"]);
+      else if (op === "revert") await this.git.raw(["revert", "--abort"]);
+      else if (op === "stash") {
+        // The stash entry survives a conflicted pop, so restoring the
+        // conflicted paths from HEAD loses nothing. Files the stash applied
+        // cleanly are left in place — only the conflicted ones are reverted.
+        const files = (await this.getConflictState()).conflictedFiles;
+        if (files.length > 0) {
+          await this.git.raw(["reset", "-q", "--", ...files]);
+          await this.git.raw(["checkout", "--", ...files]);
+        }
+      }
+      return { success: true };
+    } catch (e) { return { success: false, error: String(e) }; }
+  }
+  async operationSkip(op: ConflictOp): Promise<{ success: boolean; error?: string }> {
+    try {
+      const g = this.git.env({ ...process.env, GIT_EDITOR: "true" });
+      if (op === "rebase") await g.raw(["rebase", "--skip"]);
+      else if (op === "cherry-pick") await g.raw(["cherry-pick", "--skip"]);
+      else if (op === "revert") await g.raw(["revert", "--skip"]);
+      else return { success: false, error: `Nothing to skip during a ${op}.` };
+      return { success: true };
+    } catch (e) { return { success: false, error: String(e) }; }
   }
 
   // Staging a previously-conflicted file is git's way of marking it resolved.
@@ -1120,16 +1220,19 @@ export class GitService {
 
   // Checkout returns the same kinds as pull so the renderer can offer the
   // same autostash recovery.
+  // Switch branches. With `autoFix` a dirty tree that would be overwritten is
+  // stashed first and the stash is deliberately LEFT on the stack (popping onto
+  // a different tree is exactly what git just refused to do); untracked files
+  // in the way are set aside the same way. The result names the stash so the
+  // UI can offer a one-click pop.
   async checkout(
     branch: string,
-  ): Promise<{ success: boolean; error?: string; kind?: string }> {
-    try {
-      await this.git.checkout(branch);
-      return { success: true };
-    } catch (e: unknown) {
-      const msg = String(e);
-      return { success: false, error: msg, kind: classifyPullError(msg) };
-    }
+    opts: { autoFix?: boolean } = {},
+  ): Promise<AutoFixResult> {
+    return this.runAutoFix(`checkout ${branch}`, () => this.git.checkout(branch), {
+      enabled: opts.autoFix ?? false,
+      popAfter: false,
+    });
   }
 
   // Stash → checkout. We deliberately don't pop on the destination branch —
@@ -1489,7 +1592,11 @@ export class GitService {
   //   'conflict'   → merge produced conflicts → user resolves manually
   //   'auth'       → credentials missing / rejected
   //   'unknown'    → anything else
-  async pull(opts: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean } = {}): Promise<{ success: boolean; error?: string; kind?: string }> {
+  // `autoFix` routes the pull through autoFix(): a dirty tree is stashed,
+  // untracked files in the way are set aside, the pull is retried, and the
+  // stash is re-applied afterwards — every step reported back. `autoStash`
+  // (git's own --autostash) is kept for callers that want git to do it.
+  async pull(opts: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean; autoFix?: boolean } = {}): Promise<AutoFixResult> {
     // --prune so the fetch half of the pull drops tracking refs for branches
     // deleted upstream; otherwise they linger until someone fetches explicitly.
     const args = [...this.getAuthConfigs(), "pull", "--prune"];
@@ -1497,14 +1604,7 @@ export class GitService {
     else if (opts.rebase === true) args.push("--rebase");
     else if (opts.rebase === false) args.push("--no-rebase");
     if (opts.autoStash) args.push("--autostash");
-    try {
-      await this.git.raw(args);
-      return { success: true };
-    } catch (e: unknown) {
-      const msg = String(e);
-      const kind = classifyPullError(msg);
-      return { success: false, error: msg, kind };
-    }
+    return this.runAutoFix("pull", () => this.git.raw(args), { enabled: opts.autoFix ?? false, popAfter: true });
   }
 
   // Update a local branch that is NOT checked out from its remote, without
@@ -2357,6 +2457,146 @@ export class GitService {
       return { success: false, error: String(e) };
     }
   }
+
+  // ── Auto-fix runner ───────────────────────────────────────────────────────
+  // Runs `run` and, when git refuses because the working tree is in the way,
+  // clears the blocker in the safest reversible way and retries:
+  //
+  //   'dirty'      → `stash push` (tracked changes only)
+  //   'untracked'  → `stash push -u -- <exactly the files git named>`
+  //
+  // Afterwards the stashes are popped in reverse order (unless `popAfter` is
+  // false, e.g. checkout). A pop that conflicts leaves git's own conflict
+  // state behind for the panel and keeps the stash entry; a pop that is
+  // refused (untracked file now exists) keeps the stash too. If the operation
+  // itself fails for any other reason after stashing, the stashes are popped
+  // to restore the tree exactly as it was. Nothing is ever dropped.
+  //
+  // `enabled: false` still normalises the result shape (kind/steps) but never
+  // touches the tree — the renderer then falls back to prompting.
+  async autoFix(
+    label: string,
+    op: AutoFixOp,
+    opts: { enabled?: boolean; popAfter?: boolean } = {},
+  ): Promise<AutoFixResult> {
+    // Explicit dispatch (no `this[op.method]`) keeps the remotely reachable
+    // surface to exactly these five operations.
+    const run = async (): Promise<void> => {
+      switch (op.method) {
+        case "merge": return this.merge(op.args[0]);
+        case "cherryPick": return this.cherryPick(op.args[0]);
+        case "revert": return this.revert(op.args[0]);
+        case "cherryPickMany": { const r = await this.cherryPickMany(op.args[0]); if (!r.success) throw new Error(r.error ?? "cherry-pick failed"); return; }
+        case "revertMany": { const r = await this.revertMany(op.args[0]); if (!r.success) throw new Error(r.error ?? "revert failed"); return; }
+      }
+    };
+    return this.runAutoFix(label, run, opts);
+  }
+
+  private async runAutoFix(
+    label: string,
+    run: () => Promise<unknown>,
+    opts: { enabled?: boolean; popAfter?: boolean } = {},
+  ): Promise<AutoFixResult> {
+    const enabled = opts.enabled ?? true;
+    const popAfter = opts.popAfter ?? true;
+    const steps: string[] = [];
+    const stashes: string[] = [];
+    const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+    // simple-git only rejects when git exits non-zero AND wrote to stderr; a
+    // conflicted `stash pop` reports on stdout, so never trust the promise —
+    // verify against the stash list and the unmerged paths instead.
+    const pop = async (): Promise<"applied" | "conflict" | "refused"> => {
+      const before = (await this.git.stashList()).total;
+      try { await this.git.raw(["stash", "pop"]); } catch { /* verified below */ }
+      if ((await this.getConflictState()).inStashApply) return "conflict";
+      const after = (await this.git.stashList()).total;
+      return after < before ? "applied" : "refused";
+    };
+    const restore = async () => {
+      // Pop newest first so the tree ends up exactly as before we started.
+      for (let i = stashes.length - 1; i >= 0; i--) {
+        if ((await pop()) !== "applied") return false;
+      }
+      return true;
+    };
+
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await run();
+        // Same simple-git caveat: a merge/pull that stopped on conflicts can
+        // resolve normally. If git is now paused, that is a conflict result.
+        const paused = (await this.getConflictState()).op;
+        if (paused !== undefined) {
+          const kept = stashes[stashes.length - 1];
+          if (kept) steps.push(`Kept your changes in stash "${kept}" — pop it once the ${paused} is finished`);
+          return { success: false, error: `${label} stopped on conflicts`, kind: "conflict", autoFixed: stashes.length > 0, steps, stashKept: kept, conflict: true };
+        }
+        break;
+      } catch (e: unknown) {
+        const msg = String(e);
+        const kind = classifyPullError(msg);
+        // Paused on conflicts: the operation is now the conflict panel's job.
+        // Keep any stash we made — popping onto a conflicted tree would make
+        // it worse — and tell the caller where it is. (An operation refused
+        // because a *previous* one is still paused is not a new conflict.)
+        if (kind !== "in-progress" && (kind === "conflict" || (await this.getConflictState()).op !== undefined)) {
+          const kept = stashes[stashes.length - 1];
+          if (kept) steps.push(`Kept your changes in stash "${kept}" — pop it once the ${label.split(" ")[0]} is finished`);
+          return { success: false, error: msg, kind: "conflict", autoFixed: stashes.length > 0, steps, stashKept: kept, conflict: true };
+        }
+        const fixable = enabled && attempt < 2 && (kind === "dirty" || kind === "untracked");
+        if (!fixable) {
+          if (stashes.length > 0) steps.push((await restore()) ? "Restored your changes" : "Could not restore your stash automatically — it is still on the stash stack");
+          return { success: false, error: msg, kind, autoFixed: false, steps };
+        }
+        if (kind === "dirty") {
+          const st = await this.git.status();
+          const n = st.files.filter((f) => f.working_dir !== "?" && f.index !== "?").length;
+          const stashMsg = `git-gud: autostash before ${label}`;
+          try { await this.git.raw(["stash", "push", "-m", stashMsg]); }
+          catch (se) { return { success: false, error: `stash failed: ${String(se)}`, kind, autoFixed: false, steps }; }
+          stashes.push(stashMsg);
+          steps.push(`Stashed ${plural(n, "changed file")}`);
+        } else {
+          const files = parseOverwrittenFiles(msg);
+          if (files.length === 0) return { success: false, error: msg, kind, autoFixed: false, steps };
+          const stashMsg = `git-gud: untracked files set aside before ${label}`;
+          try { await this.git.raw(["stash", "push", "--include-untracked", "-m", stashMsg, "--", ...files]); }
+          catch (se) { return { success: false, error: `stash failed: ${String(se)}`, kind, autoFixed: false, steps }; }
+          stashes.push(stashMsg);
+          const shown = files.slice(0, 3).join(", ") + (files.length > 3 ? ` +${files.length - 3} more` : "");
+          steps.push(`Set aside ${plural(files.length, "untracked file")} (${shown})`);
+        }
+      }
+    }
+
+    // Success. Re-apply (or deliberately keep) what we stashed.
+    steps.push(`${label[0].toUpperCase()}${label.slice(1)} succeeded`);
+    let stashKept: string | undefined;
+    let conflict = false;
+    if (stashes.length > 0) {
+      if (!popAfter) {
+        stashKept = stashes[stashes.length - 1];
+        steps.push(stashes.length > 1
+          ? `Kept ${stashes.length} stashes — re-apply them when you are ready`
+          : `Kept your changes in a stash — re-apply them when you are ready`);
+      } else {
+        for (let i = stashes.length - 1; i >= 0; i--) {
+          const outcome = await pop();
+          if (outcome === "applied") { steps.push("Re-applied your changes"); continue; }
+          stashKept = stashes[i];
+          conflict = outcome === "conflict";
+          steps.push(conflict
+            ? "Re-applying your changes hit conflicts — resolve them in the conflict panel (the stash is kept)"
+            : `Could not re-apply "${stashes[i]}" — it is kept on the stash stack`);
+          break; // don't pile more stashes onto a conflicted tree
+        }
+      }
+    }
+    return { success: true, autoFixed: stashes.length > 0, steps, stashKept, conflict };
+  }
 }
 
 // ── Stale index.lock detector ─────────────────────────────────────────────────
@@ -2376,16 +2616,40 @@ export function isIndexLockError(msg: unknown): boolean {
 // Maps git's stderr output to a coarse "kind" so the renderer can offer
 // targeted recovery. Patterns are conservative — anything we can't classify
 // falls back to 'unknown' and the user sees the raw error.
+// Kinds the renderer (and autoFix) react to:
+//   'dirty'       tracked changes would be overwritten → stash + retry
+//   'untracked'   untracked files would be overwritten → set aside + retry
+//   'in-progress' another merge/rebase/cherry-pick/revert is paused → finish it
+//   'conflict'    the operation stopped on conflicts → conflict panel
+//   'diverged' / 'not-ff' / 'auth' / 'unknown'
 export function classifyPullError(msg: string): string {
   if (/not possible to fast-forward/i.test(msg)) return "not-ff";
-  if (/your local changes to the following files would be overwritten/i.test(msg)) return "dirty";
-  if (/please commit your changes or stash them before you (merge|rebase|pull)/i.test(msg)) return "dirty";
-  if (/cannot pull with rebase: you have unstaged changes/i.test(msg)) return "dirty";
+  if (/your local changes (to the following files )?would be overwritten/i.test(msg)) return "dirty";
+  if (/please commit your changes or stash them before you (merge|rebase|pull|switch)/i.test(msg)) return "dirty";
+  if (/cannot (pull with rebase|rebase|cherry-pick|revert|merge)?:? ?you have (unstaged|uncommitted) changes/i.test(msg)) return "dirty";
+  if (/(index|working tree) contains uncommitted changes/i.test(msg)) return "dirty";
   if (/divergent branches|need to specify how to reconcile/i.test(msg)) return "diverged";
-  if (/the following untracked working tree files would be overwritten/i.test(msg)) return "untracked";
-  if (/conflict.*merge|automatic merge failed|fix conflicts and then commit/i.test(msg)) return "conflict";
+  if (/untracked working tree files? would be overwritten/i.test(msg)) return "untracked";
+  if (/you have not concluded your merge|MERGE_HEAD exists|already in progress|in the middle of a|rebase.*in progress|Exiting because of an unresolved conflict|unmerged files/i.test(msg)) return "in-progress";
+  if (/conflict.*merge|automatic merge failed|fix conflicts and then commit|CONFLICT \(|could not apply|after resolving the conflicts|could not revert|Resolve all conflicts manually/i.test(msg)) return "conflict";
   if (/could not read username|authentication failed|terminal prompts disabled/i.test(msg)) return "auth";
   return "unknown";
+}
+
+// Pull the file list out of git's "would be overwritten by <op>:" refusal.
+// Git prints one path per line, tab-indented, terminated by a blank line or
+// the "Please …" / "Aborting" trailer. Exported for tests.
+export function parseOverwrittenFiles(msg: string): string[] {
+  const lines = msg.split(/\r?\n/);
+  const files: string[] = [];
+  let collecting = false;
+  for (const raw of lines) {
+    if (/would be overwritten by/i.test(raw)) { collecting = true; continue; }
+    if (!collecting) continue;
+    if (/^[\t ]+\S/.test(raw)) { files.push(raw.trim()); continue; }
+    collecting = false;
+  }
+  return Array.from(new Set(files));
 }
 
 // ── Stale remote-ref detector ─────────────────────────────────────────────────

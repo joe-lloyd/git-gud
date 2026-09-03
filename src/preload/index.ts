@@ -75,8 +75,17 @@ export type ConflictState = {
   inMerge: boolean
   inRebase: boolean
   rebaseKind?: 'apply' | 'merge'   // --rebase-apply for non-interactive, --rebase-merge for -i
+  // Sequencer operations paused on a conflict (CHERRY_PICK_HEAD / REVERT_HEAD).
+  inCherryPick: boolean
+  inRevert: boolean
+  // Unmerged paths with no operation sentinel: a `stash pop/apply` that hit
+  // conflicts. Git leaves the stash entry in place, so aborting is safe.
+  inStashApply: boolean
+  // Which operation is paused, if any — the one the panel should drive.
+  op?: ConflictOp
   conflictedFiles: string[]
 }
+export type ConflictOp = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'stash'
 
 // Parsed conflicted file — sections in order. Shared sections come straight
 // from the file; conflict sections carry the rival texts so the UI can offer
@@ -167,10 +176,27 @@ export type ConsoleOutputEvent =
   | { runId: string; done: true; exitCode: number | null }
 // Pull carries an extra classifier so the renderer can offer targeted recovery
 // (stash + retry for dirty trees, merge/rebase choice for diverged history).
-export type PullErrorKind = 'dirty' | 'diverged' | 'untracked' | 'conflict' | 'auth' | 'not-ff' | 'unknown'
+export type PullErrorKind = 'dirty' | 'diverged' | 'untracked' | 'conflict' | 'auth' | 'not-ff' | 'in-progress' | 'unknown'
 export type PullResult =
   | { success: true }
   | { success: false; error: string; kind?: PullErrorKind }
+
+// Outcome of an operation run through the main-process auto-fix runner. When
+// git refused because of the working tree (dirty / untracked in the way) and
+// `autoFix` was requested, the runner stashed, retried and re-applied — the
+// `steps` log says exactly what it did. `stashKept` names a stash it left on
+// the stack (checkout never re-applies; a conflicting re-apply is kept too).
+// `conflict` means the op (or the re-apply) is paused on conflicts.
+export type AutoFixResult = {
+  success: boolean
+  error?: string
+  kind?: PullErrorKind | string
+  autoFixed: boolean
+  steps: string[]
+  stashKept?: string
+  conflict?: boolean
+}
+export type AutoFixOpts = { autoFix?: boolean }
 
 export type GitHubUser = {
   login: string
@@ -248,8 +274,8 @@ const gitApi = {
     ipcRenderer.invoke('git:commit-file-diff-sources', sha, filePath),
 
 
-  checkout: (branch: string): Promise<{ success: boolean; error?: string; kind?: PullErrorKind }> =>
-    ipcRenderer.invoke('git:checkout', branch),
+  checkout: (branch: string, opts?: AutoFixOpts): Promise<AutoFixResult> =>
+    ipcRenderer.invoke('git:checkout', branch, opts),
   checkoutAutostash: (branch: string): Promise<Result & { stashMessage?: string }> =>
     ipcRenderer.invoke('git:checkout-autostash', branch),
 
@@ -294,14 +320,16 @@ const gitApi = {
     ipcRenderer.invoke('git:log-pickaxe', query, limit),
 
   stashSave: (message?: string): Promise<Result> => ipcRenderer.invoke('git:stash-save', message),
-  stashPop: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-pop', index),
+  // `conflict`: the re-apply hit conflicts — git kept the stash entry and the
+  // conflict panel takes over (ConflictState.op === 'stash').
+  stashPop: (index: number): Promise<Result & { conflict?: boolean }> => ipcRenderer.invoke('git:stash-pop', index),
   stashDrop: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-drop', index),
-  stashApply: (index: number): Promise<Result> => ipcRenderer.invoke('git:stash-apply', index),
+  stashApply: (index: number): Promise<Result & { conflict?: boolean }> => ipcRenderer.invoke('git:stash-apply', index),
   stashBranch: (name: string, index: number): Promise<Result> =>
     ipcRenderer.invoke('git:stash-branch', name, index),
 
   fetch: (): Promise<Result> => ipcRenderer.invoke('git:fetch'),
-  pull: (opts?: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean }): Promise<PullResult> =>
+  pull: (opts?: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean; autoFix?: boolean }): Promise<AutoFixResult> =>
     ipcRenderer.invoke('git:pull', opts),
   // Fast-forward a branch that is NOT checked out from its remote, without
   // touching the working tree (git fetch <remote> <branch>:<branch>).
@@ -319,11 +347,11 @@ const gitApi = {
   // was pruned instead of a real remote delete.
   deleteRemoteBranch: (remote: string, branch: string): Promise<Result & { alreadyGone?: boolean }> =>
     ipcRenderer.invoke('git:delete-remote-branch', remote, branch),
-  merge: (branch: string): Promise<Result> => ipcRenderer.invoke('git:merge', branch),
+  merge: (branch: string, opts?: AutoFixOpts): Promise<AutoFixResult> => ipcRenderer.invoke('git:merge', branch, opts),
   mergeCurrentInto: (targetBranch: string): Promise<Result & { autoStashed?: boolean }> =>
     ipcRenderer.invoke('git:merge-current-into', targetBranch),
-  cherryPick: (sha: string): Promise<Result> => ipcRenderer.invoke('git:cherry-pick', sha),
-  revert: (sha: string): Promise<Result> => ipcRenderer.invoke('git:revert', sha),
+  cherryPick: (sha: string, opts?: AutoFixOpts): Promise<AutoFixResult> => ipcRenderer.invoke('git:cherry-pick', sha, opts),
+  revert: (sha: string, opts?: AutoFixOpts): Promise<AutoFixResult> => ipcRenderer.invoke('git:revert', sha, opts),
 
   // ── Multi-commit bulk ops (selection in the graph) ───────────────────────
   // Squash/drop operate on a contiguous range and may leave the repo mid-rebase
@@ -333,10 +361,10 @@ const gitApi = {
     ipcRenderer.invoke('git:squash-commits', shas, message),
   dropCommits: (shas: string[]): Promise<Result & { conflict?: boolean }> =>
     ipcRenderer.invoke('git:drop-commits', shas),
-  cherryPickMany: (shas: string[]): Promise<Result> =>
-    ipcRenderer.invoke('git:cherry-pick-many', shas),
-  revertMany: (shas: string[]): Promise<Result> =>
-    ipcRenderer.invoke('git:revert-many', shas),
+  cherryPickMany: (shas: string[], opts?: AutoFixOpts): Promise<AutoFixResult> =>
+    ipcRenderer.invoke('git:cherry-pick-many', shas, opts),
+  revertMany: (shas: string[], opts?: AutoFixOpts): Promise<AutoFixResult> =>
+    ipcRenderer.invoke('git:revert-many', shas, opts),
   rangeStat: (oldestSha: string, newestSha: string): Promise<{ files: number; insertions: number; deletions: number } | null> =>
     ipcRenderer.invoke('git:range-stat', oldestSha, newestSha),
 
@@ -349,6 +377,10 @@ const gitApi = {
   rebaseSkip:     (): Promise<Result> => ipcRenderer.invoke('git:rebase-skip'),
   mergeContinue:  (): Promise<Result> => ipcRenderer.invoke('git:merge-continue'),
   mergeAbort:     (): Promise<Result> => ipcRenderer.invoke('git:merge-abort'),
+  // Generic controls for whichever operation is paused (see ConflictState.op).
+  opContinue: (op: ConflictOp): Promise<Result> => ipcRenderer.invoke('git:op-continue', op),
+  opAbort:    (op: ConflictOp): Promise<Result> => ipcRenderer.invoke('git:op-abort', op),
+  opSkip:     (op: ConflictOp): Promise<Result> => ipcRenderer.invoke('git:op-skip', op),
   markResolved:   (files: string[]): Promise<Result> => ipcRenderer.invoke('git:mark-resolved', files),
   getConflictFile: (filePath: string): Promise<ConflictFile> => ipcRenderer.invoke('git:conflict-file', filePath),
   writeFile:      (filePath: string, content: string): Promise<Result> => ipcRenderer.invoke('git:write-file', filePath, content),

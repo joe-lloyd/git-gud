@@ -95,6 +95,9 @@ Status legend:
 | `git cherry-pick <sha>` | ✅ supported | Commit context menu |
 | `git format-patch` / `git am` / `git apply` | ✅ supported | Advanced bar Patch panel |
 | `git rerere` (reuse resolutions) | ✅ supported | Settings toggle + auto-resolution banner (Forget) in conflict panel |
+| Conflict editor (per-block current / incoming / both, word-level diff, origin gutter) | ✅ supported | Click a file in the conflict panel |
+| Cherry-pick / revert / stash-pop conflicts (continue / skip / abort) | ✅ supported | Conflict panel detects `CHERRY_PICK_HEAD`, `REVERT_HEAD`, unmerged paths |
+| Auto-fix blocked actions (stash / set aside untracked → retry → re-apply) | ✅ supported | Pull, checkout, merge, cherry-pick, revert; Settings toggle; step-by-step toast |
 
 ## Not planned (yet)
 

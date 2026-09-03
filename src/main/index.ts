@@ -5,7 +5,7 @@ import { defaultChannelFor, isUpdateChannel, type UpdateChannel } from './update
 import { basename, join } from 'path'
 import * as fs from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
-import { GitService, redactAuthArgs, scrubSecrets, isIndexLockError, type GitActivity } from './git-service'
+import { GitService, redactAuthArgs, scrubSecrets, isIndexLockError, type GitActivity, type ConflictOp } from './git-service'
 import { applyShellPath } from './shell-path'
 import { GitHubService } from './github-service'
 import { ProviderService, type HostedProvider } from './provider-service'
@@ -888,9 +888,9 @@ app.whenReady().then(async () => {
   })
 
   // ── Basic Operations ─────────────────────────────────────────────────
-  ipcMain.handle('git:checkout', async (_event, branch: string) => {
+  ipcMain.handle('git:checkout', async (_event, branch: string, opts?: { autoFix?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { return await gitService.checkout(branch) }
+    try { return await gitService.checkout(branch, opts ?? {}) }
     catch (e) { return { success: false, error: String(e) } }
   })
 
@@ -976,11 +976,21 @@ app.whenReady().then(async () => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:stash-pop', async (_event, index: number) => {
+  // A pop/apply that conflicts leaves unmerged paths (and keeps the stash);
+  // flag it so the renderer hands over to the conflict panel instead of
+  // printing the raw error.
+  // (simple-git resolves a conflicted pop — git reports it on stdout — so the
+  // unmerged-paths check runs on success too.)
+  const stashApplyResult = async (run: () => Promise<void>) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.stashPop(index); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
-  })
+    let error: string | undefined
+    try { await run() } catch (e) { error = String(e) }
+    const conflict = (await gitService.getConflictState().catch(() => null))?.inStashApply ?? false
+    if (conflict) return { success: false, error: error ?? 'Re-applying the stash hit conflicts.', conflict: true }
+    return error ? { success: false, error, conflict: false } : { success: true }
+  }
+  ipcMain.handle('git:stash-pop', async (_event, index: number) =>
+    stashApplyResult(() => gitService!.stashPop(index)))
 
   ipcMain.handle('git:stash-drop', async (_event, index: number) => {
     if (!gitService) return { success: false, error: 'No repo' }
@@ -988,11 +998,8 @@ app.whenReady().then(async () => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:stash-apply', async (_event, index: number) => {
-    if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.stashApply(index); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
-  })
+  ipcMain.handle('git:stash-apply', async (_event, index: number) =>
+    stashApplyResult(() => gitService!.stashApply(index)))
 
   ipcMain.handle('git:stash-branch', async (_event, name: string, index: number) => {
     if (!gitService) return { success: false, error: 'No repo' }
@@ -1005,7 +1012,7 @@ app.whenReady().then(async () => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:pull', async (_event, opts?: { rebase?: boolean; autoStash?: boolean }) => {
+  ipcMain.handle('git:pull', async (_event, opts?: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean; autoFix?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
     try { return await gitService.pull(opts ?? {}) }
     catch (e) { return { success: false, error: String(e) } }
@@ -1050,10 +1057,13 @@ app.whenReady().then(async () => {
     catch (e) { return { success: false, error: String(e) } }
   })
 
-  ipcMain.handle('git:merge', async (_event, branch: string) => {
+  // Working-tree-sensitive ops go through the auto-fix runner: a dirty tree or
+  // untracked files in the way are stashed, the op retried, the stash
+  // re-applied — with every step reported back for the toast.
+  ipcMain.handle('git:merge', async (_event, branch: string, opts?: { autoFix?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.merge(branch); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
+    const shown = /^[0-9a-f]{40}$/.test(branch) ? branch.slice(0, 7) : branch
+    return gitService.autoFix(`merge ${shown}`, { method: 'merge', args: [branch] }, { enabled: opts?.autoFix ?? false })
   })
 
   ipcMain.handle('git:merge-current-into', async (_event, targetBranch: string) => {
@@ -1061,16 +1071,14 @@ app.whenReady().then(async () => {
     return gitService.mergeCurrentInto(targetBranch)
   })
 
-  ipcMain.handle('git:cherry-pick', async (_event, sha: string) => {
+  ipcMain.handle('git:cherry-pick', async (_event, sha: string, opts?: { autoFix?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.cherryPick(sha); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
+    return gitService.autoFix(`cherry-pick ${sha.slice(0, 7)}`, { method: 'cherryPick', args: [sha] }, { enabled: opts?.autoFix ?? false })
   })
 
-  ipcMain.handle('git:revert', async (_event, sha: string) => {
+  ipcMain.handle('git:revert', async (_event, sha: string, opts?: { autoFix?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    try { await gitService.revert(sha); return { success: true } }
-    catch (e) { return { success: false, error: String(e) } }
+    return gitService.autoFix(`revert ${sha.slice(0, 7)}`, { method: 'revert', args: [sha] }, { enabled: opts?.autoFix ?? false })
   })
 
   ipcMain.handle('git:squash-commits', async (_event, shas: string[], message: string) => {
@@ -1083,9 +1091,9 @@ app.whenReady().then(async () => {
     return gitService.dropCommits(shas)
   })
 
-  ipcMain.handle('git:cherry-pick-many', async (_event, shas: string[]) => {
+  ipcMain.handle('git:cherry-pick-many', async (_event, shas: string[], opts?: { autoFix?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    return gitService.cherryPickMany(shas)
+    return gitService.autoFix(`cherry-pick ${shas.length} commits`, { method: 'cherryPickMany', args: [shas] }, { enabled: opts?.autoFix ?? false })
   })
 
   ipcMain.handle('git:range-stat', async (_event, oldestSha: string, newestSha: string) => {
@@ -1093,9 +1101,9 @@ app.whenReady().then(async () => {
     return gitService.rangeStat(oldestSha, newestSha)
   })
 
-  ipcMain.handle('git:revert-many', async (_event, shas: string[]) => {
+  ipcMain.handle('git:revert-many', async (_event, shas: string[], opts?: { autoFix?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
-    return gitService.revertMany(shas)
+    return gitService.autoFix(`revert ${shas.length} commits`, { method: 'revertMany', args: [shas] }, { enabled: opts?.autoFix ?? false })
   })
 
   // ── Command console ──────────────────────────────────────────────────────
@@ -1194,6 +1202,20 @@ app.whenReady().then(async () => {
   ipcMain.handle('git:merge-abort', async () => {
     if (!gitService) return { success: false, error: 'No repo' }
     return gitService.mergeAbort()
+  })
+  // Generic paused-operation controls (merge / rebase / cherry-pick / revert /
+  // stash re-apply) — the conflict panel drives whichever op is active.
+  ipcMain.handle('git:op-continue', async (_event, op: ConflictOp) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.operationContinue(op)
+  })
+  ipcMain.handle('git:op-abort', async (_event, op: ConflictOp) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.operationAbort(op)
+  })
+  ipcMain.handle('git:op-skip', async (_event, op: ConflictOp) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.operationSkip(op)
   })
   ipcMain.handle('git:mark-resolved', async (_event, files: string[]) => {
     if (!gitService) return { success: false, error: 'No repo' }

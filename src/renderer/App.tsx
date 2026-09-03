@@ -4,6 +4,8 @@ import { TabBar } from './components/TabBar/TabBar'
 import { GraphView, WORKTREE_SHA, makeWorktreePseudoCommit } from './components/Graph/GraphView'
 import { ConflictPanel } from './components/ConflictPanel/ConflictPanel'
 import { ConflictEditor } from './components/ConflictEditor/ConflictEditor'
+import { conflictActive, opLabel } from './lib/conflictState'
+import { autoFixEnabled, reportAutoFix } from './lib/autoFix'
 import { CommitDetail } from './components/CommitDetail/CommitDetail'
 import { Toolbar } from './components/Toolbar/Toolbar'
 import { WorkingTree } from './components/WorkingTree/WorkingTree'
@@ -264,7 +266,7 @@ export default function App() {
   useEffect(() => {
     if (!activeConflictFile) return
     const c = repo.status?.conflict
-    if (!c || (!c.inMerge && !c.inRebase)) { setActiveConflictFile(null); return }
+    if (!conflictActive(c)) { setActiveConflictFile(null); return }
     if (!c.conflictedFiles.includes(activeConflictFile)) setActiveConflictFile(null)
   }, [activeConflictFile, repo.status])
 
@@ -382,30 +384,40 @@ export default function App() {
   }, [repo.repoPath, repo.methods, peers, activePeer, openCtx])
 
   // ── Smart pull ──────────────────────────────────────────────────────
-  // Pulls and reacts to common failure modes:
-  //   dirty tree     → confirm "stash, pull, pop" and retry with --autostash
+  // Pulls through the auto-fix runner, which clears the two blockers git can
+  // refuse on (dirty tree → stash+retry+re-apply, untracked files in the way →
+  // set aside+retry+re-apply) and reports every step it took. What's left:
   //   diverged hist  → ask the user merge vs rebase and retry with that strategy
-  //   untracked      → tell the user which files need to move first
-  //   conflict/auth/unknown → show the raw error
-  //
-  // `silent` skips toasting "Already up to date" — used for chained retries.
+  //   dirty (auto-fix OFF) → confirm "stash, pull, pop" and retry with --autostash
+  //   conflict       → hand over to the conflict panel
+  //   not-ff/auth/unknown → show the error
   const [pullPrompt, setPullPrompt] = useState<{ kind: 'dirty' | 'diverged'; error: string } | null>(null)
+  const popLatestStash = useCallback(async () => {
+    const r = await window.gitApi.stashPop(0)
+    if (r.success) { repo.toast.success('Stash popped', 'Your changes are back in the working tree.'); repo.methods.refresh() }
+    else if (r.conflict) { repo.toast.warning('Stash re-apply conflicted', 'Resolve the files in the right panel. The stash is kept.'); repo.methods.refresh() }
+    else repo.toast.error('Pop failed', r.error)
+  }, [repo.toast, repo.methods])
   const doPull = useCallback(async (opts: { rebase?: boolean; autoStash?: boolean; ffOnly?: boolean } = {}) => {
-    const r = await window.gitApi.pull(opts)
-    if (r.success) {
+    const r = await window.gitApi.pull({ ...opts, autoFix: autoFixEnabled() })
+    if (r.success || r.conflict) {
+      reportAutoFix(repo.toast, r, {
+        successTitle: 'Pulled',
+        failTitle: 'Pull failed',
+        onPopStash: popLatestStash,
+      })
       repo.methods.refresh()
       return
     }
     // ff-only refusals get a targeted explanation, never the merge/rebase
     // recovery prompt — the user explicitly asked for fast-forward only.
     if (r.kind === 'not-ff')     { repo.toast.warning('Fast-forward not possible', 'Local and remote have diverged — pull with merge or rebase instead.'); return }
-    if (r.kind === 'dirty')      { setPullPrompt({ kind: 'dirty', error: r.error }); return }
-    if (r.kind === 'diverged')   { setPullPrompt({ kind: 'diverged', error: r.error }); return }
-    if (r.kind === 'untracked')  { repo.toast.error('Pull blocked', 'Untracked files would be overwritten. Move or delete them first.'); return }
-    if (r.kind === 'conflict')   { repo.toast.warning('Merge conflicts', 'Resolve conflicts in the working tree, then commit.'); repo.methods.refresh(); return }
+    if (r.kind === 'dirty')      { setPullPrompt({ kind: 'dirty', error: r.error ?? '' }); return }
+    if (r.kind === 'diverged')   { setPullPrompt({ kind: 'diverged', error: r.error ?? '' }); return }
+    if (r.kind === 'untracked')  { repo.toast.error('Pull blocked', 'Untracked files would be overwritten. Move or delete them first, or turn on Auto-fix in Settings.'); return }
     if (r.kind === 'auth')       { repo.toast.error('Authentication failed', r.error); return }
-    repo.toast.error('Pull failed', r.error)
-  }, [repo.methods, repo.toast])
+    reportAutoFix(repo.toast, r, { successTitle: 'Pulled', failTitle: 'Pull failed' })
+  }, [repo.methods, repo.toast, popLatestStash])
 
   const handlePull = useCallback(() => doPull({}), [doPull])
 
@@ -442,34 +454,51 @@ export default function App() {
     if (r.success) {
       repo.toast.success('Stash popped', repo.stashes[0]?.message ?? 'stash@{0}')
       repo.methods.refresh()
+    } else if (r.conflict) {
+      repo.toast.warning('Stash re-apply conflicted', 'Resolve the files in the right panel — the stash is kept until you finish or abort.')
+      repo.methods.refresh()
     } else {
       repo.toast.error('Pop failed', r.error)
     }
   }, [repo.stashes, repo.toast, repo.methods])
 
   // ── Smart checkout ──────────────────────────────────────────────────
-  // Dirty tree triggers an automatic stash before switching — no prompt.
-  // The stash is left on the stack (not popped on the destination); the user
-  // can re-apply it manually from the sidebar when they're ready.
+  // A dirty tree (or untracked files in the way) is stashed automatically
+  // before switching — no prompt. The stash is left on the stack rather than
+  // popped onto the destination (that is exactly what git just refused to
+  // do); the toast offers a one-click pop for when the user is ready.
   const handleCheckout = useCallback(async (branch: string) => {
-    const r = await window.gitApi.checkout(branch)
-    if (r.success) { repo.methods.refresh(); return }
-    if (r.kind === 'dirty') {
-      const r2 = await window.gitApi.checkoutAutostash(branch)
-      if (r2.success) {
-        repo.toast.success('Switched with autostash', r2.stashMessage ?? `Stashed before switching to ${branch}`)
-        repo.methods.refresh()
-      } else {
-        repo.toast.error('Checkout failed', r2.error)
-      }
+    const r = await window.gitApi.checkout(branch, { autoFix: true })
+    const done = reportAutoFix(repo.toast, r, {
+      successTitle: `Checked out ${branch}`,
+      failTitle: 'Checkout failed',
+      onPopStash: popLatestStash,
+    })
+    if (done) repo.methods.refresh()
+  }, [repo.methods, repo.toast, popLatestStash])
+
+  // ── Smart push ──────────────────────────────────────────────────────
+  // A rejected push (remote moved on) is not an error to read — it is a pull
+  // waiting to happen. Offer it right on the toast.
+  const handlePush = useCallback(async (force = false) => {
+    const r = await window.gitApi.push(force)
+    if (r.success) {
+      if (force) repo.toast.success('Force pushed', 'Remote branch now matches your local branch.')
+      repo.methods.refresh()
       return
     }
-    if (r.kind === 'untracked') {
-      repo.toast.error('Checkout blocked', 'Untracked files would be overwritten. Move or delete them first.')
-      return
+    const err = r.error ?? ''
+    if (force && /stale info|remote ref.+has changed/i.test(err)) {
+      repo.toast.warning('Force push refused', 'The remote has new commits you haven\'t fetched. Fetch first, review, then retry.')
+    } else if (!force && /\[rejected\]|non-fast-forward|fetch first|failed to push some refs/i.test(err)) {
+      repo.toast.warning('Push rejected — remote has new commits', 'Pull first to combine them, then push again.', {
+        label: 'Pull now',
+        onClick: () => { void doPull({}) },
+      })
+    } else {
+      repo.toast.error(force ? 'Force push failed' : 'Push failed', err)
     }
-    repo.toast.error('Checkout failed', r.error)
-  }, [repo.methods, repo.toast])
+  }, [repo.toast, repo.methods, doPull])
 
   // All isolated commit actions live in their own hook. Declared before the
   // sidebar context-menu factories below, which reuse these actions for
@@ -650,6 +679,9 @@ export default function App() {
     if (r.success) {
       repo.toast.success('Stash Applied', `stash@{${index}} applied to working tree.`)
       repo.methods.refresh()
+    } else if (r.conflict) {
+      repo.toast.warning('Stash apply conflicted', 'Resolve the files in the right panel — the stash is kept until you finish or abort.')
+      repo.methods.refresh()
     } else {
       repo.toast.error('Apply Stash Failed', r.error)
     }
@@ -659,6 +691,9 @@ export default function App() {
     const r = await window.gitApi.stashPop(index)
     if (r.success) {
       repo.toast.success('Stash Popped', `stash@{${index}} applied and removed.`)
+      repo.methods.refresh()
+    } else if (r.conflict) {
+      repo.toast.warning('Stash re-apply conflicted', 'Resolve the files in the right panel — the stash is kept until you finish or abort.')
       repo.methods.refresh()
     } else {
       repo.toast.error('Pop Stash Failed', r.error)
@@ -761,8 +796,8 @@ export default function App() {
           { separator: true, label: '', onClick: () => {} },
           { label: 'Create tag here…',                icon: 'tag',  disabled: !sha, onClick: () => sha && actions.requestTagHere(sha) },
           { separator: true, label: '', onClick: () => {} },
-          { label: 'Push to remote',                  icon: 'arrow-up',  onClick: () => repo.methods.handlePush() },
-          { label: 'Force push (--force-with-lease)', icon: 'warning', danger: true, disabled: !isCurrent, onClick: () => repo.methods.handlePush(true) },
+          { label: 'Push to remote',                  icon: 'arrow-up',  onClick: () => handlePush() },
+          { label: 'Force push (--force-with-lease)', icon: 'warning', danger: true, disabled: !isCurrent, onClick: () => handlePush(true) },
           // Pulling only makes sense on the checked-out branch; for any other
           // branch, update it in place with a fast-forward fetch instead.
           {
@@ -802,7 +837,7 @@ export default function App() {
         ])
       }
     },
-    [openCtx, repo.status, repo.methods, repo.branches.local, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, handleFastForwardBranch, copyToClipboard],
+    [openCtx, repo.status, repo.methods, repo.branches.local, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, handlePush, handleFastForwardBranch, copyToClipboard],
   )
 
   const handleStashContextMenu = useCallback(
@@ -1030,21 +1065,29 @@ export default function App() {
 
   const bulkCherryPick = useCallback(async () => {
     if (opSelectedShas.length === 0) return
-    const r = await window.gitApi.cherryPickMany(opSelectedShas)
-    if (r.success) {
-      repo.toast.success('Cherry-picked', `${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} applied to current branch.`)
-      clearMultiSelect(); repo.methods.refresh()
-    } else repo.toast.error('Cherry-pick Failed', r.error)
-  }, [opSelectedShas, repo, clearMultiSelect])
+    const r = await window.gitApi.cherryPickMany(opSelectedShas, { autoFix: autoFixEnabled() })
+    const n = opSelectedShas.length
+    const done = reportAutoFix(repo.toast, r, {
+      successTitle: 'Cherry-picked',
+      successDetail: `${n} commit${n === 1 ? '' : 's'} applied.`,
+      failTitle: 'Cherry-pick failed',
+      onPopStash: popLatestStash,
+    })
+    if (done) { clearMultiSelect(); repo.methods.refresh() }
+  }, [opSelectedShas, repo, clearMultiSelect, popLatestStash])
 
   const bulkRevert = useCallback(async () => {
     if (opSelectedShas.length === 0) return
-    const r = await window.gitApi.revertMany(opSelectedShas)
-    if (r.success) {
-      repo.toast.success('Reverted', `${opSelectedShas.length} commit${opSelectedShas.length === 1 ? '' : 's'} reverted.`)
-      clearMultiSelect(); repo.methods.refresh()
-    } else repo.toast.error('Revert Failed', r.error)
-  }, [opSelectedShas, repo, clearMultiSelect])
+    const r = await window.gitApi.revertMany(opSelectedShas, { autoFix: autoFixEnabled() })
+    const n = opSelectedShas.length
+    const done = reportAutoFix(repo.toast, r, {
+      successTitle: 'Reverted',
+      successDetail: `${n} commit${n === 1 ? '' : 's'} reverted.`,
+      failTitle: 'Revert failed',
+      onPopStash: popLatestStash,
+    })
+    if (done) { clearMultiSelect(); repo.methods.refresh() }
+  }, [opSelectedShas, repo, clearMultiSelect, popLatestStash])
 
   const bulkSquash = useCallback(async () => {
     if (opSelectedShas.length < 2) return
@@ -1253,7 +1296,7 @@ export default function App() {
             { label: 'Pull (rebase)', icon: 'rebase', onClick: () => doPull({ rebase: true }) },
           ])
         }}
-        onPush={repo.methods.handlePush}
+        onPush={handlePush}
         gerritMode={gerrit.enabled}
         onPushForReview={() => setModal('push-for-review')}
         onPushMenu={(e) => {
@@ -1264,10 +1307,10 @@ export default function App() {
             ...(gerrit.enabled
               ? [{ label: 'Push for review…', icon: 'arrow-up' as const, onClick: () => setModal('push-for-review') }]
               : []),
-            { label: 'Push', icon: 'arrow-up', onClick: () => repo.methods.handlePush() },
+            { label: 'Push', icon: 'arrow-up', onClick: () => handlePush() },
             {
               label: 'Force push (--force-with-lease)', icon: 'warning', danger: true,
-              onClick: () => repo.methods.handlePush(true),
+              onClick: () => handlePush(true),
             },
           ])
         }}
@@ -1296,11 +1339,11 @@ export default function App() {
         />
       )}
 
-      {repo.repoPath && repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) && (
+      {repo.repoPath && conflictActive(repo.status?.conflict) && (
         <div className="conflict-bar">
           <span className="conflict-bar-icon"><Icon name="warning" size={14} /></span>
           <span className="conflict-bar-label">
-            {repo.status.conflict.inRebase ? 'REBASE' : 'MERGE'} IN PROGRESS
+            {opLabel(repo.status!.conflict!.op!, { upper: true })} IN PROGRESS
           </span>
           <span className="conflict-bar-detail">
             {repo.status.conflict.conflictedFiles.length > 0
@@ -1434,7 +1477,7 @@ export default function App() {
               </div>
               <div className="right-panel" style={{ width: rightPanelWidth }}>
                 <div className="right-panel-body">
-                  {repo.status?.conflict && (repo.status.conflict.inMerge || repo.status.conflict.inRebase) ? (
+                  {conflictActive(repo.status?.conflict) ? (
                     <ConflictPanel
                       state={repo.status.conflict}
                       currentBranch={repo.status?.branch ?? ''}

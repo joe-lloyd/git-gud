@@ -148,12 +148,60 @@ Right-click a commit:
 
 ## Merge conflicts
 
-When a merge / rebase / cherry-pick stops on conflicts, a conflict panel lists
-the conflicted files. Open one to get the **conflict editor**: pick ours /
-theirs / both per hunk, or edit freely, then mark resolved and continue (or
-abort) the operation. Enable **rerere** in Settings and git will remember your
-resolutions and auto-apply them next time (a banner shows when it did, with a
-**Forget** escape hatch).
+When a merge, rebase, cherry-pick, revert or stash re-apply stops on
+conflicts, the right panel takes over and lists the conflicted files. The
+top bar names the paused operation; the panel offers continue, skip (where
+git allows it) and abort for that operation. Aborting a conflicted stash
+re-apply restores the conflicted files from HEAD and keeps the stash entry.
+
+Click a file to open the **conflict editor**:
+
+- **Current** and **Incoming** panes show the whole file. Inside a conflict
+  block, lines both sides share are tinted lightly; lines that differ are
+  tinted strongly and the changed words are marked, so you see exactly what
+  changed. Click any line to insert it at the cursor in the result.
+- Each block has a header with **Use this** / **Use both**; the toolbar has
+  the same for the active block plus prev/next navigation. **Take all
+  current / incoming** replaces the whole result.
+- The **Resolved** pane is syntax-highlighted and editable. Its gutter tag
+  says where each line came from: **C** current, **I** incoming, **B**
+  identical on both sides, **E** hand-edited, **!** leftover conflict marker.
+  The legend in the toolbar counts them.
+- **Save & Mark Resolved** writes the file and stages it. Saving with
+  markers still present asks first.
+
+Enable **rerere** in Settings and git will remember your resolutions and
+auto-apply them next time (a banner shows when it did, with a **Forget**
+escape hatch).
+
+## Auto-fix for blocked actions
+
+When git refuses a pull, checkout, merge, cherry-pick or revert because of
+your working tree, Git Gud clears the blocker itself instead of showing a
+"you can't do that" popup:
+
+- **Uncommitted changes would be overwritten** → stash, retry, re-apply.
+- **Untracked files would be overwritten** → set aside exactly those files
+  (a stash with `--include-untracked` limited to them), retry, re-apply.
+- **Checkout** keeps the stash instead of re-applying it onto the new branch
+  (that is exactly what git refused); the toast offers **Pop stash now**.
+- If re-applying conflicts, the stash is kept and the conflict panel opens
+  for the re-apply. Nothing is ever dropped.
+- A rejected **push** offers **Pull now** on the toast.
+
+Every auto-fixed action shows a toast listing the steps that ran
+(“1. Stashed 2 changed files · 2. Pull succeeded · 3. Re-applied your
+changes”). Turn it off in Settings › **Auto-fix blocked actions** to get the
+old confirm prompts instead. A diverged branch still asks merge vs rebase —
+that decision is yours.
+
+### Trying the flows
+
+`pnpm lab` builds one throwaway repo per scenario under
+`~/Projects/MyProjects/git-gui-test-repos/conflict-lab/` (mid-merge, mid-rebase,
+cherry-pick, revert, conflicted stash pop, dirty pull, untracked pull,
+diverged, dirty checkout, dirty merge, dirty cherry-pick, rejected push).
+`pnpm lab -- --list` lists them; `pnpm lab merge` rebuilds one.
 
 ## Recovery and maintenance
 

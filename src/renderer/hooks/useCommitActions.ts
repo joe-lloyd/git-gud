@@ -14,6 +14,8 @@
  */
 
 import { useCallback } from 'react'
+import { autoFixEnabled, reportAutoFix } from '../lib/autoFix'
+import type { ToastApi } from '../components/Toast/Toast'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -23,10 +25,7 @@ export type CommitActionModal =
   | { type: 'confirm-reset-hard';    sha: string }
   | { type: 'interactive-rebase';    sha: string }
 
-interface Toast {
-  success: (title: string, msg: string) => void
-  error:   (title: string, msg: string) => void
-}
+type Toast = ToastApi
 
 interface Methods {
   handleCheckout: (sha: string) => Promise<void>
@@ -75,27 +74,39 @@ export function useCommitActions({
     }
   }, [toast, methods])
 
+  // Working-tree-sensitive ops run through the auto-fix runner (dirty tree →
+  // stash, retry, re-apply) and report every step; a conflict hands over to
+  // the conflict panel via refresh().
+  const popLatestStash = useCallback(async () => {
+    const r = await window.gitApi.stashPop(0)
+    if (r.success) { toast.success('Stash popped', 'Your changes are back in the working tree.'); methods.refresh() }
+    else if (r.conflict) { toast.warning('Stash re-apply conflicted', 'Resolve the files in the right panel. The stash is kept.'); methods.refresh() }
+    else toast.error('Pop failed', r.error)
+  }, [toast, methods])
+
   /** Cherry-picks a single commit onto the current branch. */
   const cherryPick = useCallback(async (sha: string) => {
-    const r = await window.gitApi.cherryPick(sha)
-    if (r.success) {
-      toast.success('Cherry-picked', `Commit ${sha.slice(0, 7)} applied.`)
-      methods.refresh()
-    } else {
-      toast.error('Cherry-pick Failed', r.error)
-    }
-  }, [toast, methods])
+    const r = await window.gitApi.cherryPick(sha, { autoFix: autoFixEnabled() })
+    const done = reportAutoFix(toast, r, {
+      successTitle: 'Cherry-picked',
+      successDetail: `Commit ${sha.slice(0, 7)} applied.`,
+      failTitle: 'Cherry-pick failed',
+      onPopStash: popLatestStash,
+    })
+    if (done) methods.refresh()
+  }, [toast, methods, popLatestStash])
 
   /** Reverts a commit on the current branch. */
   const revert = useCallback(async (sha: string) => {
-    const r = await window.gitApi.revert(sha)
-    if (r.success) {
-      toast.success('Reverted', `Commit ${sha.slice(0, 7)} reverted on current branch.`)
-      methods.refresh()
-    } else {
-      toast.error('Revert Failed', r.error)
-    }
-  }, [toast, methods])
+    const r = await window.gitApi.revert(sha, { autoFix: autoFixEnabled() })
+    const done = reportAutoFix(toast, r, {
+      successTitle: 'Reverted',
+      successDetail: `Commit ${sha.slice(0, 7)} reverted on current branch.`,
+      failTitle: 'Revert failed',
+      onPopStash: popLatestStash,
+    })
+    if (done) methods.refresh()
+  }, [toast, methods, popLatestStash])
 
   /** Rebases the current branch onto the given commit. */
   const rebaseTo = useCallback(async (sha: string) => {
@@ -116,14 +127,15 @@ export function useCommitActions({
 
   /** Merges the given commit (or its branch) INTO the current branch. */
   const mergeThisIntoCurrent = useCallback(async (sha: string) => {
-    const r = await window.gitApi.merge(sha)
-    if (r.success) {
-      toast.success('Merge Complete', `Merged ${sha.slice(0, 7)} into current branch.`)
-      methods.refresh()
-    } else {
-      toast.error('Merge Failed', r.error)
-    }
-  }, [toast, methods])
+    const r = await window.gitApi.merge(sha, { autoFix: autoFixEnabled() })
+    const done = reportAutoFix(toast, r, {
+      successTitle: 'Merge complete',
+      successDetail: `Merged ${sha.slice(0, 7)} into current branch.`,
+      failTitle: 'Merge failed',
+      onPopStash: popLatestStash,
+    })
+    if (done) methods.refresh()
+  }, [toast, methods, popLatestStash])
 
   /**
    * Merges the current branch INTO a target branch (by name).

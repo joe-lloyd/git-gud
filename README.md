@@ -131,6 +131,7 @@ pnpm build        # build for production
 pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest
 pnpm test:repos   # build throwaway test repos under ~/Projects/MyProjects/git-gui-test-repos
+pnpm lab          # build conflict/auto-fix scenario repos under …/git-gui-test-repos/conflict-lab (pnpm lab -- --list)
 pnpm build:icon   # rebuild app icon from resources/icon.svg
 pnpm build:headless && pnpm headless --help   # single-file Linux daemon (out/headless/main.js)
 pnpm build:relay && pnpm relay --port 47833   # rendezvous/relay service (out/relay/main.js)

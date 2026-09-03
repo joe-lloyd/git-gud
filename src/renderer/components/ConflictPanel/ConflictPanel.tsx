@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import type { ConflictState } from '../../../preload/index'
+import type { ConflictState, ConflictOp } from '../../../preload/index'
 import { useToasts } from '../Toast/Toast'
 import { ConfirmModal } from '../AppAux/AuxComponents'
 import { Icon } from '../Icons/Icon'
+import { opControls, opLabel } from '../../lib/conflictState'
 import './ConflictPanel.css'
 
 interface ConflictPanelProps {
@@ -12,15 +13,16 @@ interface ConflictPanelProps {
   onRefresh: () => void
 }
 
-// Mid-flight rebase/merge surface. Takes over the right column while the repo
-// is paused — lists unresolved files, lets the user mark them resolved (by
-// staging), and offers continue/skip/abort once they're done.
-//
-// User resolves the actual conflict in their IDE; we don't ship an in-app
-// merge editor.
+// Paused-operation surface. Takes over the right column while the repo is
+// stopped on a merge, rebase, cherry-pick, revert or stash re-apply — lists
+// unresolved files, opens each in the in-app conflict editor, lets the user
+// mark them resolved (by staging), and offers continue/skip/abort.
 export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBranch, onSelectDiff, onRefresh }) => {
   const { inMerge, inRebase, rebaseKind, conflictedFiles } = state
-  const mode: 'merge' | 'rebase' = inRebase ? 'rebase' : 'merge'
+  const mode: ConflictOp = state.op ?? (inRebase ? 'rebase' : inMerge ? 'merge' : 'merge')
+  const controls = opControls(mode)
+  const label = opLabel(mode)            // "Merge", "Cherry-pick", "Stash re-apply"
+  const lower = label.toLowerCase()
   const toast = useToasts()
   const [focusedIdx, setFocusedIdx] = useState(0)
   const [confirmAbort, setConfirmAbort] = useState(false)
@@ -61,27 +63,26 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
   }, [onRefresh, toast])
 
   const handleContinue = useCallback(async () => {
-    const r = mode === 'rebase'
-      ? await window.gitApi.rebaseContinue()
-      : await window.gitApi.mergeContinue()
-    if (r.success) { toast.success(`${mode === 'rebase' ? 'Rebase' : 'Merge'} continued`); onRefresh() }
+    const r = await window.gitApi.opContinue(mode)
+    if (r.success) { toast.success(`${label} continued`); onRefresh() }
     else toast.error('Continue failed', r.error)
-  }, [mode, onRefresh, toast])
+  }, [mode, label, onRefresh, toast])
 
   const handleSkip = useCallback(async () => {
-    const r = await window.gitApi.rebaseSkip()
+    const r = await window.gitApi.opSkip(mode)
     if (r.success) { toast.success('Commit skipped'); onRefresh() }
     else toast.error('Skip failed', r.error)
-  }, [onRefresh, toast])
+  }, [mode, onRefresh, toast])
 
   const doAbort = useCallback(async () => {
     setConfirmAbort(false)
-    const r = mode === 'rebase'
-      ? await window.gitApi.rebaseAbort()
-      : await window.gitApi.mergeAbort()
-    if (r.success) { toast.success(`${mode === 'rebase' ? 'Rebase' : 'Merge'} aborted`); onRefresh() }
+    const r = await window.gitApi.opAbort(mode)
+    if (r.success) {
+      toast.success(`${label} aborted`, mode === 'stash' ? 'Conflicted files restored from HEAD. The stash entry is still on the stack.' : undefined)
+      onRefresh()
+    }
     else toast.error('Abort failed', r.error)
-  }, [mode, onRefresh, toast])
+  }, [mode, label, onRefresh, toast])
 
   // Arrow keys + Enter only. Letter shortcuts ate keystrokes when an editable
   // element happened to be focused, so we drop them and guard the rest.
@@ -110,7 +111,7 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
             HP. Marking files resolved drains the bar; empty bar = victory. */}
         <div className="boss-name-row">
           <span className={`boss-name ${allResolved ? 'defeated' : ''}`}>
-            {allResolved ? 'Victory Achieved' : mode === 'rebase' ? 'Rebase Conflict' : 'Merge Conflict'}
+            {allResolved ? 'Victory Achieved' : `${label} Conflict`}
           </span>
           {!allResolved && (
             <span className="boss-hp-count mono">{conflictedFiles.length} / {maxConflicts}</span>
@@ -127,7 +128,7 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
           <div className={`boss-bar-fill ${allResolved ? 'drained' : ''}`} style={{ width: `${hpPct}%` }} />
         </div>
         <div className="conflict-branch">
-          {mode === 'rebase' ? `rebase${rebaseKind === 'merge' ? ' (interactive)' : ''}` : 'merge'} in progress
+          {mode === 'rebase' ? `rebase${rebaseKind === 'merge' ? ' (interactive)' : ''}` : lower} in progress
           {' '}on <span className="mono">{currentBranch}</span>
         </div>
       </div>
@@ -148,9 +149,10 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
           <div className="conflict-resolved-banner">
             <div className="conflict-resolved-title">All conflicts resolved</div>
             <div className="conflict-resolved-sub">
-              {mode === 'rebase'
-                ? 'Continue to apply the next commit, or abort to return to the previous state.'
-                : 'Continue to finalize the merge commit, or abort to return to the previous state.'}
+              {mode === 'rebase' ? 'Continue to apply the next commit, or abort to return to the previous state.'
+                : mode === 'merge' ? 'Continue to finalize the merge commit, or abort to return to the previous state.'
+                : mode === 'stash' ? 'Your resolved changes are staged. Finish to keep them (then drop the stash when you are happy), or abort to restore the conflicted files.'
+                : `Continue to finish the ${lower}, or abort to return to the previous state.`}
             </div>
           </div>
         ) : (
@@ -158,11 +160,11 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
             <div className="conflict-instructions">
               <strong>{conflictedFiles.length}</strong> {conflictedFiles.length === 1 ? 'file has' : 'files have'} conflicts.
               <br />
-              <span className="conflict-step">1.</span> Open each file in your editor and resolve the {'<<<<<<<'} markers.
+              <span className="conflict-step">1.</span> Click a file to open it in the conflict editor and pick current / incoming / both per block.
               <br />
-              <span className="conflict-step">2.</span> Click <em>Mark resolved</em> to stage it.
+              <span className="conflict-step">2.</span> <em>Save &amp; Mark Resolved</em> stages it (or fix it externally and click <em>Mark resolved</em>).
               <br />
-              <span className="conflict-step">3.</span> Continue when all files are marked resolved.
+              <span className="conflict-step">3.</span> {controls.canContinue ? 'Continue' : 'Finish'} when all files are marked resolved.
             </div>
             <div className="conflict-file-list">
               {conflictedFiles.map((path, i) => (
@@ -191,26 +193,39 @@ export const ConflictPanel: React.FC<ConflictPanelProps> = ({ state, currentBran
       </div>
 
       <div className="conflict-footer">
-        <button className="btn btn-ghost" onClick={() => setConfirmAbort(true)}>Abort {mode}</button>
+        <button className="btn btn-ghost" onClick={() => setConfirmAbort(true)}>Abort {lower}</button>
         <div style={{ flex: 1 }} />
-        {mode === 'rebase' && (
-          <button className="btn btn-ghost" onClick={handleSkip} title="Skip the current commit and continue rebasing">Skip commit</button>
+        {controls.canSkip && (
+          <button className="btn btn-ghost" onClick={handleSkip} title={`Skip the current commit and continue the ${lower}`}>Skip commit</button>
         )}
-        <button
-          className="btn btn-primary"
-          onClick={handleContinue}
-          disabled={!allResolved}
-          title={allResolved ? 'Resume the operation' : 'Resolve all files first'}
-        >
-          Continue {mode}
-        </button>
+        {controls.canContinue ? (
+          <button
+            className="btn btn-primary"
+            onClick={handleContinue}
+            disabled={!allResolved}
+            title={allResolved ? 'Resume the operation' : 'Resolve all files first'}
+          >
+            Continue {lower}
+          </button>
+        ) : (
+          <button
+            className="btn btn-primary"
+            onClick={onRefresh}
+            disabled={!allResolved}
+            title={allResolved ? 'Done — the re-applied changes stay in your working tree' : 'Resolve all files first'}
+          >
+            Finish
+          </button>
+        )}
       </div>
 
       {confirmAbort && (
         <ConfirmModal
-          title={`Abort ${mode}?`}
-          message={`Your repository will return to the state before this ${mode} started.`}
-          confirmLabel={`Abort ${mode}`}
+          title={`Abort ${lower}?`}
+          message={mode === 'stash'
+            ? 'The conflicted files are restored from HEAD. The stash entry stays on the stack, so nothing is lost.'
+            : `Your repository will return to the state before this ${lower} started.`}
+          confirmLabel={`Abort ${lower}`}
           danger
           onClose={() => setConfirmAbort(false)}
           onConfirm={doAbort}
