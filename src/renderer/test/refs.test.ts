@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupRefs, pickPrimaryRefGroup, branchBaseName } from '../lib/refs'
+import { groupRefs, pickPrimaryRefGroup, branchBaseName, isGerritPatchsetRef } from '../lib/refs'
 
 describe('groupRefs', () => {
   it('collapses HEAD + local + remote of the same branch into one group', () => {
@@ -103,5 +103,19 @@ describe('outdated patchset markers', () => {
     const groups = groupRefs(['HEAD', 'refs/gitgud/outdated/9'], new Set())
     expect(groups.find((g) => g.name === 'HEAD')?.isHead).toBe(true)
     expect(groups.find((g) => g.name === '#9')?.isOutdatedPatchset).toBe(true)
+  })
+
+  it('labels mirrored older patchsets with their patchset number', () => {
+    const groups = groupRefs(['HEAD', 'refs/gitgud/patchsets/1234/3', 'refs/gitgud/outdated/77/2'], new Set())
+    const ps = groups.find((g) => g.name === '#1234 PS3')
+    expect(ps?.isGerritChange).toBe(true)
+    expect(ps?.isOutdatedPatchset).toBe(true)
+    expect(ps?.tooltip).toContain('patchset 3')
+    expect(groups.find((g) => g.name === '#77 PS2')?.isOutdatedPatchset).toBe(true)
+    expect(groups.find((g) => g.name === 'HEAD')?.isHead).toBe(true)
+    expect(isGerritPatchsetRef('refs/gitgud/patchsets/1234/3')).toBe(true)
+    expect(isGerritPatchsetRef('refs/gitgud/outdated/1234/3')).toBe(false)
+    expect(isGerritPatchsetRef('refs/gitgud/patchsets/1234')).toBe(false)
+    expect(isGerritPatchsetRef('refs/gitgud/patchsets/1234/3/extra')).toBe(false)
   })
 })

@@ -19,6 +19,12 @@ export interface RefVisibility {
   tags: boolean;
   /** Mirrored Gerrit change pills (#1234), current and outdated patchsets. */
   gerrit: boolean;
+  /**
+   * Gerrit mode only: walk every patchset of each open change (a node per
+   * amendment, so the full history of a CL is visible) instead of just the
+   * latest one. Off by default — one node per change reads like plain git.
+   */
+  gerritAllPatchsets: boolean;
 }
 
 export const DEFAULT_REF_VISIBILITY: RefVisibility = {
@@ -27,6 +33,7 @@ export const DEFAULT_REF_VISIBILITY: RefVisibility = {
   remote: true,
   tags: true,
   gerrit: true,
+  gerritAllPatchsets: false,
 };
 
 /** Pill kinds toggled individually in the toolbar menu. */
@@ -65,5 +72,6 @@ export function normalizeRefVisibility(raw: unknown): RefVisibility {
     remote: bool(o.remote, DEFAULT_REF_VISIBILITY.remote),
     tags: bool(o.tags, DEFAULT_REF_VISIBILITY.tags),
     gerrit: bool(o.gerrit, DEFAULT_REF_VISIBILITY.gerrit),
+    gerritAllPatchsets: bool(o.gerritAllPatchsets, DEFAULT_REF_VISIBILITY.gerritAllPatchsets),
   };
 }

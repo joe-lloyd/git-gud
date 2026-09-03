@@ -249,3 +249,40 @@
   margin: 4px 2px;
   background: var(--border);
 }
+
+/* Gerrit "Patch sets: Latest | All" switch — a sub-row under the Gerrit
+   changes label, indented to read as qualifying it. */
+.tb-refs-sub {
+  justify-content: space-between;
+  padding-left: 30px;
+  cursor: default;
+}
+.tb-refs-sub:hover { background: transparent; }
+.tb-refs-sub-label { color: var(--text-secondary); }
+.tb-refs-sub-hint { padding-left: 30px; }
+
+.tb-seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-deepest);
+}
+.tb-seg-btn {
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.tb-seg-btn:hover { color: var(--text-primary); }
+.tb-seg-btn.active {
+  background: var(--accent);
+  color: var(--bg-deepest);
+  font-weight: 600;
+}

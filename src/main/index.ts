@@ -799,7 +799,7 @@ app.whenReady().then(async () => {
   })
 
   // Mirror open changes into refs/gitgud/changes/* so the graph shows them.
-  ipcMain.handle('gerrit:sync-change-refs', async (_event, remote: string, changes: Array<{ number: number; currentRef?: string }>) => {
+  ipcMain.handle('gerrit:sync-change-refs', async (_event, remote: string, changes: Array<{ number: number; currentRef?: string; patchsets?: Array<{ number: number; ref?: string }> }>) => {
     if (!gitService) return { success: false, error: 'No repo', fetched: 0, pruned: 0 }
     return gitService.syncGerritChangeRefs(remote, changes)
   })

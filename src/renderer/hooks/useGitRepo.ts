@@ -8,9 +8,11 @@ const EMPTY_BRANCHES: BranchData = { local: [], remote: [] }
 export interface GraphLogOptions {
   /** Walk tool-private ref namespaces (refs/t3/*, refs/notes, …) too. */
   includeOtherRefs: boolean
+  /** Gerrit mode: walk every mirrored patchset, not just each change's latest. */
+  includeGerritPatchsets?: boolean
 }
 
-const DEFAULT_LOG_OPTIONS: GraphLogOptions = { includeOtherRefs: false }
+const DEFAULT_LOG_OPTIONS: GraphLogOptions = { includeOtherRefs: false, includeGerritPatchsets: false }
 
 export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
   // One tab per repository. `repoPath` is the ACTIVE WORKTREE path (what all
@@ -89,7 +91,10 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
   // Doesn't touch loading state — caller decides whether to show a spinner.
   const fetchAll = useCallback(async () => {
     const [log, branchData, stashData, tagData, st, wt, rmts, otherRefs] = await Promise.all([
-      window.gitApi.getLog(2000, { includeOtherRefs: logOptionsRef.current.includeOtherRefs }),
+      window.gitApi.getLog(2000, {
+        includeOtherRefs: logOptionsRef.current.includeOtherRefs,
+        includeGerritPatchsets: logOptionsRef.current.includeGerritPatchsets ?? false,
+      }),
       window.gitApi.getBranches(),
       window.gitApi.getStashes(),
       window.gitApi.getTags(),
@@ -283,7 +288,7 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
     logOptionsRef.current = logOptions
     if (!didLogOptionsMount.current) { didLogOptionsMount.current = true; return }
     refreshRef.current()
-  }, [logOptions.includeOtherRefs])
+  }, [logOptions.includeOtherRefs, logOptions.includeGerritPatchsets])
 
   // Refresh on window focus (catches external CLI ops while app was blurred)
   useEffect(() => {

@@ -84,4 +84,10 @@ describe('normalizeRefVisibility', () => {
     // A blob saved before this setting existed must not silently switch it on.
     expect(normalizeRefVisibility({ local: true }).otherRefs).toBe(false)
   })
+
+  it('shows only the latest Gerrit patchset by default', () => {
+    expect(DEFAULT_REF_VISIBILITY.gerritAllPatchsets).toBe(false)
+    expect(normalizeRefVisibility({ gerrit: true }).gerritAllPatchsets).toBe(false)
+    expect(normalizeRefVisibility({ gerritAllPatchsets: true }).gerritAllPatchsets).toBe(true)
+  })
 })

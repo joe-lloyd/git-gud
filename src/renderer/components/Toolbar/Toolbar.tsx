@@ -42,6 +42,8 @@ interface ToolbarProps {
   otherRefNamespaces?: OtherRefNamespace[]
   onToggleOtherRefs?: () => void
   onToggleRefKind?: (kind: RefKind) => void
+  /** Gerrit mode: show every patchset of each open change, or only the latest. */
+  onSetGerritAllPatchsets?: (all: boolean) => void
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -73,6 +75,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   otherRefNamespaces = [],
   onToggleOtherRefs,
   onToggleRefKind,
+  onSetGerritAllPatchsets,
 }) => {
   const [fetching, setFetching] = useState(false)
   const [pulling, setPulling] = useState(false)
@@ -223,6 +226,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             otherRefNamespaces={otherRefNamespaces}
             onToggleOtherRefs={onToggleOtherRefs}
             onToggleKind={onToggleRefKind}
+            gerritMode={gerritMode}
+            onSetGerritAllPatchsets={onSetGerritAllPatchsets}
           />
         )}
         <button className="tb-icon-btn" title="GitHub" onClick={onGitHubShow}><Icon name="github" /></button>
@@ -259,11 +264,13 @@ const REF_KIND_LABELS: { kind: RefKind; label: string }[] = [
   { kind: 'gerrit', label: 'Gerrit changes' },
 ]
 
-function RefsToggle({ visibility, otherRefNamespaces, onToggleOtherRefs, onToggleKind }: {
+function RefsToggle({ visibility, otherRefNamespaces, onToggleOtherRefs, onToggleKind, gerritMode, onSetGerritAllPatchsets }: {
   visibility: RefVisibility
   otherRefNamespaces: OtherRefNamespace[]
   onToggleOtherRefs: () => void
   onToggleKind: (kind: RefKind) => void
+  gerritMode: boolean
+  onSetGerritAllPatchsets?: (all: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -287,6 +294,12 @@ function RefsToggle({ visibility, otherRefNamespaces, onToggleOtherRefs, onToggl
     ? otherRefNamespaces.map((n) => `${n.namespace} (${n.count})`).join(', ')
     : 'none in this repo'
   const otherCount = otherRefNamespaces.reduce((n, ns) => n + ns.count, 0)
+  // Gerrit mode: the patch-set switch sits right under the Gerrit label it
+  // qualifies. "All" turns every amendment of every open change into a node.
+  const showPatchsetSwitch = gerritMode && Boolean(onSetGerritAllPatchsets)
+  const allPatchsets = visibility.gerritAllPatchsets
+  // The tree carries commits beyond plain branches/tags — flag it on the button.
+  const extraInGraph = (visibility.otherRefs && otherCount > 0) || (showPatchsetSwitch && allPatchsets)
 
   return (
     <div className="tb-refs" ref={wrapRef}>
@@ -296,7 +309,7 @@ function RefsToggle({ visibility, otherRefNamespaces, onToggleOtherRefs, onToggl
         onClick={() => setOpen((o) => !o)}
       >
         <Icon name="tag" />
-        {visibility.otherRefs && otherCount > 0 && <span className="tb-refs-dot" />}
+        {extraInGraph && <span className="tb-refs-dot" />}
       </button>
 
       {open && (
@@ -320,10 +333,46 @@ function RefsToggle({ visibility, otherRefNamespaces, onToggleOtherRefs, onToggl
           <div className="tb-refs-sep" />
           <div className="tb-refs-title">Labels</div>
           {REF_KIND_LABELS.map(({ kind, label }) => (
-            <label key={kind} className="tb-refs-item">
-              <input type="checkbox" checked={visibility[kind]} onChange={() => onToggleKind(kind)} />
-              <span>{label}</span>
-            </label>
+            <React.Fragment key={kind}>
+              <label className="tb-refs-item">
+                <input type="checkbox" checked={visibility[kind]} onChange={() => onToggleKind(kind)} />
+                <span>{label}</span>
+              </label>
+              {kind === 'gerrit' && showPatchsetSwitch && (
+                <>
+                  <div className="tb-refs-item tb-refs-sub" role="radiogroup" aria-label="Gerrit patch sets">
+                    <span className="tb-refs-sub-label">Patch sets</span>
+                    <div className="tb-seg">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={!allPatchsets}
+                        className={`tb-seg-btn ${!allPatchsets ? 'active' : ''}`}
+                        title="One node per open change — its latest patch set. Feels like plain git."
+                        onClick={() => onSetGerritAllPatchsets!(false)}
+                      >
+                        Latest
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={allPatchsets}
+                        className={`tb-seg-btn ${allPatchsets ? 'active' : ''}`}
+                        title="Every patch set of every open change — the full history of each CL."
+                        onClick={() => onSetGerritAllPatchsets!(true)}
+                      >
+                        All
+                      </button>
+                    </div>
+                  </div>
+                  <div className="tb-refs-hint tb-refs-sub-hint">
+                    {allPatchsets
+                      ? 'Every patch set of each open change is a node (#1234 PS3 …).'
+                      : 'Only each open change\'s latest patch set is a node.'}
+                  </div>
+                </>
+              )}
+            </React.Fragment>
           ))}
         </div>
       )}

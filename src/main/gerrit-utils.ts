@@ -29,6 +29,9 @@ export type GerritPatchset = {
   number: number;
   created: string;
   kind: string; // REWORK | TRIVIAL_REBASE | NO_CODE_CHANGE | NO_CHANGE | …
+  // Server-side ref of this patchset (refs/changes/<nn>/<n>/<ps>) — what the
+  // "all patch sets" graph mode fetches. Derived when the server omits it.
+  ref?: string;
 };
 
 export type GerritChange = {
@@ -285,6 +288,7 @@ export function mapGerritChange(host: string, c: any): GerritChange {
       number: r?._number ?? 0,
       created: r?.created ?? "",
       kind: r?.kind ?? "",
+      ...(typeof r?.ref === "string" && r.ref ? { ref: r.ref } : {}),
     }))
     .sort((a, b) => b.number - a.number);
   return {
@@ -305,14 +309,53 @@ export function mapGerritChange(host: string, c: any): GerritChange {
 
 // Local namespace holding fetched patchset refs so open changes render as
 // graph nodes. Scoped under refs/gitgud/ so cleanup can never touch user refs.
+// Current patchsets: refs/gitgud/changes/<n> (always walked in Gerrit mode).
+// Older patchsets:   refs/gitgud/patchsets/<n>/<ps> (walked only in the
+// "all patch sets" graph mode — off, the tree reads like plain git).
 export const CHANGE_REF_PREFIX = "refs/gitgud/changes/";
+export const PATCHSET_REF_PREFIX = "refs/gitgud/patchsets/";
 
-// Fetch refspecs for the open changes' current patchsets:
-//   +refs/changes/34/1234/5:refs/gitgud/changes/1234
-export function buildChangeRefFetchSpecs(
-  changes: Array<{ number: number; currentRef?: string }>,
-): string[] {
-  return changes
-    .filter((c) => c.number > 0 && c.currentRef?.startsWith("refs/changes/"))
-    .map((c) => `+${c.currentRef}:${CHANGE_REF_PREFIX}${c.number}`);
+/** Gerrit's on-server ref for a patchset: refs/changes/<last two digits>/<n>/<ps>. */
+export function gerritPatchsetRef(changeNumber: number, patchset: number): string {
+  const shard = String(changeNumber % 100).padStart(2, "0");
+  return `refs/changes/${shard}/${changeNumber}/${patchset}`;
+}
+
+export type ChangeRefSyncEntry = {
+  number: number;
+  currentRef?: string;
+  /** Every patchset of the change; the current one is skipped (already mirrored). */
+  patchsets?: Array<{ number: number; ref?: string }>;
+};
+
+// Fetch refspecs for the open changes:
+//   +refs/changes/34/1234/5:refs/gitgud/changes/1234       (current patchset)
+//   +refs/changes/34/1234/4:refs/gitgud/patchsets/1234/4   (each older one)
+export function buildChangeRefFetchSpecs(changes: ChangeRefSyncEntry[]): string[] {
+  const specs: string[] = [];
+  for (const c of changes) {
+    if (!(c.number > 0) || !c.currentRef?.startsWith("refs/changes/")) continue;
+    specs.push(`+${c.currentRef}:${CHANGE_REF_PREFIX}${c.number}`);
+    for (const ps of c.patchsets ?? []) {
+      if (!(ps.number > 0)) continue;
+      const ref = ps.ref ?? gerritPatchsetRef(c.number, ps.number);
+      if (ref === c.currentRef || !ref.startsWith("refs/changes/")) continue;
+      specs.push(`+${ref}:${PATCHSET_REF_PREFIX}${c.number}/${ps.number}`);
+    }
+  }
+  return specs;
+}
+
+/** The local mirror refs a sync must keep; everything else under both namespaces is pruned. */
+export function changeRefKeepSet(changes: ChangeRefSyncEntry[]): Set<string> {
+  const keep = new Set<string>();
+  for (const c of changes) {
+    if (!(c.number > 0)) continue;
+    keep.add(`${CHANGE_REF_PREFIX}${c.number}`);
+    for (const ps of c.patchsets ?? []) {
+      const ref = ps.ref ?? gerritPatchsetRef(c.number, ps.number);
+      if (ref !== c.currentRef) keep.add(`${PATCHSET_REF_PREFIX}${c.number}/${ps.number}`);
+    }
+  }
+  return keep;
 }

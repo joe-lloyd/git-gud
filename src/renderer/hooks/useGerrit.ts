@@ -108,13 +108,23 @@ export function useGerrit(
       if (seq !== fetchSeq.current) return // superseded by a newer fetch
       if (r.success) {
         setChanges(r.changes); setChangesError(null); setAuthMode(r.auth)
-        // Mirror the open patchsets into refs/gitgud/changes/* so they show
-        // up as graph nodes. The resulting ref writes trip the FS watcher,
-        // which refreshes the log — no explicit refresh needed here.
+        // Mirror the open changes into refs/gitgud/changes/* (current
+        // patchset — always a graph node) and refs/gitgud/patchsets/* (older
+        // patchsets — nodes only in the "all patch sets" graph mode, so the
+        // toggle is instant and needs no network). The resulting ref writes
+        // trip the FS watcher, which refreshes the log — no explicit refresh
+        // needed here.
         const entries = r.changes
           .filter((c) => c.currentRef)
-          .map((c) => ({ number: c.number, currentRef: c.currentRef }))
-        const sig = entries.map((e) => `${e.number}:${e.currentRef}`).sort().join(',')
+          .map((c) => ({
+            number: c.number,
+            currentRef: c.currentRef,
+            patchsets: c.patchsets.map((p) => ({ number: p.number, ref: p.ref })),
+          }))
+        const sig = entries
+          .map((e) => `${e.number}:${e.currentRef}:${e.patchsets.map((p) => p.number).sort((a, b) => a - b).join('+')}`)
+          .sort()
+          .join(',')
         if (sig !== lastSyncSig.current) {
           lastSyncSig.current = sig
           window.gerritApi.syncChangeRefs(detection?.remote ?? 'origin', entries).catch(() => {})

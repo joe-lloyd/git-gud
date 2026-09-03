@@ -10,7 +10,10 @@ import {
   buildReviewRefspec,
   classifyReviewPushError,
   buildChangeRefFetchSpecs,
+  changeRefKeepSet,
   CHANGE_REF_PREFIX,
+  PATCHSET_REF_PREFIX,
+  type ChangeRefSyncEntry,
   type PushForReviewOptions,
   type ReviewPushErrorKind,
 } from "./gerrit-utils";
@@ -101,7 +104,13 @@ const DECORATE_ARGS = [
   "--decorate-refs=refs/tags",
   "--decorate-refs=refs/stash",
   "--decorate-refs=refs/gitgud/changes",
+  "--decorate-refs=refs/gitgud/patchsets",
 ];
+
+// Older patchsets of open Gerrit changes live here (see gerrit-utils'
+// PATCHSET_REF_PREFIX). Walked only on request — by default the graph shows
+// one node per change, like plain git would.
+const GERRIT_PATCHSETS_GLOB = "refs/gitgud/patchsets";
 
 // The ref namespaces the graph walks by default. `--all` would also drag in
 // every tool-private namespace (T3 Chat's refs/t3/checkpoints/*, jj/gerrit
@@ -413,7 +422,10 @@ export class GitService {
     }
   }
 
-  async getLog(limit = 500, opts: { includeOtherRefs?: boolean } = {}): Promise<CommitNode[]> {
+  async getLog(
+    limit = 500,
+    opts: { includeOtherRefs?: boolean; includeGerritPatchsets?: boolean } = {},
+  ): Promise<CommitNode[]> {
     // Use ASCII unit-separator \x1f between fields so empty %D never collapses
     // into the message line (which happens with newline-only separators).
     const FS = "\x1f";
@@ -442,13 +454,19 @@ export class GitService {
     // so its pill has to be suppressed separately from the walk.
     if (gerritMode) decorate.push(`--decorate-refs-exclude=${GERRIT_REMOTE_CHANGE_GLOB_FULL}`);
 
+    // Older patchsets are opt-in: --all would otherwise drag every mirrored
+    // patchset in whenever other refs are shown, so exclude the namespace
+    // unless asked for it. (--exclude applies to the next listing option.)
     const walkRefs = opts.includeOtherRefs
-      ? gerritMode
-        ? [`--exclude=${GERRIT_REMOTE_CHANGE_GLOB_FULL}`, "--all"]
-        : ["--all"]
-      : gerritMode
-        ? GERRIT_LOG_REFS
-        : DEFAULT_LOG_REFS;
+      ? [
+          ...(opts.includeGerritPatchsets ? [] : [`--exclude=${GERRIT_PATCHSETS_GLOB}/*`]),
+          ...(gerritMode ? [`--exclude=${GERRIT_REMOTE_CHANGE_GLOB_FULL}`] : []),
+          "--all",
+        ]
+      : [
+          ...(gerritMode ? GERRIT_LOG_REFS : DEFAULT_LOG_REFS),
+          ...(gerritMode && opts.includeGerritPatchsets ? [`--glob=${GERRIT_PATCHSETS_GLOB}`] : []),
+        ];
 
     const rawOutput = await this.git.raw([
       "log",
@@ -1582,26 +1600,26 @@ export class GitService {
     }
   }
 
-  // Mirror the open changes' current patchsets into refs/gitgud/changes/<n>
-  // so `log --all` walks them and the graph renders each open change as a
-  // real node. The fetch authenticates exactly like push/pull (git config /
-  // cookiefile / injected headers). Refs for changes no longer open are
-  // pruned; the namespace is ours alone, so pruning can't touch user refs.
+  // Mirror the open changes into our namespace so the graph renders them as
+  // real nodes: the current patchset as refs/gitgud/changes/<n> (always
+  // walked in Gerrit mode) and every older patchset as
+  // refs/gitgud/patchsets/<n>/<ps> (walked only in "all patch sets" mode).
+  // The fetch authenticates exactly like push/pull (git config / cookiefile /
+  // injected headers). Refs for changes no longer open — and patchsets that
+  // have since become the current one — are pruned; the namespace is ours
+  // alone, so pruning can't touch user refs.
   async syncGerritChangeRefs(
     remote: string,
-    changes: Array<{ number: number; currentRef?: string }>,
+    changes: ChangeRefSyncEntry[],
   ): Promise<{ success: boolean; error?: string; fetched: number; pruned: number }> {
     try {
       const specs = buildChangeRefFetchSpecs(changes);
-      const keep = new Set(changes.map((c) => `${CHANGE_REF_PREFIX}${c.number}`));
+      const keep = changeRefKeepSet(changes);
 
       // Prune first so abandoned/merged changes disappear even if the fetch
       // below fails (e.g. offline).
       let pruned = 0;
-      const existingRaw = await this.git
-        .raw(["for-each-ref", "--format=%(refname)", CHANGE_REF_PREFIX.replace(/\/$/, "")])
-        .catch(() => "");
-      for (const refname of existingRaw.trim().split("\n").filter(Boolean)) {
+      for (const refname of await this.listGerritMirrorRefs()) {
         if (!keep.has(refname)) {
           await this.git.raw(["update-ref", "-d", refname]).catch(() => {});
           pruned++;
@@ -1619,15 +1637,24 @@ export class GitService {
 
   // Remove every fetched change ref — called when Gerrit mode is disabled.
   async clearGerritChangeRefs(): Promise<number> {
-    const existingRaw = await this.git
-      .raw(["for-each-ref", "--format=%(refname)", CHANGE_REF_PREFIX.replace(/\/$/, "")])
-      .catch(() => "");
     let removed = 0;
-    for (const refname of existingRaw.trim().split("\n").filter(Boolean)) {
+    for (const refname of await this.listGerritMirrorRefs()) {
       await this.git.raw(["update-ref", "-d", refname]).catch(() => {});
       removed++;
     }
     return removed;
+  }
+
+  private async listGerritMirrorRefs(): Promise<string[]> {
+    const raw = await this.git
+      .raw([
+        "for-each-ref",
+        "--format=%(refname)",
+        CHANGE_REF_PREFIX.replace(/\/$/, ""),
+        PATCHSET_REF_PREFIX.replace(/\/$/, ""),
+      ])
+      .catch(() => "");
+    return raw.trim().split("\n").filter(Boolean);
   }
 
   async createBranch(name: string, startPoint?: string): Promise<void> {

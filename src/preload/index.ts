@@ -223,7 +223,7 @@ const gitApi = {
 
   // includeOtherRefs adds tool-private namespaces (refs/t3/*, refs/notes, …)
   // to the walk; off by default so the graph shows only real branches/tags.
-  getLog: (limit?: number, opts?: { includeOtherRefs?: boolean }): Promise<CommitNode[]> =>
+  getLog: (limit?: number, opts?: { includeOtherRefs?: boolean; includeGerritPatchsets?: boolean }): Promise<CommitNode[]> =>
     ipcRenderer.invoke('git:log', limit, opts ?? {}),
   getOtherRefNamespaces: (): Promise<OtherRefNamespace[]> =>
     ipcRenderer.invoke('git:other-ref-namespaces'),
@@ -511,6 +511,16 @@ export type GerritPatchset = {
   number: number
   created: string
   kind: string
+  // Server ref (refs/changes/<nn>/<n>/<ps>); fetched in "all patch sets" mode.
+  ref?: string
+}
+
+// What syncChangeRefs mirrors per open change. `patchsets` lists every
+// patchset; older ones land in refs/gitgud/patchsets/<n>/<ps>.
+export type ChangeRefSyncEntry = {
+  number: number
+  currentRef?: string
+  patchsets?: Array<{ number: number; ref?: string }>
 }
 
 export type GerritChange = {
@@ -549,7 +559,7 @@ const gerritApi = {
     ipcRenderer.invoke('gerrit:list-changes', host, project),
   // Fetch open changes' patchsets into refs/gitgud/changes/* (graph nodes)
   // and prune the ones no longer open.
-  syncChangeRefs: (remote: string, changes: Array<{ number: number; currentRef?: string }>): Promise<{ success: boolean; error?: string; fetched: number; pruned: number }> =>
+  syncChangeRefs: (remote: string, changes: ChangeRefSyncEntry[]): Promise<{ success: boolean; error?: string; fetched: number; pruned: number }> =>
     ipcRenderer.invoke('gerrit:sync-change-refs', remote, changes),
   clearChangeRefs: (): Promise<number> => ipcRenderer.invoke('gerrit:clear-change-refs'),
   // Credentials never come back to the renderer — only a boolean status.

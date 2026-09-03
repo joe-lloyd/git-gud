@@ -16,6 +16,8 @@ import {
   cookieHeaderForHost,
   canonicalGerritRestHost,
   buildChangeRefFetchSpecs,
+  changeRefKeepSet,
+  gerritPatchsetRef,
 } from '../../src/main/gerrit-utils'
 
 describe('parseGitReview', () => {
@@ -230,7 +232,7 @@ describe('REST plumbing', () => {
       currentSha: 'deadbeef',
       currentRef: 'refs/changes/11/4711/3',
       patchsets: [
-        { sha: 'deadbeef', number: 3, created: '2026-08-01 10:00:00.000000000', kind: 'REWORK' },
+        { sha: 'deadbeef', number: 3, created: '2026-08-01 10:00:00.000000000', kind: 'REWORK', ref: 'refs/changes/11/4711/3' },
         { sha: 'cafe0002', number: 2, created: '2026-07-30 09:00:00.000000000', kind: 'TRIVIAL_REBASE' },
         { sha: 'cafe0001', number: 1, created: '2026-07-28 09:00:00.000000000', kind: 'REWORK' },
       ],
@@ -285,6 +287,42 @@ describe('buildChangeRefFetchSpecs', () => {
       { number: 0, currentRef: 'refs/changes/01/1/1' },
       { number: 2, currentRef: 'refs/heads/main' },
     ])).toEqual([])
+  })
+
+  it('mirrors older patchsets into refs/gitgud/patchsets/<n>/<ps>, never the current one twice', () => {
+    expect(buildChangeRefFetchSpecs([
+      {
+        number: 1234,
+        currentRef: 'refs/changes/34/1234/3',
+        patchsets: [
+          { number: 3, ref: 'refs/changes/34/1234/3' },
+          { number: 2, ref: 'refs/changes/34/1234/2' },
+          { number: 1 }, // server omitted the ref → derived
+        ],
+      },
+    ])).toEqual([
+      '+refs/changes/34/1234/3:refs/gitgud/changes/1234',
+      '+refs/changes/34/1234/2:refs/gitgud/patchsets/1234/2',
+      '+refs/changes/34/1234/1:refs/gitgud/patchsets/1234/1',
+    ])
+  })
+
+  it('derives Gerrit\'s sharded change ref', () => {
+    expect(gerritPatchsetRef(1234, 5)).toBe('refs/changes/34/1234/5')
+    expect(gerritPatchsetRef(7, 1)).toBe('refs/changes/07/7/1')
+    expect(gerritPatchsetRef(100, 2)).toBe('refs/changes/00/100/2')
+  })
+
+  it('keep set covers the current mirror plus every older patchset', () => {
+    const keep = changeRefKeepSet([
+      { number: 9, currentRef: 'refs/changes/09/9/2', patchsets: [{ number: 2 }, { number: 1 }] },
+      { number: 3, currentRef: 'refs/changes/03/3/1' },
+    ])
+    expect([...keep].sort()).toEqual([
+      'refs/gitgud/changes/3',
+      'refs/gitgud/changes/9',
+      'refs/gitgud/patchsets/9/1',
+    ])
   })
 })
 

@@ -16,6 +16,8 @@ export interface RefVisibilityState {
   toggleOtherRefs: () => void
   /** Flip one pill kind (local / remote / tags / gerrit). */
   toggleKind: (kind: RefKind) => void
+  /** Gerrit mode: every patchset of each open change vs. only the latest. */
+  setGerritAllPatchsets: (all: boolean) => void
 }
 
 export function useRefVisibility(): RefVisibilityState {
@@ -42,5 +44,10 @@ export function useRefVisibility(): RefVisibilityState {
     [],
   )
 
-  return { visibility, toggleOtherRefs, toggleKind }
+  const setGerritAllPatchsets = useCallback(
+    (all: boolean) => setVisibility((v) => (v.gerritAllPatchsets === all ? v : { ...v, gerritAllPatchsets: all })),
+    [],
+  )
+
+  return { visibility, toggleOtherRefs, toggleKind, setGerritAllPatchsets }
 }

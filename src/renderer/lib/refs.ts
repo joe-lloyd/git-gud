@@ -14,21 +14,44 @@ export interface RefGroup {
   tooltip: string; // full list of raw refs
 }
 
-// Namespace GitService mirrors open Gerrit changes into (see gerrit-utils'
-// CHANGE_REF_PREFIX — duplicated here because main-process modules can't be
-// imported by the renderer).
+// Namespaces GitService mirrors open Gerrit changes into (see gerrit-utils'
+// CHANGE_REF_PREFIX / PATCHSET_REF_PREFIX — duplicated here because
+// main-process modules can't be imported by the renderer). The current
+// patchset of change <n> is refs/gitgud/changes/<n>; older patchsets, walked
+// only in the "all patch sets" graph mode, are refs/gitgud/patchsets/<n>/<ps>.
 export const GERRIT_CHANGE_REF_PREFIX = "refs/gitgud/changes/";
+export const GERRIT_PATCHSET_REF_PREFIX = "refs/gitgud/patchsets/";
 
 // Synthetic, renderer-only marker (never a real git ref): appended to a
 // commit's refs by App when the commit is an OLD patchset of an open change
 // that another commit still builds on — labeled instead of looking like an
-// anonymous orphan node.
+// anonymous orphan node. Carries the patchset number when known:
+// refs/gitgud/outdated/<n>[/<ps>].
 export const GERRIT_OUTDATED_REF_PREFIX = "refs/gitgud/outdated/";
+
+const positiveInt = (s: string): number | null => {
+  const n = Number(s);
+  return /^\d+$/.test(s) && Number.isInteger(n) && n > 0 ? n : null;
+};
 
 const changeNumberFrom = (ref: string, prefix: string): number | null => {
   if (!ref.startsWith(prefix)) return null;
-  const n = Number(ref.slice(prefix.length));
-  return Number.isInteger(n) && n > 0 ? n : null;
+  return positiveInt(ref.slice(prefix.length));
+};
+
+/** `<n>[/<ps>]` after `prefix` → change number + optional patchset number. */
+const changePatchsetFrom = (
+  ref: string,
+  prefix: string,
+): { number: number; patchset: number | null } | null => {
+  if (!ref.startsWith(prefix)) return null;
+  const [n, ps, ...rest] = ref.slice(prefix.length).split("/");
+  if (rest.length > 0) return null;
+  const number = positiveInt(n ?? "");
+  if (number === null) return null;
+  if (ps === undefined) return { number, patchset: null };
+  const patchset = positiveInt(ps);
+  return patchset === null ? null : { number, patchset };
 };
 
 /** The change number when `ref` is a mirrored Gerrit change ref, else null. */
@@ -38,7 +61,24 @@ export function gerritChangeNumber(ref: string): number | null {
 
 /** The change number when `ref` is a synthetic outdated-patchset marker. */
 export function gerritOutdatedNumber(ref: string): number | null {
-  return changeNumberFrom(ref, GERRIT_OUTDATED_REF_PREFIX);
+  return changePatchsetFrom(ref, GERRIT_OUTDATED_REF_PREFIX)?.number ?? null;
+}
+
+/**
+ * Change + patchset numbers when `ref` is an older patchset of an open change:
+ * a real mirrored refs/gitgud/patchsets/<n>/<ps> ref, or App's synthetic
+ * refs/gitgud/outdated/<n>[/<ps>] marker. Else null.
+ */
+export function gerritOlderPatchset(ref: string): { number: number; patchset: number | null } | null {
+  return (
+    changePatchsetFrom(ref, GERRIT_PATCHSET_REF_PREFIX) ??
+    changePatchsetFrom(ref, GERRIT_OUTDATED_REF_PREFIX)
+  );
+}
+
+/** True for any mirrored older-patchset ref (not the synthetic marker). */
+export function isGerritPatchsetRef(ref: string): boolean {
+  return changePatchsetFrom(ref, GERRIT_PATCHSET_REF_PREFIX)?.patchset != null;
 }
 
 /** Extract the short branch name from any ref form. */
@@ -71,7 +111,7 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
       continue;
     }
     if (ref.startsWith("tag: ")) continue;
-    if (gerritChangeNumber(ref) !== null || gerritOutdatedNumber(ref) !== null) continue; // never HEAD's branch
+    if (gerritChangeNumber(ref) !== null || gerritOlderPatchset(ref) !== null) continue; // never HEAD's branch
     // The first non-HEAD, non-tag ref after HEAD is what HEAD points to
     if (headTarget === "HEAD_standalone") {
       headTarget = branchBaseName(ref);
@@ -122,13 +162,16 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
       continue;
     }
 
-    // Older patchset of an open change (synthetic marker from App) — labeled
-    // so the node doesn't read as an anonymous orphan.
-    const outdatedNumber = gerritOutdatedNumber(ref);
-    if (outdatedNumber !== null) {
+    // Older patchset of an open change — a mirrored refs/gitgud/patchsets
+    // ref ("all patch sets" mode) or App's synthetic marker — labeled so the
+    // node doesn't read as an anonymous orphan. "#1234 PS3" when the
+    // patchset number is known.
+    const older = gerritOlderPatchset(ref);
+    if (older !== null) {
+      const ps = older.patchset !== null ? ` PS${older.patchset}` : "";
       groups.set(ref, {
         key: ref,
-        name: `#${outdatedNumber}`,
+        name: `#${older.number}${ps}`,
         isHead: false,
         hasLocal: false,
         hasRemote: false,
@@ -136,7 +179,7 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
         isGerritChange: true,
         isOutdatedPatchset: true,
         hasWorktree: false,
-        tooltip: `outdated patchset of open Gerrit change #${outdatedNumber} — a newer patchset exists`,
+        tooltip: `${older.patchset !== null ? `patchset ${older.patchset}` : "older patchset"} of open Gerrit change #${older.number} — a newer patchset exists`,
       });
       continue;
     }

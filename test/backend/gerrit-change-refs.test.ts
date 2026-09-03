@@ -32,9 +32,10 @@ describe('Gerrit change ref sync', () => {
     await git.push(['origin', 'HEAD:refs/heads/main'])
 
     // Two "open changes": patchset commits living only under refs/changes/*.
-    for (const [n, ps] of [[1, 2], [7, 1]] as const) {
-      writeFileSync(join(repoPath, `c${n}.txt`), `change ${n}\n`)
-      await git.add('.').then(() => git.commit(`change ${n}`))
+    // Change 1 has an older patchset (ps1) that was amended into ps2.
+    for (const [n, ps] of [[1, 1], [1, 2], [7, 1]] as const) {
+      writeFileSync(join(repoPath, `c${n}.txt`), `change ${n} ps ${ps}\n`)
+      await git.add('.').then(() => git.commit(`change ${n} ps ${ps}`))
       await git.push(['origin', `HEAD:refs/changes/0${n}/${n}/${ps}`])
       await git.raw(['reset', '--hard', 'HEAD~1'])
     }
@@ -113,6 +114,59 @@ describe('Gerrit change ref sync', () => {
     ])
     const removed = await service.clearGerritChangeRefs()
     expect(removed).toBe(1)
+    expect(await refNames()).toEqual([])
+  })
+
+  // "All patch sets" graph mode: older patchsets are mirrored alongside the
+  // current one but only walked when asked for, so the default tree still
+  // shows one node per change.
+  it('mirrors older patchsets and walks them only with includeGerritPatchsets', async () => {
+    const git = simpleGit(repoPath)
+    await git.addConfig('gitgud.gerrit.enabled', 'true')
+    const r = await service.syncGerritChangeRefs('origin', [
+      { number: 1, currentRef: 'refs/changes/01/1/2', patchsets: [{ number: 2 }, { number: 1 }] },
+      { number: 7, currentRef: 'refs/changes/07/7/1', patchsets: [{ number: 1 }] },
+    ])
+    expect(r.success).toBe(true)
+    expect((await refNames()).sort()).toEqual([
+      'refs/gitgud/changes/1',
+      'refs/gitgud/changes/7',
+      'refs/gitgud/patchsets/1/1',
+    ])
+    const ps1 = (await git.raw(['rev-parse', 'refs/gitgud/patchsets/1/1'])).trim()
+    const ps2 = (await git.raw(['rev-parse', 'refs/gitgud/changes/1'])).trim()
+
+    // Default: only the current patchset is a node.
+    let log = await service.getLog(50)
+    expect(log.some((c) => c.sha === ps2)).toBe(true)
+    expect(log.some((c) => c.sha === ps1)).toBe(false)
+
+    // All patch sets: the older one appears, decorated with its mirror ref.
+    log = await service.getLog(50, { includeGerritPatchsets: true })
+    const older = log.find((c) => c.sha === ps1)
+    expect(older).toBeDefined()
+    expect(older!.refs).toContain('refs/gitgud/patchsets/1/1')
+
+    // Other refs on: --all must not leak the patchsets namespace unasked.
+    log = await service.getLog(50, { includeOtherRefs: true })
+    expect(log.some((c) => c.sha === ps1)).toBe(false)
+    log = await service.getLog(50, { includeOtherRefs: true, includeGerritPatchsets: true })
+    expect(log.some((c) => c.sha === ps1)).toBe(true)
+
+    // A new current patchset demotes the old one into the patchsets namespace
+    // and the mirrors of a closed change go away — both via prune + fetch.
+    const r2 = await service.syncGerritChangeRefs('origin', [
+      { number: 1, currentRef: 'refs/changes/01/1/2', patchsets: [{ number: 2 }] },
+    ])
+    expect(r2.success).toBe(true)
+    expect(r2.pruned).toBe(2) // changes/7 + patchsets/1/1
+    expect(await refNames()).toEqual(['refs/gitgud/changes/1'])
+
+    // clear drops both namespaces.
+    await service.syncGerritChangeRefs('origin', [
+      { number: 1, currentRef: 'refs/changes/01/1/2', patchsets: [{ number: 2 }, { number: 1 }] },
+    ])
+    expect(await service.clearGerritChangeRefs()).toBe(2)
     expect(await refNames()).toEqual([])
   })
 

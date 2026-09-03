@@ -41,7 +41,7 @@ import { PeerModal } from './components/Peers/PeerModal'
 import { isPeerPath, parsePeerPath, peerRepoName } from './lib/peerPath'
 import { useRefVisibility } from './hooks/useRefVisibility'
 import { GerritBanner, GerritEnableModal, PushForReviewModal } from './components/Gerrit/GerritPanel'
-import { GERRIT_OUTDATED_REF_PREFIX } from './lib/refs'
+import { GERRIT_OUTDATED_REF_PREFIX, isGerritPatchsetRef } from './lib/refs'
 import './styles/App.css'
 
 // All modal types that App.tsx manages.
@@ -81,7 +81,10 @@ export default function App() {
   // What the graph shows (pill kinds + whether tool-private ref namespaces are
   // walked at all). Declared first: the log walk depends on it.
   const refs = useRefVisibility()
-  const repo = useGitRepo({ includeOtherRefs: refs.visibility.otherRefs })
+  const repo = useGitRepo({
+    includeOtherRefs: refs.visibility.otherRefs,
+    includeGerritPatchsets: refs.visibility.gerritAllPatchsets,
+  })
   const settings = useSettings()  // applies saved text-scale + contrast on mount
   const [modal, setModal]                 = useState<AppModal>(null)
   const [pendingSha, setPendingSha]       = useState<string | null>(null)
@@ -497,15 +500,16 @@ export default function App() {
   // reads as off-history. Skip when status hasn't loaded or HEAD isn't in the
   // current log window (detached / shallow / pre-first-commit).
   // Old patchsets of open Gerrit changes present in the log (usually because
-  // another open change still builds on them): sha → change number. Current
-  // patchsets are excluded — they carry a real refs/gitgud/changes/<n> ref.
+  // another open change still builds on them): sha → change + patchset
+  // number. Current patchsets are excluded — they carry a real
+  // refs/gitgud/changes/<n> ref.
   const gerritOutdatedBySha = useMemo(() => {
-    const m = new Map<string, number>()
+    const m = new Map<string, { number: number; patchset: number }>()
     if (!gerrit.enabled) return m
     const currentShas = new Set(gerrit.changes.map((c) => c.currentSha).filter(Boolean))
     for (const ch of gerrit.changes) {
       for (const ps of ch.patchsets) {
-        if (ps.sha !== ch.currentSha && !currentShas.has(ps.sha)) m.set(ps.sha, ch.number)
+        if (ps.sha !== ch.currentSha && !currentShas.has(ps.sha)) m.set(ps.sha, { number: ch.number, patchset: ps.number })
       }
     }
     return m
@@ -518,10 +522,13 @@ export default function App() {
     if (gerritOutdatedBySha.size > 0) {
       let touched = false
       const annotated = commits.map((c) => {
-        const n = gerritOutdatedBySha.get(c.sha)
-        if (n === undefined) return c
+        const hit = gerritOutdatedBySha.get(c.sha)
+        if (hit === undefined) return c
+        // In "all patch sets" mode the commit already carries its real
+        // refs/gitgud/patchsets/<n>/<ps> decoration — don't double-label it.
+        if (c.refs.some(isGerritPatchsetRef)) return c
         touched = true
-        return { ...c, refs: [...c.refs, `${GERRIT_OUTDATED_REF_PREFIX}${n}`] }
+        return { ...c, refs: [...c.refs, `${GERRIT_OUTDATED_REF_PREFIX}${hit.number}/${hit.patchset}`] }
       })
       if (touched) commits = annotated
     }
@@ -1278,6 +1285,7 @@ export default function App() {
         otherRefNamespaces={repo.otherRefNamespaces}
         onToggleOtherRefs={refs.toggleOtherRefs}
         onToggleRefKind={refs.toggleKind}
+        onSetGerritAllPatchsets={refs.setGerritAllPatchsets}
       />
 
       {/* Gerrit suggestion — one-time, persists both answers to repo config */}
