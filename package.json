@@ -1,6 +1,6 @@
 {
   "name": "git-gud",
-  "version": "1.15.2",
+  "version": "1.16.0",
   "description": "A powerful, beautiful Git client with a lane-colored commit graph",
   "main": "out/main/index.js",
   "packageManager": "pnpm@10.32.1",
