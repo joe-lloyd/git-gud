@@ -1048,14 +1048,18 @@ export default function App() {
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); setShowSearch(true) }
+      // Cmd/Ctrl+F: when a file occupies the main panel (a diff or a conflict
+      // file) the viewer owns the shortcut and searches inside that file; the
+      // commit search only opens while the graph is showing.
+      const fileViewerOpen = activeDiff !== null || activeConflictFile !== null
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f' && !fileViewerOpen) { e.preventDefault(); setShowSearch(true) }
       if ((e.metaKey || e.ctrlKey) && e.key === 'o') { e.preventDefault(); repo.methods.handleOpenRepo() }
       if ((e.metaKey || e.ctrlKey) && e.key === 'r') { e.preventDefault(); repo.methods.refresh() }
       if (e.key === 'Escape') { setShowSearch(false); closeModal(); closeCtx() }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [repo.methods, closeModal, closeCtx])
+  }, [repo.methods, closeModal, closeCtx, activeDiff, activeConflictFile])
 
   // (focus + FS-watcher refresh handled inside useGitRepo)
 

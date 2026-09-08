@@ -8,6 +8,8 @@ import {
 } from '../../lib/conflictDiff'
 import { ConfirmModal } from '../AppAux/AuxComponents'
 import { Icon } from '../Icons/Icon'
+import { FindBar } from '../FindBar/FindBar'
+import { findInLines, matchesByLine, cycle, markHtmlMatches, type TextMatch } from '../../lib/findInText'
 import './ConflictEditor.css'
 
 interface ConflictEditorProps {
@@ -72,6 +74,14 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
   const currentRef = useRef<HTMLDivElement>(null)
   const incomingRef = useRef<HTMLDivElement>(null)
   const toast = useToasts()
+
+  // In-file find (Cmd/Ctrl+F). App.tsx hands the shortcut to the editor while
+  // a conflict file is open. All three panes are searched: the resolved
+  // buffer first (it is what the user is editing), then current, then incoming.
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findActive, setFindActive] = useState(0)
+  const [findFocusReq, setFindFocusReq] = useState(0)
 
   const lang = useMemo(() => resolveLanguage(filePath), [filePath])
 
@@ -146,13 +156,24 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
     return () => { cancel = true }
   }, [filePath])
 
+  // Cmd/Ctrl+F opens or re-focuses the find bar (also from inside the
+  // textarea). Escape closes the find bar if open, otherwise the editor —
+  // except from the textarea, where it must stay a harmless keypress.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !(e.target instanceof HTMLTextAreaElement)) onClose()
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        setFindOpen(true)
+        setFindFocusReq((n) => n + 1)
+        return
+      }
+      if (e.key !== 'Escape') return
+      if (findOpen) { setFindOpen(false); return }
+      if (!(e.target instanceof HTMLTextAreaElement)) onClose()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, findOpen])
 
   // ── Editing helpers ─────────────────────────────────────────────────────
   // Insert text into the resolved textarea at the current cursor. Each
@@ -291,6 +312,48 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
     hl.scrollLeft = ta.scrollLeft
   }, [])
 
+  // ── In-file find ────────────────────────────────────────────────────────
+  type FindPane = 'resolved' | 'current' | 'incoming'
+  type PaneMatch = TextMatch & { pane: FindPane }
+  const currentTexts = useMemo(() => panes.current.lines.map((l) => l.text), [panes])
+  const incomingTexts = useMemo(() => panes.incoming.lines.map((l) => l.text), [panes])
+  const findMatches = useMemo<PaneMatch[]>(() => {
+    if (!findOpen || findQuery === '') return []
+    const tag = (pane: FindPane, ms: TextMatch[]) => ms.map((m) => ({ ...m, pane }))
+    return [
+      ...tag('resolved', findInLines(resolvedLines, findQuery)),
+      ...tag('current', findInLines(currentTexts, findQuery)),
+      ...tag('incoming', findInLines(incomingTexts, findQuery)),
+    ]
+  }, [findOpen, findQuery, resolvedLines, currentTexts, incomingTexts])
+  const findByPane = useMemo(() => ({
+    resolved: matchesByLine(findMatches.filter((m) => m.pane === 'resolved')),
+    current: matchesByLine(findMatches.filter((m) => m.pane === 'current')),
+    incoming: matchesByLine(findMatches.filter((m) => m.pane === 'incoming')),
+  }), [findMatches])
+  const activeMatch = findMatches[cycle(findActive, findMatches.length)] ?? null
+  const activeFor = (pane: FindPane): { line: number; range: Range } | null =>
+    activeMatch && activeMatch.pane === pane ? { line: activeMatch.line, range: [activeMatch.start, activeMatch.end] } : null
+
+  useEffect(() => { setFindActive(0) }, [findQuery, resolvedLines, currentTexts, incomingTexts])
+  // Scroll the pane holding the active hit. The resolved pane is a textarea
+  // with a mirrored highlight layer, so it scrolls by line height; the side
+  // panes are ordinary DOM and can use scrollIntoView on the tagged row.
+  useEffect(() => {
+    if (!activeMatch) return
+    if (activeMatch.pane === 'resolved') {
+      const ta = textareaRef.current
+      if (!ta) return
+      ta.scrollTop = Math.max(0, activeMatch.line * LINE_H - Math.floor(ta.clientHeight / 2))
+      syncHighlight()
+      return
+    }
+    const pane = activeMatch.pane === 'current' ? currentRef.current : incomingRef.current
+    pane?.querySelector<HTMLElement>(`[data-find-line="${activeMatch.line}"]`)?.scrollIntoView?.({ block: 'center' })
+  }, [activeMatch, syncHighlight])
+  const findNext = () => setFindActive((i) => cycle(i + 1, findMatches.length))
+  const findPrev = () => setFindActive((i) => cycle(i - 1, findMatches.length))
+
   if (!file) return <div className="ce-loading">Loading conflict file…</div>
 
   const conflictCount = blocks.length
@@ -333,6 +396,20 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
         {hasMarkers && <span className="ce-warning"><Icon name="warning" size={12} /> {originCounts.marker} conflict marker{originCounts.marker === 1 ? '' : 's'} left</span>}
       </div>
 
+      {findOpen && (
+        <FindBar
+          query={findQuery}
+          onQueryChange={setFindQuery}
+          count={findMatches.length}
+          active={cycle(findActive, findMatches.length)}
+          onNext={findNext}
+          onPrev={findPrev}
+          onClose={() => setFindOpen(false)}
+          focusRequest={findFocusReq}
+          placeholder="Find in file (resolved, current, incoming)…"
+        />
+      )}
+
       <div className="ce-body">
         <div className="ce-grid">
           <div className="ce-top-row">
@@ -348,6 +425,8 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
               onFocusBlock={setActiveBlock}
               scrollRef={currentRef}
               otherRef={incomingRef}
+              findRanges={findByPane.current}
+              findActive={activeFor('current')}
             />
             <SidePane
               label={`Incoming · ${incomingLabel}`}
@@ -361,6 +440,8 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
               onFocusBlock={setActiveBlock}
               scrollRef={incomingRef}
               otherRef={currentRef}
+              findRanges={findByPane.incoming}
+              findActive={activeFor('incoming')}
             />
           </div>
           <div className="ce-bottom-row">
@@ -368,13 +449,20 @@ export const ConflictEditor: React.FC<ConflictEditorProps> = ({ filePath, onClos
               <div className="ce-pane-head">Resolved · editable · full file</div>
               <div className="ce-result">
                 <div className="ce-result-hl mono" ref={hlRef} aria-hidden="true">
-                  {resolvedLines.map((_, i) => (
-                    <div key={i} className={`ce-rline ce-origin-${origins[i]}`}>
-                      <span className="ce-rgutter">{i + 1}</span>
-                      <span className="ce-rtag" title={ORIGIN_TITLE[origins[i]]}>{ORIGIN_TAG[origins[i]]}</span>
-                      <code className="hljs ce-rcode" dangerouslySetInnerHTML={{ __html: resolvedHtml[i] || '&#8203;' }} />
-                    </div>
-                  ))}
+                  {resolvedLines.map((_, i) => {
+                    const ranges = findByPane.resolved.get(i)
+                    const act = activeFor('resolved')
+                    const html = ranges
+                      ? markHtmlMatches(resolvedHtml[i] ?? '', ranges, act && act.line === i ? act.range : null)
+                      : (resolvedHtml[i] || '&#8203;')
+                    return (
+                      <div key={i} className={`ce-rline ce-origin-${origins[i]}`}>
+                        <span className="ce-rgutter">{i + 1}</span>
+                        <span className="ce-rtag" title={ORIGIN_TITLE[origins[i]]}>{ORIGIN_TAG[origins[i]]}</span>
+                        <code className="hljs ce-rcode" dangerouslySetInnerHTML={{ __html: html }} />
+                      </div>
+                    )
+                  })}
                 </div>
                 <textarea
                   ref={textareaRef}
@@ -430,6 +518,7 @@ function LegendChip({ kind, n, label }: { kind: LineOrigin; n: number; label: st
 
 function SidePane({
   label, side, lines, choices, activeBlock, onLineClick, onUseBlock, onUseBoth, onFocusBlock, scrollRef, otherRef,
+  findRanges, findActive,
 }: {
   label: string
   side: Side
@@ -442,6 +531,9 @@ function SidePane({
   onFocusBlock: (block: number) => void
   scrollRef: React.RefObject<HTMLDivElement>
   otherRef: React.RefObject<HTMLDivElement>
+  /** Find hits per line index of `lines`; absent when find is closed. */
+  findRanges?: Map<number, Range[]>
+  findActive?: { line: number; range: Range } | null
 }) {
   // Mirror scroll to the other side pane. The guard breaks the feedback loop:
   // setting the other pane's scrollTop fires ITS onScroll, which would set
@@ -491,11 +583,14 @@ function SidePane({
                 className={cls}
                 onClick={() => { if (inBlock) onFocusBlock(b); onLineClick(l.text) }}
                 title="Click to insert this line at the cursor in the resolved editor"
+                data-find-line={i}
               >
                 <span className="ce-side-lineno">{lineNo}</span>
                 {l.text === ''
                   ? <span className="ce-side-text">​</span>
-                  : <span className="ce-side-text hljs" dangerouslySetInnerHTML={{ __html: l.html }} />}
+                  : <span className="ce-side-text hljs" dangerouslySetInnerHTML={{ __html: findRanges?.get(i)
+                      ? markHtmlMatches(l.html, findRanges.get(i)!, findActive && findActive.line === i ? findActive.range : null)
+                      : l.html }} />}
               </button>
             </React.Fragment>
           )

@@ -3,6 +3,9 @@ import type { DiffSources, FileDiffNotice, FileDiffResult } from '../../../prelo
 import { useToasts } from '../Toast/Toast'
 import { resolveLanguage, highlightLines } from '../../lib/highlight'
 import { Icon } from '../Icons/Icon'
+import { FindBar, markPlain } from '../FindBar/FindBar'
+import { findInLines, matchesByLine, cycle, clipRanges, markHtmlMatches } from '../../lib/findInText'
+import type { Range } from '../../lib/conflictDiff'
 import './DiffViewer.css'
 
 // Files larger than this skip syntax highlighting — tokenization scales with
@@ -52,6 +55,14 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
   const bodyRef = useRef<HTMLDivElement>(null)
   const hunkRefs = useRef<Map<number, HTMLTableRowElement | null>>(new Map())
   const isCommitMode = sha !== null
+
+  // In-file find (Cmd/Ctrl+F while a diff is open). App.tsx yields the
+  // shortcut to us whenever a file viewer occupies the main panel, so the
+  // key never opens the commit search on top of a diff.
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findActive, setFindActive] = useState(0)
+  const [findFocusReq, setFindFocusReq] = useState(0)
 
   // Full old/new file contents for whole-file highlighting (see the highlight
   // memo). Fetched alongside the diff; null until they arrive or on failure.
@@ -168,12 +179,26 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     }
   }, [wordDiff, diff, wordDiffLines, wordDiffError])
 
-  // Close on Escape
+  // Cmd/Ctrl+F opens (or re-focuses) the find bar. Escape closes the find bar
+  // first if it is open, and the whole diff otherwise. The FindBar input
+  // stops propagation of its own Escape, so this only sees presses made
+  // elsewhere while the bar happens to be open.
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        setFindOpen(true)
+        setFindFocusReq((n) => n + 1)
+        return
+      }
+      if (e.key === 'Escape') {
+        if (findOpen) setFindOpen(false)
+        else onClose()
+      }
+    }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, findOpen])
 
   // Parse unified diff into typed lines with hunk bounds AND track each row's
   // line number against the original (oldNo) and new (newNo) file. Hunk
@@ -293,6 +318,48 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
     flush()
     return rows
   }, [lines])
+
+  // ── In-file find ──────────────────────────────────────────────────────────
+  // Search the text the user actually sees. Row indices follow the active
+  // view: unified/side-by-side share `lines[i].i`, word-diff uses its own row
+  // list. Header, hunk and "\ No newline" rows are blanked so they never hit.
+  const isCodeLine = (l: typeof lines[number]) =>
+    l.type === 'add' || l.type === 'remove' || (l.type === 'context' && !l.text.startsWith('\\'))
+  const inWordDiffView = wordDiff && wordDiffLines !== null && !isNewFile
+  const searchableLines = useMemo<string[]>(() => {
+    if (inWordDiffView) return wordDiffLines!.map((l) => (l.kind === 'content' ? l.runs.map((r) => r.text).join('') : ''))
+    return lines.map((l) => (isCodeLine(l) ? l.text.slice(1) : ''))
+  }, [lines, wordDiffLines, inWordDiffView]) // eslint-disable-line react-hooks/exhaustive-deps
+  const findMatches = useMemo(() => (findOpen ? findInLines(searchableLines, findQuery) : []), [searchableLines, findQuery, findOpen])
+  const findRanges = useMemo(() => matchesByLine(findMatches), [findMatches])
+  const activeMatch = findMatches[cycle(findActive, findMatches.length)] ?? null
+  const activeRange: Range | null = activeMatch ? [activeMatch.start, activeMatch.end] : null
+
+  // A new query or a re-fetched diff restarts from the first hit.
+  useEffect(() => { setFindActive(0) }, [findQuery, searchableLines])
+  // Bring the active hit into view. `data-find-line` marks the content cell
+  // of every code row in all three view modes.
+  useEffect(() => {
+    if (!activeMatch) return
+    const el = bodyRef.current?.querySelector<HTMLElement>(`[data-find-line="${activeMatch.line}"]`)
+    el?.scrollIntoView?.({ block: 'center' })
+  }, [activeMatch])
+  const findNext = () => setFindActive((i) => cycle(i + 1, findMatches.length))
+  const findPrev = () => setFindActive((i) => cycle(i - 1, findMatches.length))
+
+  // Code cell contents with find marks applied over whichever representation
+  // (highlighted HTML or plain text) the row already uses. Matches are in
+  // file-text space (the line minus its +/-/space prefix); a plain context
+  // row still renders its leading space, so its ranges shift right by one.
+  const renderCode = (lineIdx: number, html: string | undefined, plain: string, plainPad = 0): React.ReactNode => {
+    const ranges = findRanges.get(lineIdx)
+    const active = activeMatch?.line === lineIdx ? activeRange : null
+    if (html !== undefined) {
+      const marked = ranges ? markHtmlMatches(html, ranges, active) : html
+      return <code className="hljs diff-code" dangerouslySetInnerHTML={{ __html: marked }} />
+    }
+    return ranges ? markPlain(plain, ranges, active, -plainPad) : plain
+  }
 
   const toast = useToasts()
   const [applyError, setApplyError] = useState<string | null>(null)
@@ -486,6 +553,19 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
         )}
         <button className="diff-close" onClick={onClose} title="Close diff (Esc)"><Icon name="x" size={12} /> Close</button>
       </div>
+      {findOpen && (
+        <FindBar
+          query={findQuery}
+          onQueryChange={setFindQuery}
+          count={findMatches.length}
+          active={cycle(findActive, findMatches.length)}
+          onNext={findNext}
+          onPrev={findPrev}
+          onClose={() => setFindOpen(false)}
+          focusRequest={findFocusReq}
+          placeholder="Find in diff…"
+        />
+      )}
       {showShortcuts && canPatch && (
         <div className="diff-shortcuts">
           <div className="diff-shortcuts-title">Hunk shortcuts</div>
@@ -562,13 +642,23 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                     </tr>
                   )
                 }
+                // Find marks: one logical line is split across runs, so each
+                // run gets the slice of the line's ranges that falls inside it.
+                const wdRanges = findRanges.get(i)
+                const wdActive = activeMatch?.line === i ? activeRange : null
+                let runOff = 0
                 return (
                   <tr key={i} className={`diff-line diff-line-${l.rowKind === 'add' ? 'add' : l.rowKind === 'rem' ? 'remove' : 'context'}`}>
-                    <td className="diff-content" colSpan={3}>
+                    <td className="diff-content" colSpan={3} data-find-line={i}>
                       {l.runs.map((r, j) => {
-                        if (r.kind === 'add') return <ins key={j} className="wd-add">{r.text}</ins>
-                        if (r.kind === 'rem') return <del key={j} className="wd-rem">{r.text}</del>
-                        return <span key={j}>{r.text}</span>
+                        const off = runOff
+                        runOff += r.text.length
+                        const body = wdRanges && clipRanges(wdRanges, off, r.text.length).length > 0
+                          ? markPlain(r.text, wdRanges, wdActive, off)
+                          : r.text
+                        if (r.kind === 'add') return <ins key={j} className="wd-add">{body}</ins>
+                        if (r.kind === 'rem') return <del key={j} className="wd-rem">{body}</del>
+                        return <span key={j}>{body}</span>
                       })}
                     </td>
                   </tr>
@@ -624,10 +714,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                   return (
                     <>
                       <td className={`diff-gutter diff-gutter-${side} ${cls}`}>{(side === 'old' ? l.oldNo : l.newNo) ?? ''}</td>
-                      <td className={`diff-content ${cls}`}>
-                        {html !== undefined
-                          ? <code className="hljs diff-code" dangerouslySetInnerHTML={{ __html: html }} />
-                          : plain}
+                      <td className={`diff-content ${cls}`} data-find-line={l.i}>
+                        {renderCode(l.i, html, plain, l.type === 'context' ? 1 : 0)}
                       </td>
                     </>
                   )
@@ -677,10 +765,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                         title={lineHint}>
                       {type === 'add' ? '+' : type === 'remove' ? '−' : ''}
                     </td>
-                    <td className="diff-content">
-                      {html !== undefined
-                        ? <code className="hljs diff-code" dangerouslySetInnerHTML={{ __html: html }} />
-                        : plainText}
+                    <td className="diff-content" data-find-line={i}>
+                      {renderCode(i, html, plainText, type === 'context' ? 1 : 0)}
                       {type === 'hunk' && canPatch && (
                         <span className="diff-chunk-actions">
                           <button className="diff-chunk-btn" onClick={() => handleStageChunk(i)}>

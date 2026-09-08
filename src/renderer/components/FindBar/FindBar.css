@@ -1,0 +1,70 @@
+/* Inline find bar — sits directly under the host's header, full width, so it
+   never covers the text being searched. */
+.find-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.find-bar-icon { color: var(--text-muted); display: inline-flex; flex-shrink: 0; }
+.find-bar-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-deepest);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.find-bar-input:focus { border-color: var(--border-focus); box-shadow: none; outline: none; }
+.find-bar-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 64px;
+  text-align: right;
+}
+.find-bar-count-none { color: var(--danger); }
+.find-bar-nav { display: inline-flex; gap: 2px; }
+.find-bar-nav button,
+.find-bar-close {
+  color: var(--text-muted);
+  padding: 3px 5px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+}
+.find-bar-nav button:hover:not(:disabled),
+.find-bar-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+.find-bar-nav button:disabled { opacity: 0.4; cursor: default; }
+
+/* Match marks are emitted by the host into its highlighted rows. Shared look
+   so a hit reads the same in a diff and in a conflict pane. */
+mark.find-mark {
+  color: inherit;
+  background: rgba(246,173,85,0.38);
+  box-shadow: 0 0 0 1px rgba(246,173,85,0.35);
+  border-radius: 2px;
+  padding: 0 1px;
+  margin: 0 -1px;
+}
+mark.find-mark.find-mark-active {
+  background: rgba(246,173,85,0.85);
+  box-shadow: 0 0 0 1px var(--warning);
+  color: #1a0f17;
+}
+mark.find-mark.find-mark-active .hljs-keyword,
+mark.find-mark.find-mark-active .hljs-string,
+mark.find-mark.find-mark-active .hljs-number,
+mark.find-mark.find-mark-active .hljs-comment,
+mark.find-mark.find-mark-active .hljs-title,
+mark.find-mark.find-mark-active .hljs-attr,
+mark.find-mark.find-mark-active .hljs-built_in { color: inherit; }

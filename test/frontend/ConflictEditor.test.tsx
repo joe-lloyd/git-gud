@@ -117,3 +117,45 @@ describe('ConflictEditor', () => {
     expect(window.gitApi.markResolved).toHaveBeenCalledWith(['src/app.ts'])
   })
 })
+
+describe('ConflictEditor in-file find', () => {
+  beforeEach(() => {
+    vi.mocked(window.gitApi.getConflictFile).mockResolvedValue(file)
+  })
+
+  it('Cmd+F opens the find bar and marks hits in all three panes, resolved first', async () => {
+    render(<ConflictEditor filePath="src/app.ts" onClose={() => {}} onResolved={() => {}} />)
+    await screen.findByText('2 conflict blocks')
+    fireEvent.keyDown(window, { key: 'f', metaKey: true })
+    const input = screen.getByRole('textbox', { name: 'Find in file' })
+    expect(document.activeElement).toBe(input)
+
+    fireEvent.change(input, { target: { value: 'retries' } })
+    // resolved (1) + current (1) + incoming (1)
+    await waitFor(() => expect(screen.getByText('1 / 3')).toBeInTheDocument())
+    const marks = Array.from(document.querySelectorAll<HTMLElement>('mark.find-mark'))
+    expect(marks).toHaveLength(3)
+    expect(marks.map((m) => m.textContent)).toEqual(['retries', 'retries', 'retries'])
+    // The active hit is the resolved-pane one.
+    const active = document.querySelector<HTMLElement>('mark.find-mark-active')!
+    expect(active.closest('.ce-rline')).not.toBeNull()
+
+    // Next → current pane; next → incoming pane.
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(document.querySelector('mark.find-mark-active')!.closest('.ce-pane-current')).not.toBeNull()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(document.querySelector('mark.find-mark-active')!.closest('.ce-pane-incoming')).not.toBeNull()
+  })
+
+  it('Escape in the find bar closes the bar but not the editor', async () => {
+    const onClose = vi.fn()
+    render(<ConflictEditor filePath="src/app.ts" onClose={onClose} onResolved={() => {}} />)
+    await screen.findByText('2 conflict blocks')
+    fireEvent.keyDown(window, { key: 'f', metaKey: true })
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Find in file' }), { key: 'Escape' })
+    expect(screen.queryByRole('textbox', { name: 'Find in file' })).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
