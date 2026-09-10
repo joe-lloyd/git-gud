@@ -418,3 +418,20 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 }
 .welcome h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); }
 .welcome p  { font-size: 14px; max-width: 380px; text-align: center; }
+
+/* Click-to-copy SHA token (graph SHA column, commit detail header). Inherits
+   the surrounding text colour so it reads as text until hovered. */
+.sha-chip {
+  background: transparent;
+  border: none;
+  padding: 0 3px;
+  margin: 0 -3px;
+  border-radius: 3px;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: copy;
+  opacity: inherit;
+}
+.sha-chip:hover { background: var(--bg-hover); text-decoration: underline dotted; }
+.sha-chip.is-copied { text-decoration: none; }

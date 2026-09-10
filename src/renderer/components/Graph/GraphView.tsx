@@ -20,6 +20,7 @@ import {
   refsColumnHidden,
 } from "../../lib/refFilter";
 import { Icon } from "../Icons/Icon";
+import { ShaChip } from "../CopyButton/ShaChip";
 import "./GraphView.css";
 
 // Above this commit count, lay the graph out in a Web Worker so a huge history
@@ -556,7 +557,9 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(
         <span className="cr-date">{isPseudo ? "" : formatRelativeDate(commit.date)}</span>
 
         {/* SHA */}
-        <span className="cr-sha mono">{isPseudo ? "" : commit.shortSha}</span>
+        <span className="cr-sha mono">
+          {isPseudo ? "" : <ShaChip sha={commit.sha} short={commit.shortSha} />}
+        </span>
       </div>
     );
   },

@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react'
 import type { CommitNode, FileChange, GerritChange } from '../../../preload/index'
 import { Icon, IconName } from '../Icons/Icon'
+import { ShaChip } from '../CopyButton/ShaChip'
 import { groupRefs } from '../../lib/refs'
 import { splitTrailers } from '../../lib/trailers'
 import '../Gerrit/Gerrit.css'
@@ -118,7 +119,7 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
     <div className="commit-detail fade-in" onKeyDown={handleKeyDown}>
       {/* Header */}
       <div className="cd-header">
-        <div className="cd-sha mono">{commit.sha.slice(0, 7)}</div>
+        <div className="cd-sha mono"><ShaChip sha={commit.sha} /></div>
         <div className="cd-author">{commit.author}</div>
         <div className="cd-date">{new Date(commit.date).toLocaleString()}</div>
       </div>
