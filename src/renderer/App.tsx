@@ -35,6 +35,7 @@ import {
   ConfirmModal,
   ChoiceModal,
 } from './components/AppAux/AuxComponents'
+import { isRemoteRef, branchBaseName } from './lib/refs'
 import { useGitRepo } from './hooks/useGitRepo'
 import { useCommitActions, CommitActionModal } from './hooks/useCommitActions'
 import { useGerrit } from './hooks/useGerrit'
@@ -88,6 +89,13 @@ export default function App() {
     includeGerritPatchsets: refs.visibility.gerritAllPatchsets,
   })
   const settings = useSettings()  // applies saved text-scale + contrast on mount
+  // Remote names ("origin", "upstream", …). Everything that has to tell a
+  // remote-tracking ref from a local branch needs these: a slash in the name is
+  // NOT the signal — `feature/foo` is a perfectly ordinary local branch.
+  const remoteNames = useMemo(
+    () => new Set(repo.remotes.map(r => r.name)),
+    [repo.remotes],
+  )
   const [modal, setModal]                 = useState<AppModal>(null)
   const [pendingSha, setPendingSha]       = useState<string | null>(null)
   const [pendingRef, setPendingRef]       = useState<PendingRef | null>(null)
@@ -944,10 +952,10 @@ export default function App() {
   // Drag a pill onto another pill (or onto a sidebar branch row) → ask which action
   const runDragAction = useCallback(
     async (source: string, target: string, action: 'merge' | 'rebase' | 'checkout') => {
-      // Normalize remote refs to their tracking branch name for git ops
-      const stripRemote = (r: string) => r.includes('/') ? r.split('/').slice(1).join('/') : r
-      const src = stripRemote(source)
-      const tgt = stripRemote(target)
+      // Normalize remote refs to their tracking branch name for git ops.
+      // Local branches keep their full name, slashes and all.
+      const src = branchBaseName(source, remoteNames)
+      const tgt = branchBaseName(target, remoteNames)
       const r = await window.gitApi.runDragAction(src, tgt, action)
       if (r.success) {
         const stashNote = r.autoStashed ? ' (changes auto-stashed and restored)' : ''
@@ -961,14 +969,14 @@ export default function App() {
         repo.toast.error(`${action[0].toUpperCase()}${action.slice(1)} Failed`, r.error)
       }
     },
-    [repo.toast, repo.methods],
+    [repo.toast, repo.methods, remoteNames],
   )
 
   const handleRefDrop = useCallback(
     (e: React.MouseEvent, source: string, target: string) => {
       if (source === target) return
-      const sourceShort = source.includes('/') ? source.split('/').slice(1).join('/') : source
-      const targetShort = target.includes('/') ? target.split('/').slice(1).join('/') : target
+      const sourceShort = branchBaseName(source, remoteNames)
+      const targetShort = branchBaseName(target, remoteNames)
       openCtx(e, [
         { label: `Merge "${sourceShort}" → "${targetShort}"`, icon: 'merge', onClick: () => runDragAction(source, target, 'merge') },
         { label: `Rebase "${sourceShort}" onto "${targetShort}"`, icon: 'rebase', onClick: () => runDragAction(source, target, 'rebase') },
@@ -976,7 +984,7 @@ export default function App() {
         { label: `Checkout "${targetShort}"`, icon: 'branch', onClick: () => runDragAction(source, target, 'checkout') },
       ])
     },
-    [openCtx, runDragAction],
+    [openCtx, runDragAction, remoteNames],
   )
 
   // Auto-update: subscribe once. The binary swap happens automatically on next
@@ -1170,16 +1178,17 @@ export default function App() {
     const commit = repo.commits.find(c => c.sha === sha)
 
     // Derive a usable branch name for "merge current into this":
-    //   1. Prefer a local branch (no slash) — can be checked out directly
+    //   1. Prefer a local branch — can be checked out directly
     //   2. Fall back to a remote-tracking ref (origin/ios → ios) — git will
     //      auto-create a local tracking branch on checkout if one doesn't exist yet
-    const isLocal  = (r: string) => r !== 'HEAD' && !r.startsWith('tag:') && !r.includes('/')
-    const isRemote = (r: string) => r !== 'HEAD' && !r.startsWith('tag:') &&  r.includes('/')
-    const stripRemote = (r: string) => r.split('/').slice(1).join('/')
+    const isBranchRef = (r: string) => r !== 'HEAD' && !r.startsWith('tag:')
+    const isLocal  = (r: string) => isBranchRef(r) && !isRemoteRef(r, remoteNames)
+    const isRemote = (r: string) => isBranchRef(r) &&  isRemoteRef(r, remoteNames)
 
+    const remoteRef = commit?.refs.find(isRemote)
     const localBranch =
       commit?.refs.find(isLocal) ??
-      (commit?.refs.find(isRemote) ? stripRemote(commit!.refs.find(isRemote)!) : null)
+      (remoteRef ? branchBaseName(remoteRef, remoteNames) : null)
 
     const isHead = !!commit?.refs.includes('HEAD')
     const currentBranch = repo.status?.branch ?? ''
@@ -1256,7 +1265,7 @@ export default function App() {
         { label: 'Mark as Bisect Bad',  icon: 'x-circle', danger: true, onClick: () => bisectMark(false) },
       ] : []),
     ])
-  }, [actions, repo, openCtx, opSelectedShas, selectedShas, openBulkCommitMenu, openSidePanel])
+  }, [actions, repo, openCtx, opSelectedShas, selectedShas, openBulkCommitMenu, openSidePanel, remoteNames])
 
   const rebaseCommits = repo.selectedSha
     ? repo.commits.slice(0, repo.commits.findIndex(c => c.sha === repo.selectedSha) + 1).slice(0, 20)
@@ -1453,6 +1462,7 @@ export default function App() {
                       onRefContextMenu={handleRefContextMenu}
                       onRefDrop={handleRefDrop}
                       worktreeBranches={new Set(repo.worktrees.filter(w => !w.isMain).map(w => w.branch))}
+                      remoteNames={remoteNames}
                       stashes={repo.stashes}
                       refVisibility={refs.visibility}
                     />
@@ -1539,6 +1549,7 @@ export default function App() {
                       gerritHost={gerrit.enabled ? gerrit.mode?.host || null : null}
                       gerritInfo={gerritSelectedInfo}
                       onJumpToSha={focusCommit}
+                      remoteNames={remoteNames}
                       selectedFile={activeDiff?.sha === repo.selectedSha ? activeDiff.path : null}
                       onSelectFile={(path, sha) => {
                         setActiveDiff((prev) =>

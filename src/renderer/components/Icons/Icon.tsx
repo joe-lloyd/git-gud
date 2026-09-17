@@ -146,6 +146,14 @@ const defs = {
   'cloud': {
     paths: <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />,
   },
+  // "Lives on this machine" — the local counterpart to `cloud`.
+  'monitor': {
+    paths: <>
+      <rect x="2" y="4" width="20" height="13" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </>,
+  },
 
   // ── Actions ───────────────────────────────────────────────────────────
   'copy': {

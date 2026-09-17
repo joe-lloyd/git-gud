@@ -75,6 +75,12 @@ interface GraphViewProps {
   onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
   /** Branches currently checked out in a worktree (branch name, no remote prefix) */
   worktreeBranches?: Set<string>;
+  /**
+   * The repo's remote names ("origin", "upstream", …). Needed to tell a remote
+   * ref from a local branch whose name just happens to contain a slash
+   * (`feature/foo`) — without it the latter reads as remote and gets a cloud.
+   */
+  remoteNames?: ReadonlySet<string>;
   /** Stashes — used to render stash nodes with a distinct icon and dashed parent links */
   stashes?: StashInfo[];
   /** Which ref pills to show; with everything off the refs column collapses. */
@@ -104,6 +110,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   onRefContextMenu,
   onRefDrop,
   worktreeBranches = new Set(),
+  remoteNames,
   stashes = [],
   refVisibility = DEFAULT_REF_VISIBILITY,
 }) => {
@@ -469,6 +476,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   onRefContextMenu={onRefContextMenu}
                   onRefDrop={onRefDrop}
                   worktreeBranches={worktreeBranches}
+                  remoteNames={remoteNames}
                   graphWidth={graphWidth}
                   refVisibility={refVisibility}
                   refsWidth={refsW}
@@ -497,6 +505,7 @@ interface CommitRowProps {
   onRefContextMenu?: (e: React.MouseEvent, ref: string, kind: 'local' | 'remote' | 'tag') => void;
   onRefDrop?: (e: React.MouseEvent, source: string, target: string) => void;
   worktreeBranches: Set<string>;
+  remoteNames?: ReadonlySet<string>;
   graphWidth: number;
   refVisibility: RefVisibility;
   /** 0 when the refs column is fully hidden. */
@@ -504,11 +513,11 @@ interface CommitRowProps {
 }
 
 const CommitRow: React.FC<CommitRowProps> = React.memo(
-  ({ node, isSelected, isDim = false, isStash, isPseudo, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, graphWidth, refVisibility, refsWidth }) => {
+  ({ node, isSelected, isDim = false, isStash, isPseudo, onSelect, onContextMenu, onRefContextMenu, onRefDrop, worktreeBranches, remoteNames, graphWidth, refVisibility, refsWidth }) => {
     const { commit } = node;
     const groups = useMemo(
-      () => isPseudo ? [] : filterRefGroups(groupRefs(commit.refs, worktreeBranches), refVisibility),
-      [commit.refs, worktreeBranches, isPseudo, refVisibility],
+      () => isPseudo ? [] : filterRefGroups(groupRefs(commit.refs, worktreeBranches, remoteNames), refVisibility),
+      [commit.refs, worktreeBranches, remoteNames, isPseudo, refVisibility],
     );
 
     // Left edge of this row's node (its left rim) within the graph gap — the
@@ -689,7 +698,7 @@ function RefPill({
   // Pills take the lane color of the commit they label, so a ref reads as part
   // of its branch line. The checked-out ref (HEAD) is the one solid-filled
   // pill; everything else is a tint of the same hue. Ref *kind* is carried by
-  // the icon (branch / cloud / tag), not the color. The class colors above
+  // the icon (monitor / cloud / tag), not the color. The class colors above
   // stay as the fallback for pills rendered outside the graph.
   const laneStyle: React.CSSProperties | undefined = laneColor
     ? group.isHead
@@ -760,7 +769,7 @@ function RefPill({
         {isTag          && <span className="rp-icon"><Icon name="tag" size={10} /></span>}
         {group.isGerritChange && <span className="rp-icon rp-gerrit"><Icon name={group.isOutdatedPatchset ? "history" : "cloud"} size={10} /></span>}
         {group.isHead   && <span className="rp-icon rp-head"><Icon name="dot-circle" size={10} /></span>}
-        {group.hasLocal && !isTag && <span className="rp-icon rp-local"><Icon name="branch" size={10} /></span>}
+        {group.hasLocal && !isTag && <span className="rp-icon rp-local"><Icon name="monitor" size={10} /></span>}
         {group.hasRemote && !group.isGerritChange && <span className="rp-icon rp-remote"><Icon name="cloud" size={10} /></span>}
         {group.hasWorktree && <span className="rp-icon rp-worktree"><Icon name="worktree" size={10} /></span>}
         <span className="rp-name">{group.name}</span>

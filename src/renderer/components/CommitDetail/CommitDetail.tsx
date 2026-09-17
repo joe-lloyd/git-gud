@@ -33,9 +33,11 @@ interface CommitDetailProps {
   gerritInfo?: GerritCommitInfo | null
   /** Focus + scroll the graph to another commit (jump to current patchset). */
   onJumpToSha?: (sha: string) => void
+  /** Repo's remote names — tells `origin/foo` apart from a local `feature/foo`. */
+  remoteNames?: ReadonlySet<string>
 }
 
-export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, selectedFile = null, onSelectFile, onOpenFile, gerritHost = null, gerritInfo = null, onJumpToSha }) => {
+export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, selectedFile = null, onSelectFile, onOpenFile, gerritHost = null, gerritInfo = null, onJumpToSha, remoteNames }) => {
   const [files, setFiles] = useState<FileChange[]>([])
   const [loading, setLoading] = useState(false)
   // Keyboard traversal (same pattern as WorkingTree): armed by clicking a file
@@ -168,11 +170,11 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
       })()}
 
       {/* Refs — same grouping + icon language as the graph's pills: one pill
-          per branch name, with local (branch) and remote (cloud) icons both
+          per branch name, with local (monitor) and remote (cloud) icons both
           shown when the branch exists on both sides. */}
       {commit.refs.length > 0 && (
         <div className="cd-refs">
-          {groupRefs(commit.refs, new Set()).map((g) => {
+          {groupRefs(commit.refs, new Set(), remoteNames).map((g) => {
             const cls = g.isTag ? 'ref-tag' :
               g.isGerritChange ? `ref-gerrit${g.isOutdatedPatchset ? ' ref-gerrit-outdated' : ''}` :
               g.isHead ? 'ref-head' :
@@ -183,7 +185,7 @@ export const CommitDetail: React.FC<CommitDetailProps> = ({ sha, commits, select
                 {g.isTag && <span className="rp-icon"><Icon name="tag" size={10} /></span>}
                 {g.isGerritChange && <span className="rp-icon"><Icon name={g.isOutdatedPatchset ? 'history' : 'cloud'} size={10} /></span>}
                 {g.isHead && <span className="rp-icon"><Icon name="dot-circle" size={10} /></span>}
-                {g.hasLocal && !g.isTag && <span className="rp-icon"><Icon name="branch" size={10} /></span>}
+                {g.hasLocal && !g.isTag && <span className="rp-icon"><Icon name="monitor" size={10} /></span>}
                 {g.hasRemote && !g.isGerritChange && <span className="rp-icon"><Icon name="cloud" size={10} /></span>}
                 <span className="rp-name">{g.name}</span>
               </span>

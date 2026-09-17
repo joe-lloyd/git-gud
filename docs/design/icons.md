@@ -53,6 +53,7 @@ marks in the console log (`↳`, `$`), and the graph's `◆` stash badge.
 | `file-diff` | file with +/− | Patch (export/apply), "Export patch…" |
 | `clean` | sparkle | Clean untracked/ignored files |
 | `cloud` | cloud | Remotes: sidebar remote group, remote-branch pill marker |
+| `monitor` | computer screen | Local: a branch that exists on this machine (ref-pill marker) |
 
 ## Actions
 

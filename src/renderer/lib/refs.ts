@@ -81,14 +81,26 @@ export function isGerritPatchsetRef(ref: string): boolean {
   return changePatchsetFrom(ref, GERRIT_PATCHSET_REF_PREFIX)?.patchset != null;
 }
 
+/**
+ * True when `ref` is a remote-tracking ref (origin/main, upstream/feature/foo).
+ *
+ * A slash alone can't decide this: local branches are routinely named
+ * `feature/foo`, and treating those as remote put a cloud icon on a branch that
+ * only exists on this machine. So the first segment has to actually be one of
+ * the repo's remotes. When the remote list isn't known (callers that have no
+ * repo context, e.g. unit tests) we fall back to the old slash heuristic.
+ */
+export function isRemoteRef(ref: string, remotes?: ReadonlySet<string>): boolean {
+  if (!ref.includes("/")) return false;
+  if (!remotes) return true;
+  return remotes.has(ref.split("/")[0]!);
+}
+
 /** Extract the short branch name from any ref form. */
-export function branchBaseName(ref: string): string {
-  // remote ref: origin/main, upstream/feature/foo → take everything after first segment
-  if (ref.includes("/")) {
-    const parts = ref.split("/");
-    // drop the remote name (first segment), rejoin the rest
-    return parts.slice(1).join("/");
-  }
+export function branchBaseName(ref: string, remotes?: ReadonlySet<string>): string {
+  // remote ref: origin/main, upstream/feature/foo → drop the remote name
+  // (first segment) and rejoin the rest. Local `feature/foo` keeps its name.
+  if (isRemoteRef(ref, remotes)) return ref.split("/").slice(1).join("/");
   return ref;
 }
 
@@ -97,7 +109,11 @@ export function branchBaseName(ref: string): string {
  * E.g. ["HEAD", "main", "origin/main"] → one group {name:"main", isHead, hasLocal, hasRemote}
  * Tags stay as individual groups.
  */
-export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGroup[] {
+export function groupRefs(
+  refs: string[],
+  worktreeBranches: Set<string>,
+  remotes?: ReadonlySet<string>,
+): RefGroup[] {
   const groups = new Map<string, RefGroup>();
   let headTarget: string | null = null;
 
@@ -114,7 +130,7 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
     if (gerritChangeNumber(ref) !== null || gerritOlderPatchset(ref) !== null) continue; // never HEAD's branch
     // The first non-HEAD, non-tag ref after HEAD is what HEAD points to
     if (headTarget === "HEAD_standalone") {
-      headTarget = branchBaseName(ref);
+      headTarget = branchBaseName(ref, remotes);
       break;
     }
   }
@@ -184,8 +200,8 @@ export function groupRefs(refs: string[], worktreeBranches: Set<string>): RefGro
       continue;
     }
 
-    const base = branchBaseName(ref);
-    const isRemote = ref.includes("/") && !ref.startsWith("HEAD");
+    const base = branchBaseName(ref, remotes);
+    const isRemote = !ref.startsWith("HEAD") && isRemoteRef(ref, remotes);
 
     if (!groups.has(base)) {
       groups.set(base, {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupRefs, pickPrimaryRefGroup, branchBaseName, isGerritPatchsetRef } from '../lib/refs'
+import { groupRefs, pickPrimaryRefGroup, branchBaseName, isRemoteRef, isGerritPatchsetRef } from '../lib/refs'
 
 describe('groupRefs', () => {
   it('collapses HEAD + local + remote of the same branch into one group', () => {
@@ -28,6 +28,30 @@ describe('groupRefs', () => {
     expect(groups.find((g) => g.name === 'main')?.hasRemote).toBe(true)
   })
 
+  it('treats a slash-named local branch as local when the remotes are known', () => {
+    const remotes = new Set(['origin'])
+    const groups = groupRefs(['HEAD', 'feature/foo'], new Set(), remotes)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].name).toBe('feature/foo')
+    expect(groups[0].hasLocal).toBe(true)
+    expect(groups[0].hasRemote).toBe(false)
+    expect(groups[0].isHead).toBe(true)
+  })
+
+  it('still pairs a slash-named branch with its remote counterpart', () => {
+    const remotes = new Set(['origin'])
+    const groups = groupRefs(['feature/foo', 'origin/feature/foo'], new Set(), remotes)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].name).toBe('feature/foo')
+    expect(groups[0].hasLocal).toBe(true)
+    expect(groups[0].hasRemote).toBe(true)
+  })
+
+  it('marks a worktree for a slash-named branch', () => {
+    const groups = groupRefs(['feature/foo'], new Set(['feature/foo']), new Set(['origin']))
+    expect(groups[0].hasWorktree).toBe(true)
+  })
+
   it('produces a single group (no +N overflow) for one ref', () => {
     const groups = groupRefs(['HEAD', 'main'], new Set())
     expect(groups).toHaveLength(1)
@@ -52,6 +76,21 @@ describe('branchBaseName', () => {
   it('strips the remote segment', () => {
     expect(branchBaseName('origin/feature/foo')).toBe('feature/foo')
     expect(branchBaseName('main')).toBe('main')
+  })
+
+  it('keeps a local branch name intact when the remotes are known', () => {
+    const remotes = new Set(['origin', 'upstream'])
+    expect(branchBaseName('feature/foo', remotes)).toBe('feature/foo')
+    expect(branchBaseName('upstream/feature/foo', remotes)).toBe('feature/foo')
+  })
+})
+
+describe('isRemoteRef', () => {
+  it('only counts a ref as remote when its first segment is a remote', () => {
+    const remotes = new Set(['origin'])
+    expect(isRemoteRef('origin/main', remotes)).toBe(true)
+    expect(isRemoteRef('feature/foo', remotes)).toBe(false)
+    expect(isRemoteRef('main', remotes)).toBe(false)
   })
 })
 

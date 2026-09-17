@@ -241,7 +241,7 @@ button:not(:disabled):active { transform: scale(0.97); }
   flex-shrink: 0;
 }
 /* Kind palette — tokens, not hardcoded hex. Kind is carried by the icon
-   (branch / cloud / tag / dot-circle); color is a supporting cue. Inside the
+   (monitor / cloud / tag / dot-circle); color is a supporting cue. Inside the
    graph these are overridden inline with the commit's lane color. */
 .ref-local  { background: color-mix(in srgb, var(--lane-0) 14%, transparent); color: var(--lane-0); border: 1px solid color-mix(in srgb, var(--lane-0) 40%, transparent); }
 .ref-remote { background: color-mix(in srgb, var(--lane-1) 14%, transparent); color: var(--lane-1); border: 1px solid color-mix(in srgb, var(--lane-1) 40%, transparent); }
