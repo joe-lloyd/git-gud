@@ -122,6 +122,7 @@ export const READ_METHODS: ReadonlySet<string> = new Set([
   "formatPatch",
   "buildWorkingPatch",
   "isBisecting",
+  "gerritRefTarget",
 ]);
 
 // Every mutating GitService method. Kept explicit (rather than "any function
@@ -142,6 +143,7 @@ export const WRITE_METHODS: ReadonlySet<string> = new Set([
   "checkout", "checkoutAutostash", "createBranch", "deleteBranch", "renameBranch", "deleteRemoteBranch",
   "createTag", "deleteTag", "renameTag", "pushTag", "deleteRemoteTag",
   "fetch", "pull", "fastForwardBranch", "push", "pushForReview", "syncGerritChangeRefs", "clearGerritChangeRefs",
+  "syncCreatedGerritRef",
   // stashes
   "stashSave", "stashPop", "stashApply", "stashDrop", "stashBranch",
   // worktrees / bisect / config

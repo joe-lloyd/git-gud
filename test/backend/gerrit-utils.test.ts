@@ -10,6 +10,7 @@ import {
   hostFromRemoteUrl,
   detectGerrit,
   buildReviewRefspec,
+  buildCreateRefRequest,
   classifyReviewPushError,
   stripXssiPrefix,
   mapGerritChange,
@@ -361,5 +362,27 @@ describe('cookieHeaderForHost', () => {
   it('handles empty files and comments', () => {
     expect(cookieHeaderForHost('', 'https://any.example.org', NOW)).toBeUndefined()
     expect(cookieHeaderForHost('# just comments\n', 'https://any.example.org', NOW)).toBeUndefined()
+  })
+})
+
+describe('buildCreateRefRequest', () => {
+  const SHA = 'adb5b782e2681c68aaed2aedecf0a0b47ae7d872'
+
+  it('builds the tag PUT with the project and tag name URL-encoded', () => {
+    expect(buildCreateRefRequest('tag', 'apps/Boba2', 'v2.1.4', SHA)).toEqual({
+      path: '/projects/apps%2FBoba2/tags/v2.1.4',
+      body: { revision: SHA },
+    })
+  })
+
+  it('adds a message for annotated tags only', () => {
+    expect(buildCreateRefRequest('tag', 'p', 'v1', SHA, '  Release 1  ').body).toEqual({ revision: SHA, message: 'Release 1' })
+    expect(buildCreateRefRequest('tag', 'p', 'v1', SHA, '   ').body).toEqual({ revision: SHA })
+    expect(buildCreateRefRequest('branch', 'p', 'b', SHA, 'ignored').body).toEqual({ revision: SHA })
+  })
+
+  it('encodes slashes in branch names', () => {
+    expect(buildCreateRefRequest('branch', 'apps/Boba2', 'release/v2.1.4', SHA).path)
+      .toBe('/projects/apps%2FBoba2/branches/release%2Fv2.1.4')
   })
 })

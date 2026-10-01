@@ -10,7 +10,7 @@ import { applyShellPath } from './shell-path'
 import { GitHubService } from './github-service'
 import { ProviderService, type HostedProvider } from './provider-service'
 import { GerritService } from './gerrit-service'
-import { detectGerrit, cookieHeaderForHost, type PushForReviewOptions } from './gerrit-utils'
+import { detectGerrit, cookieHeaderForHost, type PushForReviewOptions, type GerritRefKind } from './gerrit-utils'
 import { PeerService } from './peer-service'
 import { canonicalPath, createRepoHost, createRepoWatcher } from './peer-host-core'
 import { isPeerRepoPath, type PeerEvent, type PeerRepoSummary } from './peer-protocol'
@@ -802,6 +802,23 @@ app.whenReady().then(async () => {
   ipcMain.handle('gerrit:sync-change-refs', async (_event, remote: string, changes: Array<{ number: number; currentRef?: string; patchsets?: Array<{ number: number; ref?: string }> }>) => {
     if (!gitService) return { success: false, error: 'No repo', fetched: 0, pruned: 0 }
     return gitService.syncGerritChangeRefs(remote, changes)
+  })
+
+  // Create a branch/tag on Gerrit via REST for hosts that refuse a direct
+  // push of it. The ref is created server-side first; the follow-up fetch
+  // only aligns local refs, so its failure is a warning, not a failure.
+  ipcMain.handle('gerrit:create-ref', async (_event, host: string, project: string, remote: string, kind: GerritRefKind, name: string) => {
+    if (!gitService || !gerritService) return { success: false, error: 'No repo' }
+    if (!host || !project) return { success: false, error: 'Gerrit host or project not configured' }
+    if (kind !== 'branch' && kind !== 'tag') return { success: false, error: `Unknown ref kind: ${kind}` }
+    try {
+      const { revision, message } = await gitService.gerritRefTarget(kind, name)
+      const cookieHeader = await gerritCookieHeader(host)
+      await gerritService.createRef(host, project, kind, name, revision, message, cookieHeader)
+      try { await gitService.syncCreatedGerritRef(remote, kind, name) }
+      catch (e) { return { success: true, warning: `Created on Gerrit, but fetching it back failed: ${String(e instanceof Error ? e.message : e)}` } }
+      return { success: true }
+    } catch (e) { return { success: false, error: String(e instanceof Error ? e.message : e) } }
   })
 
   ipcMain.handle('gerrit:clear-change-refs', async () => {

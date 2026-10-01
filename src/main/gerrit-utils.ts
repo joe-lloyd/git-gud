@@ -231,6 +231,31 @@ export function buildReviewRefspec(opts: PushForReviewOptions): string {
   return `HEAD:refs/for/${opts.targetBranch}${suffix}`;
 }
 
+// ── Create ref via REST ──────────────────────────────────────────────────────
+
+// Hosts that deny a direct `git push` of a branch or tag (googlesource does
+// this by default) still allow creating one through the REST API:
+// PUT /projects/<project>/{branches|tags}/<name> with the target revision.
+// A `message` turns the tag annotated; Gerrit authors the tag object as the
+// authenticated user, so it never matches a local annotated tag byte-for-byte.
+export type GerritRefKind = "branch" | "tag";
+
+export function buildCreateRefRequest(
+  kind: GerritRefKind,
+  project: string,
+  name: string,
+  revision: string,
+  message?: string,
+): { path: string; body: Record<string, string> } {
+  const collection = kind === "branch" ? "branches" : "tags";
+  const body: Record<string, string> = { revision };
+  if (kind === "tag" && message?.trim()) body.message = message.trim();
+  return {
+    path: `/projects/${encodeURIComponent(project)}/${collection}/${encodeURIComponent(name)}`,
+    body,
+  };
+}
+
 export type ReviewPushErrorKind = "missing-change-id" | "no-new-changes" | "unknown";
 
 export function classifyReviewPushError(msg: string): ReviewPushErrorKind {

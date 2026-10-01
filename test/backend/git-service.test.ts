@@ -115,6 +115,30 @@ describe('GitService Integration Tests', () => {
     expect(logs[0].message).toBe('feature commit')
   })
 
+  describe('gerritRefTarget', () => {
+    it('resolves a branch to its tip commit', async () => {
+      const sha = (await git.revparse(['HEAD'])).trim()
+      await git.raw(['branch', 'release/v2'])
+      expect(await service.gerritRefTarget('branch', 'release/v2')).toEqual({ revision: sha })
+    })
+
+    it('sends no message for a lightweight tag', async () => {
+      const sha = (await git.revparse(['HEAD'])).trim()
+      await git.raw(['tag', 'v1'])
+      expect(await service.gerritRefTarget('tag', 'v1')).toEqual({ revision: sha })
+    })
+
+    it('peels an annotated tag to the commit and carries its message', async () => {
+      const sha = (await git.revparse(['HEAD'])).trim()
+      await git.raw(['tag', '-a', 'v2', '-m', 'Release two\n\nNotes here.'])
+      expect(await service.gerritRefTarget('tag', 'v2')).toEqual({ revision: sha, message: 'Release two\n\nNotes here.' })
+    })
+
+    it('rejects a ref that does not exist', async () => {
+      await expect(service.gerritRefTarget('tag', 'nope')).rejects.toThrow()
+    })
+  })
+
   describe('renameTag', () => {
     it('renames a lightweight tag, keeping its target', async () => {
       const sha = (await git.revparse(['HEAD'])).trim()

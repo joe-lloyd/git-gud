@@ -805,6 +805,12 @@ export default function App() {
           { label: 'Create tag here…',                icon: 'tag',  disabled: !sha, onClick: () => sha && actions.requestTagHere(sha) },
           { separator: true, label: '', onClick: () => {} },
           { label: 'Push to remote',                  icon: 'arrow-up',  onClick: () => handlePush() },
+          // Gerrit hosts often reject pushing a new branch; the REST API
+          // creates it at the branch tip instead (commit must be on the server).
+          ...(gerrit.enabled ? [{
+            label: `Create "${branchName}" on Gerrit`, icon: 'arrow-up' as const, disabled: !sha,
+            onClick: () => { gerrit.actions.createRef('branch', branchName, gerrit.detection?.remote ?? 'origin') },
+          }] : []),
           { label: 'Force push (--force-with-lease)', icon: 'warning', danger: true, disabled: !isCurrent, onClick: () => handlePush(true) },
           // Pulling only makes sense on the checked-out branch; for any other
           // branch, update it in place with a fast-forward fetch instead.
@@ -845,7 +851,7 @@ export default function App() {
         ])
       }
     },
-    [openCtx, repo.status, repo.methods, repo.branches.local, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, handlePush, handleFastForwardBranch, copyToClipboard],
+    [openCtx, repo.status, repo.methods, repo.branches.local, repo.branches.remote, actions, handleDeleteBranch, handleCheckoutRemote, handleCheckout, handlePull, handlePush, handleFastForwardBranch, copyToClipboard, gerrit.enabled, gerrit.actions, gerrit.detection?.remote],
   )
 
   const handleStashContextMenu = useCallback(
@@ -889,6 +895,12 @@ export default function App() {
           label: `Push tag to ${remote}`, icon: 'arrow-up', disabled: !hasRemote,
           onClick: () => run('Pushing tag…', 'Tag pushed', window.gitApi.pushTag(remote, tagName)),
         },
+        // Gerrit hosts often deny tag pushes; the REST API creates the tag
+        // server-side (annotated if the local one is).
+        ...(gerrit.enabled ? [{
+          label: `Create tag on Gerrit`, icon: 'arrow-up' as const, disabled: !hasRemote,
+          onClick: () => { gerrit.actions.createRef('tag', tagName, gerrit.detection?.remote ?? remote) },
+        }] : []),
         { separator: true, label: '', onClick: () => {} },
         { label: 'Copy tag name', icon: 'copy', onClick: () => copyToClipboard(tagName, tagName) },
         { separator: true, label: '', onClick: () => {} },
@@ -902,7 +914,7 @@ export default function App() {
         },
       ])
     },
-    [openCtx, handleCreateBranchFromTag, repo.remotes, repo.toast, repo.methods],
+    [openCtx, handleCreateBranchFromTag, repo.remotes, repo.toast, repo.methods, gerrit.enabled, gerrit.actions, gerrit.detection?.remote],
   )
 
   const handleWorktreeContextMenu = useCallback(

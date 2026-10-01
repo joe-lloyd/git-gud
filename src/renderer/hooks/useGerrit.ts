@@ -227,6 +227,26 @@ export function useGerrit(
     return false
   }, [toast, refresh])
 
+  // ── Create branch/tag via REST ────────────────────────────────────────────
+  // googlesource-style hosts deny pushing branches/tags directly but allow
+  // creating them through the API at a commit the server already has.
+  const createRef = useCallback(async (kind: 'branch' | 'tag', name: string, remote: string): Promise<boolean> => {
+    if (!mode?.host || !mode.project) {
+      toast.error('Gerrit not configured', 'Set the Gerrit host and project first.')
+      return false
+    }
+    const label = kind === 'branch' ? 'Branch' : 'Tag'
+    const r = await window.gerritApi.createRef(mode.host, mode.project, remote, kind, name)
+    if (!r.success) {
+      toast.error(`Create ${kind} on Gerrit failed`, r.error)
+      return false
+    }
+    if (r.warning) toast.warning(`${label} created on Gerrit`, r.warning)
+    else toast.success(`${label} created on Gerrit`, `"${name}"`)
+    await refresh()
+    return true
+  }, [mode?.host, mode?.project, toast, refresh])
+
   const setAuth = useCallback(async (username: string, password: string): Promise<boolean> => {
     if (!mode?.host) return false
     const r = await window.gerritApi.setAuth(mode.host, username, password)
@@ -258,6 +278,7 @@ export function useGerrit(
       disable,
       updateSettings,
       pushForReview,
+      createRef,
       refreshChanges,
       setAuth,
       clearAuth,

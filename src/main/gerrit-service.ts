@@ -5,10 +5,13 @@ import {
   normalizeGerritHost,
   stripXssiPrefix,
   mapGerritChange,
+  buildCreateRefRequest,
   type GerritChange,
+  type GerritRefKind,
 } from "./gerrit-utils";
 
-// Read-only Gerrit REST client + credential store. Detection and refspec
+// Gerrit REST client + credential store. Reads changes; the only writes are
+// branch/tag creation for hosts that deny pushing those refs directly. Detection and refspec
 // helpers live in gerrit-utils.ts (pure, electron-free). Credentials are a
 // Gerrit HTTP password per host, encrypted with safeStorage like the other
 // provider tokens — they never reach the renderer or a repo.
@@ -63,10 +66,16 @@ export class GerritService {
     return Boolean(this.auth[normalizeGerritHost(host)]);
   }
 
-  // GET against the Gerrit REST API. Auth precedence: explicitly stored
+  // Request against the Gerrit REST API (GET unless `init` says otherwise).
+  // Auth precedence: explicitly stored
   // credentials (Basic) → git's cookie file (how googlesource authenticates)
   // → anonymous. Any authenticated request goes through the `/a/` prefix.
-  private async gerritFetch(host: string, path: string, cookieHeader?: string): Promise<any> {
+  private async gerritFetch(
+    host: string,
+    path: string,
+    cookieHeader?: string,
+    init?: { method: "PUT"; body: unknown },
+  ): Promise<any> {
     const base = normalizeGerritHost(host);
     const auth = this.auth[base];
     const authenticated = Boolean(auth || cookieHeader);
@@ -78,7 +87,12 @@ export class GerritService {
     } else if (cookieHeader) {
       headers.Cookie = cookieHeader;
     }
-    const res = await fetch(url, { headers });
+    if (init) headers["Content-Type"] = "application/json";
+    const res = await fetch(url, {
+      method: init?.method ?? "GET",
+      headers,
+      body: init ? JSON.stringify(init.body) : undefined,
+    });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`Gerrit API ${res.status}: ${body.trim().slice(0, 200) || res.statusText}`);
@@ -105,5 +119,31 @@ export class GerritService {
     );
     if (!Array.isArray(raw)) throw new Error("Gerrit API returned an unexpected shape");
     return raw.map((c: any) => mapGerritChange(host, c));
+  }
+
+  // Create a branch or tag on the server at `revision`. Writes need an
+  // identity, so refuse up front instead of letting Gerrit 401 anonymously.
+  async createRef(
+    host: string,
+    project: string,
+    kind: GerritRefKind,
+    name: string,
+    revision: string,
+    message?: string,
+    cookieHeader?: string,
+  ): Promise<void> {
+    if (this.authModeFor(host, cookieHeader) === "anonymous") {
+      throw new Error("Not authenticated with Gerrit — add credentials or an http.cookiefile first.");
+    }
+    const { path, body } = buildCreateRefRequest(kind, project, name, revision, message);
+    try {
+      await this.gerritFetch(host, path, cookieHeader, { method: "PUT", body });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.startsWith("Gerrit API 409")) {
+        throw new Error(`${kind === "branch" ? "Branch" : "Tag"} "${name}" already exists on Gerrit.`);
+      }
+      throw e;
+    }
   }
 }

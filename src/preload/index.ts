@@ -594,6 +594,11 @@ const gerritApi = {
   syncChangeRefs: (remote: string, changes: ChangeRefSyncEntry[]): Promise<{ success: boolean; error?: string; fetched: number; pruned: number }> =>
     ipcRenderer.invoke('gerrit:sync-change-refs', remote, changes),
   clearChangeRefs: (): Promise<number> => ipcRenderer.invoke('gerrit:clear-change-refs'),
+  // Create a branch/tag on the server through Gerrit's REST API — for hosts
+  // (googlesource) that reject pushing it directly. Uses the same auth as
+  // listChanges; `warning` means it was created but the local fetch failed.
+  createRef: (host: string, project: string, remote: string, kind: 'branch' | 'tag', name: string): Promise<{ success: boolean; error?: string; warning?: string }> =>
+    ipcRenderer.invoke('gerrit:create-ref', host, project, remote, kind, name),
   // Credentials never come back to the renderer — only a boolean status.
   setAuth: (host: string, username: string, password: string): Promise<Result> =>
     ipcRenderer.invoke('gerrit:set-auth', host, username, password),

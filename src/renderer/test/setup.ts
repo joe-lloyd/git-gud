@@ -113,6 +113,7 @@ Object.defineProperty(window, 'gerritApi', {
   value: {
     detect: vi.fn().mockResolvedValue({ likely: false, signals: [] }),
     pushForReview: vi.fn().mockResolvedValue({ success: true }),
+    createRef: vi.fn().mockResolvedValue({ success: true }),
     listChanges: vi.fn().mockResolvedValue({ success: true, changes: [], auth: 'anonymous' }),
     syncChangeRefs: vi.fn().mockResolvedValue({ success: true, fetched: 0, pruned: 0 }),
     clearChangeRefs: vi.fn().mockResolvedValue(0),

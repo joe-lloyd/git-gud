@@ -14,6 +14,7 @@ import {
   CHANGE_REF_PREFIX,
   PATCHSET_REF_PREFIX,
   type ChangeRefSyncEntry,
+  type GerritRefKind,
   type PushForReviewOptions,
   type ReviewPushErrorKind,
 } from "./gerrit-utils";
@@ -1697,6 +1698,46 @@ export class GitService {
     } catch (e: unknown) {
       const msg = String(e);
       return { success: false, error: msg, kind: classifyReviewPushError(msg) };
+    }
+  }
+
+  // What to send Gerrit's create-ref API for a local branch/tag: the commit
+  // it points at, plus the message when the tag is annotated (subject + body
+  // only, so a signature block doesn't leak into the server-side tag).
+  async gerritRefTarget(
+    kind: GerritRefKind,
+    name: string,
+  ): Promise<{ revision: string; message?: string }> {
+    const ref = kind === "branch" ? `refs/heads/${name}` : `refs/tags/${name}`;
+    const revision = (await this.git.raw(["rev-parse", "--verify", `${ref}^{commit}`])).trim();
+    if (kind === "branch") return { revision };
+    const type = (await this.git.raw(["cat-file", "-t", ref])).trim();
+    if (type !== "tag") return { revision };
+    const subject = (await this.git.raw(["tag", "-l", "--format=%(contents:subject)", name])).trim();
+    const body = (await this.git.raw(["tag", "-l", "--format=%(contents:body)", name])).trim();
+    return { revision, message: (body ? `${subject}\n\n${body}` : subject) || name };
+  }
+
+  // After Gerrit created the ref, pull it back so local state matches what
+  // a successful push would have left: a remote-tracking branch (+ upstream
+  // if none was set) or the server's tag. The tag fetch is forced because an
+  // annotated tag Gerrit authored is a different object than the local one
+  // (same name, commit and message); the local tag would otherwise block
+  // every later tag fetch with "would clobber existing tag".
+  async syncCreatedGerritRef(remote: string, kind: GerritRefKind, name: string): Promise<void> {
+    if (kind === "tag") {
+      await this.git.raw([...this.getAuthConfigs(), "fetch", remote, `+refs/tags/${name}:refs/tags/${name}`]);
+      return;
+    }
+    await this.git.raw([
+      ...this.getAuthConfigs(),
+      "fetch",
+      remote,
+      `refs/heads/${name}:refs/remotes/${remote}/${name}`,
+    ]);
+    const upstream = await this.git.raw(["config", "--get", `branch.${name}.merge`]).catch(() => "");
+    if (!upstream.trim()) {
+      await this.git.raw(["branch", `--set-upstream-to=${remote}/${name}`, name]);
     }
   }
 
