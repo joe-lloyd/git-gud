@@ -77,17 +77,23 @@ OTA updates use `expo-updates` with the **fingerprint** runtime policy: a JS
 update only applies to APKs whose native code (Expo SDK, native modules,
 `pinned-fetch`) hashes the same — so a release that touched native code
 simply won't reach old APKs over the air, and the footer tells you to
-reinstall. The app checks on launch and on every return to the foreground
-(≤ once per 10 min) and asks before restarting; **Check for updates** forces it.
+reinstall. `fingerprint.config.js` keeps the per-release CI stamp (version,
+versionCode, `extra`, EAS project id) out of that hash; without it every
+release would get a new runtime version and no update would ever apply.
+The app checks on launch and on every return to the foreground (≤ once per
+10 min) and asks before restarting; **Check for updates** forces it.
 
 Setup (one-time, needs an Expo account):
 1. `cd apps/companion && pnpm dlx eas-cli@latest init` → note the project id.
 2. Repo secrets: `EXPO_PROJECT_ID` (that id) and `EXPO_TOKEN`
    (https://expo.dev/accounts/<you>/settings/access-tokens).
 3. Release as usual. CI stamps the id into `app.json`, builds the APK with OTA
-   enabled, and runs `eas update --branch production` (`dev` for pre-release
-   tags). Until the secrets exist the footer says *OTA updates are off in this
-   build* and every release is APK-only.
+   enabled on the `production` channel (`dev` for pre-release tags), and runs
+   `eas update --channel <same>`. The first publish creates each channel and
+   its branch. Until the secrets exist the footer says *OTA updates are off in
+   this build* and every release is APK-only.
+4. Install the APK from the first release built with the secrets. APKs built
+   before that have OTA compiled off and never check for updates.
 
 ## Safe areas
 Android 15+ draws edge-to-edge (`edgeToEdgeEnabled: true`). The stack header

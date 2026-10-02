@@ -151,7 +151,10 @@ jobs:
       # Version + provenance stamp. `extra.build` is what the app shows in its
       # footer (tag + sha) for both the APK and any OTA JS update, so every
       # running combination is traceable. With EXPO_PROJECT_ID set, OTA
-      # updates are enabled and pointed at that EAS Update project.
+      # updates are enabled and pointed at that EAS Update project. The APK is
+      # built with Gradle, not EAS Build, so nothing else gives it a channel:
+      # the request header pins it to production (stable tags) or dev
+      # (pre-release tags), matching the channel the OTA step publishes to.
       - name: Stamp version, build info and OTA config
         working-directory: apps/companion
         env:
@@ -168,11 +171,12 @@ jobs:
             a.expo.android.versionCode = maj * 1000000 + min * 1000 + pat;
             a.expo.extra = { ...(a.expo.extra || {}), build: { tag: "v" + version, sha } };
             if (projectId) {
+              const channel = version.includes("-") ? "dev" : "production";
               a.expo.extra.eas = { projectId };
-              a.expo.updates = { ...(a.expo.updates || {}), enabled: true, url: "https://u.expo.dev/" + projectId };
+              a.expo.updates = { ...(a.expo.updates || {}), enabled: true, url: "https://u.expo.dev/" + projectId, requestHeaders: { "expo-channel-name": channel } };
             }
             fs.writeFileSync("app.json", JSON.stringify(a, null, 2) + "\n");
-            console.log("companion", a.expo.version, "versionCode", a.expo.android.versionCode, "ota", a.expo.updates.enabled, "sha", sha);
+            console.log("companion", a.expo.version, "versionCode", a.expo.android.versionCode, "ota", a.expo.updates.enabled, "channel", a.expo.updates.requestHeaders?.["expo-channel-name"] ?? "-", "sha", sha);
           ' "$VERSION" "$GITHUB_SHA" "${EXPO_PROJECT_ID:-}"
       - name: Generate native project
         working-directory: apps/companion
@@ -208,8 +212,10 @@ jobs:
           set -euo pipefail
           # `secrets` cannot be used in `if:` — decide here instead.
           if [ -z "${EXPO_TOKEN:-}" ] || [ -z "${EXPO_PROJECT_ID:-}" ]; then echo "EXPO_TOKEN / EXPO_PROJECT_ID not set — skipping OTA publish (APK only)"; exit 0; fi
-          BRANCH=production; [[ "$TAG" == *-* ]] && BRANCH=dev
-          pnpm dlx eas-cli@latest update --branch "$BRANCH" --message "$TAG ($GITHUB_SHA)" --non-interactive --json | tee eas-update.json
+          CHANNEL=production; [[ "$TAG" == *-* ]] && CHANNEL=dev
+          # --channel publishes to the branch that channel serves, creating
+          # both (same name) on the first release.
+          pnpm dlx eas-cli@latest update --channel "$CHANNEL" --platform android --message "$TAG ($GITHUB_SHA)" --non-interactive --json | tee eas-update.json
           node -e 'const u=JSON.parse(require("fs").readFileSync("eas-update.json","utf8"));for(const x of [].concat(u))console.log("published",x.platform,x.runtimeVersion,x.id)' || true
       - name: Upload APK + QR
         env:
