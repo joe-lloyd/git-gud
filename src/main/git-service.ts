@@ -1190,7 +1190,8 @@ export class GitService {
             `${sha}^1`,
             sha,
           ]
-        : ["diff-tree", "--no-commit-id", "-r", "--name-status", sha];
+        : // --root: a root commit has no parent, and without it diff-tree prints nothing
+          ["diff-tree", "--root", "--no-commit-id", "-r", "--name-status", sha];
     const raw = await this.git.raw(args);
     return raw
       .trim()

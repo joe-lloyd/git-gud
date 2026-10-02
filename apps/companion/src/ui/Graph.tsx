@@ -92,7 +92,7 @@ export const CommitDrawer: React.FC<{ row: LogRow | null; load: CommitDetailLoad
           <View style={{ height: 1, backgroundColor: theme.border }} />
           {files === null ? <Loading /> : (
             <>
-              <Hint>{files.length} file{files.length === 1 ? '' : 's'} · <Text style={{ color: theme.green }}>+{adds}</Text> <Text style={{ color: theme.red }}>−{dels}</Text></Hint>
+              <Hint>{files.length} file{files.length === 1 ? '' : 's'}{files.some((f) => f.add !== undefined || f.del !== undefined) ? <> · <Text style={{ color: theme.green }}>+{adds}</Text> <Text style={{ color: theme.red }}>−{dels}</Text></> : null}</Hint>
               {files.map((f) => (
                 <Pressable key={f.path} onPress={() => onOpenFile(f.path)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, opacity: pressed ? 0.6 : 1 })}>
                   <Mono color={f.status?.startsWith('A') ? theme.green : f.status?.startsWith('D') ? theme.red : theme.yellow}>{(f.status ?? 'M').slice(0, 1)}</Mono>

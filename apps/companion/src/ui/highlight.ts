@@ -4,7 +4,9 @@
 export type TokenKind = 'plain' | 'keyword' | 'string' | 'comment' | 'number' | 'type' | 'punct' | 'attr' | 'tag'
 export interface Token { text: string; kind: TokenKind }
 
-interface Lang { keywords: Set<string>; types?: RegExp; lineComment?: string[]; blockComment?: boolean; hash?: boolean; tags?: boolean; attr?: boolean }
+// tags: markup — quotes only open a string inside a tag, so prose like "idea's" stays plain.
+// noStrings: prose formats (markdown) where quotes are punctuation, not literals.
+interface Lang { keywords: Set<string>; types?: RegExp; lineComment?: string[]; blockComment?: boolean; hash?: boolean; tags?: boolean; attr?: boolean; noStrings?: boolean }
 
 const KW = (s: string) => new Set(s.split(/\s+/).filter(Boolean))
 const C_LIKE = 'if else for while do switch case default break continue return function class extends new this super import export from as const let var typeof instanceof in of try catch finally throw async await yield static get set delete void null undefined true false interface type enum implements namespace declare readonly public private protected abstract override keyof infer never unknown any satisfies'
@@ -20,7 +22,7 @@ const LANGS: Record<string, Lang> = {
   java: { keywords: KW('public private protected static final abstract class interface enum extends implements import package new return if else for while do switch case default break continue try catch finally throw throws this super null true false void int long short byte char boolean float double var record sealed permits instanceof'), types: /^[A-Z][A-Za-z0-9_]*$/, lineComment: ['//'], blockComment: true },
   sh: { keywords: KW('if then else elif fi for while do done case esac in function return exit export local set unset echo source cd true false'), hash: true },
   yaml: { keywords: KW('true false null yes no on off'), hash: true, attr: true },
-  md: { keywords: KW('') },
+  md: { keywords: KW(''), noStrings: true },
   html: { keywords: KW(''), tags: true, blockComment: false },
   sql: { keywords: KW('select from where insert into values update set delete create table alter drop index join left right inner outer on as and or not null primary key references group by order limit offset having union all distinct case when then else end begin commit rollback'), lineComment: ['--'], blockComment: true },
   gradle: { keywords: KW('apply plugin plugins id dependencies implementation api android defaultConfig def if else true false null'), lineComment: ['//'], blockComment: true },
@@ -49,6 +51,7 @@ export function tokenize(line: string, lang: string | null): Token[] {
   const out: Token[] = []
   const push = (text: string, kind: TokenKind) => { if (!text) return; const last = out[out.length - 1]; if (last && last.kind === kind && kind === 'plain') last.text += text; else out.push({ text, kind }) }
   let i = 0
+  let inTag = false
   while (i < line.length) {
     const rest = line.slice(i)
     // comments
@@ -58,13 +61,13 @@ export function tokenize(line: string, lang: string | null): Token[] {
     if (L?.tags && rest.startsWith('<!--')) { const end = rest.indexOf('-->'); const len = end < 0 ? rest.length : end + 3; push(rest.slice(0, len), 'comment'); i += len; continue }
     // strings
     const q = rest[0]
-    if (q === '"' || q === "'" || q === '`') {
+    if ((q === '"' || q === "'" || q === '`') && !L?.noStrings && (!L?.tags || inTag)) {
       let j = 1
       while (j < rest.length && rest[j] !== q) { if (rest[j] === '\\') j++; j++ }
       push(rest.slice(0, Math.min(j + 1, rest.length)), 'string'); i += Math.min(j + 1, rest.length); continue
     }
     // tags / attrs (markup)
-    if (L?.tags && rest[0] === '<') { const m = /^<\/?[A-Za-z][\w:-]*/.exec(rest); if (m) { push(m[0], 'tag'); i += m[0].length; continue } }
+    if (L?.tags && rest[0] === '<') { const m = /^<\/?[A-Za-z][\w:-]*/.exec(rest); if (m) { push(m[0], 'tag'); i += m[0].length; inTag = true; continue } }
     if (L?.attr) { const m = /^[A-Za-z_-][\w-]*(?=\s*:)/.exec(rest); if (m && (i === 0 || /^\s*$/.test(line.slice(0, i)))) { push(m[0], 'attr'); i += m[0].length; continue } }
     // numbers
     const n = NUMBER.exec(rest)
@@ -77,7 +80,7 @@ export function tokenize(line: string, lang: string | null): Token[] {
       push(word, kind); i += word.length; continue
     }
     const p = PUNCT.exec(rest)
-    if (p) { push(p[0], 'punct'); i += p[0].length; continue }
+    if (p) { push(p[0], 'punct'); i += p[0].length; if (p[0].includes('>')) inTag = false; continue }
     push(rest[0], 'plain'); i++
   }
   return out

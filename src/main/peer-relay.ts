@@ -25,7 +25,9 @@ export interface RelayTarget { host: string; port: number; fingerprint?: string 
 function connectRelay(r: RelayTarget, timeoutMs = 8_000): Promise<tls.TLSSocket> {
   return new Promise((resolve, reject) => {
     const sock = tls.connect({
-      host: r.host, port: r.port, minVersion: "TLSv1.2", rejectUnauthorized: false, servername: r.host,
+      // SNI must be a name: Node 26 throws on an IP servername (DEP0123), and a
+      // relay addressed by IP has no name to send.
+      host: r.host, port: r.port, minVersion: "TLSv1.2", rejectUnauthorized: false, ...(net.isIP(r.host) ? {} : { servername: r.host }),
       checkServerIdentity: () => undefined,
     });
     const t = setTimeout(() => { sock.destroy(); reject(new Error(`relay ${r.host}:${r.port} timed out`)); }, timeoutMs);

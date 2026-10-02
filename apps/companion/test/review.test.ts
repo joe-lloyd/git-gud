@@ -114,3 +114,29 @@ describe('labels', () => {
     expect(botLabel({ name: 'JEV', state: 'success', description: '' })).toBe('JEV ✓ merge')
   })
 })
+
+describe('v1.20.1 fixes', () => {
+  it('JEV failure reads as changes required, error as a failed run', async () => {
+    const { botLabel } = await import('../src/ui/forge')
+    expect(botLabel({ name: 'JEV', state: 'failure', description: '' })).toBe('JEV ✗ changes')
+    expect(botLabel({ name: 'JEV', state: 'error', description: '' })).toBe('JEV failed')
+  })
+  it('extension labels', async () => {
+    const { extLabel } = await import('../src/ui/forge')
+    expect(extLabel('packages/core/src/decide.ts')).toBe('ts')
+    expect(extLabel('Dockerfile')).toBe('Dockerfile')
+    expect(extLabel('.env')).toBe('.env')
+  })
+  it('html: apostrophes in prose stay plain, attribute values are strings', async () => {
+    const { tokenize } = await import('../src/ui/highlight')
+    const toks = tokenize(`<p class="x">an idea's chat, a task's chat</p>`, 'html')
+    expect(toks.filter((t) => t.kind === 'string').map((t) => t.text)).toEqual(['"x"'])
+    expect(toks.map((t) => t.text).join('')).toBe(`<p class="x">an idea's chat, a task's chat</p>`)
+    const md = tokenize(`it's "quoted"`, 'md')
+    expect(md.some((t) => t.kind === 'string')).toBe(false)
+  })
+  it('code still highlights strings', async () => {
+    const { tokenize } = await import('../src/ui/highlight')
+    expect(tokenize(`const a = 'x'`, 'js').some((t) => t.kind === 'string' && t.text === "'x'")).toBe(true)
+  })
+})

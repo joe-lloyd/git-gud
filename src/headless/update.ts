@@ -30,6 +30,9 @@ export async function selfUpdate(o: { currentVersion: string; channel?: UpdateCh
   const tmp = target + ".new";
   fs.writeFileSync(tmp, body, { mode: 0o755 });
   fs.renameSync(tmp, target);
-  o.log(`installed ${version} → ${target}. Restart: systemctl --user restart gitgud-headless`);
+  const restart = process.platform === "darwin"
+    ? "launchctl kickstart -k gui/$(id -u)/com.gitgud.headless"
+    : "systemctl --user restart gitgud-headless";
+  o.log(`installed ${version} → ${target}. Restart: ${restart}`);
   return true;
 }

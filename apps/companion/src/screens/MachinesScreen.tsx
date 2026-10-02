@@ -84,7 +84,7 @@ export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machine
             {v.runtimeVersion && <Hint>runtime {v.runtimeVersion}{v.channel ? ` · channel ${v.channel}` : ''}{v.updateId ? ` · update ${v.updateId.slice(0, 8)}` : ''}</Hint>}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Button label={upd.status === 'checking' ? 'Checking…' : upd.status === 'downloading' ? 'Downloading…' : 'Check for updates'} disabled={upd.status === 'checking' || !v.otaEnabled} onPress={checkUpdates} />
-              <Hint>{!v.otaEnabled ? 'OTA updates are off in this build — updates ship as new APKs.' : upd.status === 'up-to-date' ? 'Up to date.' : upd.status === 'ready' ? 'Update downloaded — restart to apply.' : upd.status === 'error' ? `Update check failed: ${upd.error ?? ''}` : 'JS updates install without a new APK; native changes still need one.'}</Hint>
+              <View style={{ flex: 1 }}><Hint>{!v.otaEnabled ? 'OTA updates are off in this build — updates ship as new APKs.' : upd.status === 'up-to-date' ? 'Up to date.' : upd.status === 'ready' ? 'Update downloaded — restart to apply.' : upd.status === 'error' ? `Update check failed: ${upd.error ?? ''}` : 'JS updates install without a new APK; native changes still need one.'}</Hint></View>
             </View>
           </View></View>}
       />

@@ -7,7 +7,7 @@ import { theme } from '../ui/theme'
 import { DiffView } from '../ui/DiffView'
 import { languageFor } from '../ui/highlight'
 import { collapseReason } from '../ui/diffRows'
-import { FILE_STATUS_LETTER } from '../ui/forge'
+import { FILE_STATUS_LETTER, extLabel } from '../ui/forge'
 import { useAppState } from '../state/AppState'
 import { RpcError } from '../net/peerClient'
 import { firstUnviewed, loadViewed, saveViewed, shortHash, toggle, viewedKey, type ViewedState } from '../state/viewed'
@@ -148,7 +148,7 @@ const FilePage: React.FC<{ f: PullFile; slot?: Slot; seen: boolean; expanded: bo
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <Text style={{ color: theme.green, fontSize: 12 }}>+{f.add}</Text>
         <Text style={{ color: theme.red, fontSize: 12 }}>−{f.del}</Text>
-        {lang && <Text style={{ color: theme.textMuted, fontSize: 12 }}>{lang}</Text>}
+        <Text style={{ color: theme.textMuted, fontSize: 12 }}>{extLabel(f.path)}</Text>
       </View>
     </View>
   )

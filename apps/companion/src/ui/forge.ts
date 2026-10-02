@@ -22,7 +22,9 @@ export function botLabel(b: BotVerdict): string {
     case 'success': return `${b.name} ✓ merge`
     case 'warning': return `${b.name} ⚠ changes`
     case 'pending': return `${b.name} reviewing…`
-    case 'error': case 'failure': return `${b.name} failed`
+    // Older JEV policy reported "changes required" as failure; error is a run that broke.
+    case 'failure': return `${b.name} ✗ changes`
+    case 'error': return `${b.name} failed`
     case 'none': return `${b.name} —`
     default: return b.name
   }
@@ -37,6 +39,12 @@ export function age(iso: string, now = Date.now()): string {
   if (s < 86400) return `${Math.floor(s / 3600)}h`
   if (s < 86400 * 30) return `${Math.floor(s / 86400)}d`
   return new Date(t).toISOString().slice(0, 10)
+}
+
+/** What the pager shows next to a path: the file's own extension, not the highlighter's grammar. */
+export function extLabel(path: string): string {
+  const base = path.split('/').pop() ?? path
+  return base.includes('.') && !base.startsWith('.') ? base.split('.').pop()!.toLowerCase() : base
 }
 
 export const FILE_STATUS_LETTER = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R', copied: 'C' } as const

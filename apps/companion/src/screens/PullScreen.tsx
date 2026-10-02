@@ -105,7 +105,7 @@ export const PullScreen: React.FC<NativeStackScreenProps<RootStack, 'Pull'>> = (
               const seen = viewed?.hashes.includes(shortHash(f.patchHash))
               return (
                 <Pressable key={f.path} onPress={() => review(f.path)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7 }}>
-                  <Text style={{ color: seen ? theme.green : theme.border, fontSize: 13, width: 14 }}>{seen ? '✓' : '○'}</Text>
+                  <Text style={{ color: seen ? theme.green : theme.textMuted, fontSize: 13, width: 14 }}>{seen ? '✓' : '○'}</Text>
                   <Mono color={theme.yellow}>{FILE_STATUS_LETTER[f.status]}</Mono>
                   <Text style={{ color: seen ? theme.textMuted : theme.text, fontSize: 13, flex: 1 }} numberOfLines={2}>{f.previous ? `${f.previous} → ` : ''}{f.path}</Text>
                   {f.binary ? <Text style={{ color: theme.textMuted, fontSize: 11 }}>bin</Text> : <>
@@ -149,7 +149,8 @@ const BotCard: React.FC<{ b: BotVerdict }> = ({ b }) => {
         <Text style={{ color: theme.textMuted, fontSize: 12 }}>{open ? 'less ▴' : 'more ▾'}</Text>
       </View>
       <Text style={{ color: theme.textSecondary, fontSize: 13, marginTop: 4 }}>{b.headline ?? b.description}</Text>
-      {(open ? focus : focus.slice(0, 2)).map((f, i) => <Text key={i} style={{ color: theme.textSecondary, fontSize: 12.5, marginTop: 4 }}>• {f}</Text>)}
+      {/* expanded with the full comment, the comment's own Review focus section lists these */}
+      {(open ? (b.body ? [] : focus) : focus.slice(0, 2)).map((f, i) => <Text key={i} style={{ color: theme.textSecondary, fontSize: 12.5, marginTop: 4 }}>• {f}</Text>)}
       {open && b.body ? <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10 }}><Markdown source={b.body} /></View> : null}
       <Hint>Advisory first pass — the belt checks are what gate a merge.</Hint>
     </Card>

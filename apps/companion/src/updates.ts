@@ -25,7 +25,8 @@ export function versionInfo(): VersionInfo {
     jsTag: extra.build?.tag ?? 'dev',
     jsSha: extra.build?.sha?.slice(0, 7) ?? '',
     runtimeVersion: Updates.runtimeVersion ?? null,
-    source: __DEV__ ? 'dev' : Updates.isEmbeddedLaunch ? 'embedded' : 'update',
+    // With OTA off every launch runs the bundled JS, whatever isEmbeddedLaunch says.
+    source: __DEV__ ? 'dev' : !Updates.isEnabled || Updates.isEmbeddedLaunch ? 'embedded' : 'update',
     updateId: Updates.updateId ?? null,
     updatedAt: Updates.createdAt ?? null,
     channel: Updates.channel ?? null,

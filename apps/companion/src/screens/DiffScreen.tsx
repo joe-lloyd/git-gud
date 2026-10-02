@@ -7,6 +7,7 @@ import { useAppState } from '../state/AppState'
 import type { RootStack } from '../navigation'
 import { languageFor } from '../ui/highlight'
 import { DiffView } from '../ui/DiffView'
+import { extLabel } from '../ui/forge'
 
 type FileDiffResult = { diff?: string; text?: string } | string
 
@@ -32,7 +33,7 @@ export const DiffScreen: React.FC<NativeStackScreenProps<RootStack, 'Diff'>> = (
       <DiffView patch={diff} lang={lang} meta
         header={<View style={{ paddingHorizontal: 12, paddingVertical: 6, flexDirection: 'row', gap: 8 }}>
           <Text style={{ color: theme.textMuted, fontSize: 11 }} numberOfLines={1}>{route.params.path}</Text>
-          {lang && <Text style={{ color: theme.textMuted, fontSize: 11 }}>· {lang}</Text>}
+          <Text style={{ color: theme.textMuted, fontSize: 11 }}>· {extLabel(route.params.path)}</Text>
         </View>} />
     </Screen>
   )
