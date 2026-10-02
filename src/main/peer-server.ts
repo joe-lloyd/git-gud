@@ -9,6 +9,7 @@ import {
   encodeSseEvent,
   generatePairingCode,
   generateToken,
+  isForgeMethod,
   methodAccess,
   pairingProof,
   refusalMessage,
@@ -24,6 +25,7 @@ import {
   type PairReciprocal,
 } from "./peer-protocol";
 import type { PairedDevice } from "./peer-store";
+import type { ForgeRpcHandler } from "./forge/forge-host";
 
 // Host side of a peer connection: a Node https server (self-signed cert from
 // peer-tls.ts, pinned by clients at pairing) that lets paired
@@ -45,6 +47,9 @@ export interface PeerServerHost {
   verifyToken(token: string): PairedDevice | null;
   registerPaired(peerId: string, name: string, token: string, opts: { kind: PeerDeviceKind; readOnly: boolean }): void;
   registerReciprocal?(peer: { peerId: string; name: string; token: string; certPem: string; host: string; port: number; relay?: string }): void;
+  // Pull requests via a configured forge (`__forge*` methods). Read-only for
+  // every paired device; the forge token never leaves the host.
+  forge?(): ForgeRpcHandler | null;
   // Methods refused even for writable devices (host policy, e.g. setConfig).
   denyMethods?(): ReadonlySet<string>;
   // When present and false, /pair answers 403: the host only accepts pairing
@@ -316,6 +321,17 @@ export class PeerServer {
       const events = Array.isArray(a.events) ? a.events.filter((e): e is string => typeof e === "string") : ["repo-changed"];
       const ok = this.host.subscribePush ? this.host.subscribePush(device, token, events) : false;
       return ok ? reply({ id, ok: true, result: { subscribed: token !== null } }) : reply({ id, ok: false, error: "Push notifications are not enabled on this host", code: "forbidden-method" }, 403);
+    }
+
+    if (isForgeMethod(method)) {
+      const forge = this.host.forge?.() ?? null;
+      if (!forge?.enabled()) return reply({ id, ok: false, error: 'No forge is configured on this host (add "forges" to its config)', code: "not-found" }, 404);
+      try {
+        const r = await withTimeout(forge.handle(method, args), RPC_TIMEOUT_MS, `"${method}" timed out after ${RPC_TIMEOUT_MS / 1000}s on the host`);
+        return r.ok ? reply({ id, ok: true, result: r.result }) : reply({ id, ok: false, error: r.error, code: r.code }, r.code === "not-found" ? 404 : 200);
+      } catch (e) {
+        return reply({ id, ok: false, error: String(e instanceof Error ? e.message : e), code: "failed" });
+      }
     }
 
     const access = methodAccess(method);

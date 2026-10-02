@@ -10,7 +10,7 @@ import { createPeerServerHost, createRepoHost } from "../main/peer-host-core";
 import { PeerServer } from "../main/peer-server";
 import { PeerStore, plainCrypter } from "../main/peer-store";
 import { shortFingerprint } from "../main/peer-tls";
-import { configPath, effectiveReadOnly, ensureDirs, loadConfig, resolveBindAddress, type HeadlessConfig, type HeadlessPaths } from "./config";
+import { configPath, effectiveReadOnly, ensureDirs, expandHome, loadConfig, resolveBindAddress, type ForgeEntry, type HeadlessConfig, type HeadlessPaths } from "./config";
 import { ipInAnyCidr, relayRouteFor } from "@gitgud/peer-protocol";
 import { startControlServer, type ControlRequest } from "./control";
 import type { Logger } from "./log";
@@ -19,6 +19,7 @@ import { AuditLog } from "./audit";
 import { createRepoWatcher, pushSubscribers } from "../main/peer-host-core";
 import { RelayLink } from "../main/peer-relay";
 import { PushNotifier } from "../main/peer-push";
+import { createForgeHost, type ForgeConfig, type ForgeHost } from "../main/forge/forge-host";
 
 export interface DaemonOptions {
   paths: HeadlessPaths;
@@ -65,6 +66,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
     log: (m) => log(m),
   });
 
+  // Forges (companion PR review): token + CA read from files at start and on
+  // every reload; a forge with a bad file is skipped, the daemon still serves.
+  let forge: ForgeHost | null = null;
+  const applyForges = () => {
+    const ok = loadForgeConfigs(cfg.forges, (m) => log.level("warn", m));
+    forge = ok.length ? createForgeHost(ok) : null;
+    if (cfg.forges.length) log("forges", { enabled: ok.map((f) => `${f.id}=${f.url}`).join(",") || "none" });
+  };
+  applyForges();
+
   // Pairing is closed until the CLI asks for a code; the code then lives for
   // `pairingWindowMinutes` or one use.
   let pairingUntil = 0;
@@ -94,6 +105,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
     onPairAttempt: (ip, ok, peerId8, name) => audit.write(ok ? "pair-ok" : "pair-refused", { ip, peerId8, name }),
     denyMethods: () => new Set(cfg.denyMethods),
     relayRoute: () => relayRouteFor(cfg.rendezvous?.url, store.getIdentity().peerId),
+    forge: () => forge,
     pairingOpen,
     pushEnabled: () => cfg.push,
     onPaired: (peerId, name) => {
@@ -189,6 +201,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
       applyDiscovery();
       applyPushWatchers();
       applyRelay();
+      applyForges();
       log("reloaded", { repos: allow.current().size, readOnly: cfg.readOnly });
     } catch (e) {
       log.level("error", `reload failed: ${String(e)} — keeping previous config`);
@@ -215,6 +228,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
           readOnly: readOnlyNow(), readOnlyForced: effectiveReadOnly(cfg, bindAddress).forced, fingerprint: tls.fingerprint, repos: [...allow.current().keys()],
           allowSourceCidrs: cfg.allowSourceCidrs, tokenTtlDays: cfg.tokenTtlDays, infoPublic: cfg.infoPublic,
           relay: cfg.rendezvous?.url ? { url: cfg.rendezvous.url, status: relay?.status ?? "offline", error: relay?.lastError ?? "" } : null,
+          forges: cfg.forges.map((f) => ({ id: f.id, url: f.url })),
           paired: store.listPaired().map((d) => ({ peerId: d.peerId, name: d.name, kind: d.kind, readOnly: d.readOnly === true, connected: server.connectedDevices().some((c) => c.peerId === d.peerId) })),
           pairingOpen: pairingOpen(), pairingExpiresAt: pairingUntil || null, configFile: configPath(paths), pid: process.pid,
         };
@@ -231,6 +245,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
         return { revoked: ok };
       }
       case "reload": reload(); return { reloaded: true };
+      case "forge-check": return forge ? forge.check() : [];
       case "tls": {
         if (req.action === "rotate") {
           const next = store.rotateTls();
@@ -248,6 +263,35 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon> {
   });
 
   return { port, bindAddress, fingerprint: tls.fingerprint, peerId: store.getIdentity().peerId, socketPath, server, store, requestPairingCode, reload, stop };
+}
+
+// Token and CA from disk. A token file anyone else can read is refused (not
+// fixed): unlike the TLS key we created it, the user did, and may have copied
+// it somewhere shared.
+export function loadForgeConfigs(entries: ForgeEntry[], warn: (m: string) => void): ForgeConfig[] {
+  const out: ForgeConfig[] = [];
+  for (const f of entries) {
+    const tokenFile = expandHome(f.tokenFile);
+    let token: string;
+    try {
+      if (process.platform !== "win32") {
+        const mode = fs.statSync(tokenFile).mode & 0o777;
+        if (mode & 0o077) { warn(`forge "${f.id}": ${tokenFile} is readable by others (mode ${mode.toString(8)}) — chmod 600 it; forge disabled`); continue; }
+      }
+      token = fs.readFileSync(tokenFile, "utf8").trim();
+    } catch (e) {
+      warn(`forge "${f.id}": can't read tokenFile ${tokenFile}: ${(e as Error).message}; forge disabled`);
+      continue;
+    }
+    if (!token) { warn(`forge "${f.id}": ${tokenFile} is empty; forge disabled`); continue; }
+    let ca: string | undefined;
+    if (f.caFile) {
+      try { ca = fs.readFileSync(expandHome(f.caFile), "utf8"); } catch (e) { warn(`forge "${f.id}": can't read caFile: ${(e as Error).message}; forge disabled`); continue; }
+      if (!ca.includes("BEGIN CERTIFICATE")) { warn(`forge "${f.id}": caFile is not a PEM certificate; forge disabled`); continue; }
+    }
+    out.push({ id: f.id, kind: f.kind, url: f.url, token, ...(ca ? { ca } : {}), owners: f.owners, ...(f.bots ? { bots: f.bots } : {}) });
+  }
+  return out;
 }
 
 // Refuse to serve with a group/world-readable private key: the key IS the

@@ -4,7 +4,9 @@
 // keeps SSE to the foreground.
 import {
   DEFAULT_SERVER_PORT, READ_METHODS, SseParser, parseRelayUrl, relaySniHost,
-  type PairResponse, type PeerEvent, type PeerInfo, type PeerRepoSummary, type RpcErrorCode, type RpcResponse,
+  parseFileDiff, parsePullCommits, parsePullDetail, parsePullFileList, parsePullList,
+  type FileDiff, type PairResponse, type PeerEvent, type PeerInfo, type PeerRepoSummary, type PullCommit, type PullDetail,
+  type PullFileList, type PullList, type PullRef, type RpcErrorCode, type RpcResponse,
 } from '@gitgud/peer-protocol'
 import { pairingProof, randomHex } from './sha256'
 import { TransportError, type PinnedTransport } from './transport'
@@ -28,6 +30,8 @@ export type Machine = {
   platform: string
   version: string
   pairedAt: number
+  // Host capabilities from /info (e.g. "forge" = pull requests).
+  features?: string[]
 }
 
 export type Self = { peerId: string; name: string }
@@ -109,6 +113,20 @@ export class PeerClient {
   push(m: Machine, repoPath: string): Promise<{ success: boolean; error?: string }> { return this.rpc(m, repoPath, 'push', [false]) }
   subscribePush(m: Machine, token: string, events: string[]): Promise<{ subscribed: boolean }> { return this.rpc(m, '', '__subscribePush', [{ token, events }]) }
 
+  // Pull requests (host-level; the forge token stays on the host). Every
+  // result goes through its guard — a host speaking a different shape is one
+  // clear error, not a half-rendered screen.
+  private async forge<T>(m: Machine, method: string, args: unknown[], guard: (v: unknown) => T | null): Promise<T> {
+    const v = guard(await this.rpc(m, '', method, args))
+    if (v === null) throw new RpcError(`${m.name} sent an unexpected pull request response — update Git Gud on it or this app`, 'failed')
+    return v
+  }
+  forgeListPulls(m: Machine): Promise<PullList> { return this.forge(m, '__forgeListPulls', [{}], parsePullList) }
+  forgeGetPull(m: Machine, ref: PullRef): Promise<PullDetail> { return this.forge(m, '__forgeGetPull', [ref], parsePullDetail) }
+  forgeListFiles(m: Machine, ref: PullRef): Promise<PullFileList> { return this.forge(m, '__forgeListFiles', [ref], parsePullFileList) }
+  forgeFileDiff(m: Machine, ref: PullRef, headSha: string, path: string): Promise<FileDiff> { return this.forge(m, '__forgeFileDiff', [{ ...ref, headSha, path }], parseFileDiff) }
+  forgeListCommits(m: Machine, ref: PullRef): Promise<PullCommit[]> { return this.forge(m, '__forgeListCommits', [ref], parsePullCommits) }
+
   // Foreground-only event stream for one or more repos.
   events(m: Machine, repos: string[], onEvent: (ev: PeerEvent) => void, onClose: (err?: Error) => void): () => void {
     const a = m.lastGood ?? m.addresses[0]
@@ -149,5 +167,5 @@ export function withRelay(addresses: Address[], route: string | undefined, peerI
 
 export function machineFromPairing(qr: { host: string; port: number; fingerprint: string; alts?: string[]; name?: string; relay?: string }, peer: PeerInfo, token: string, readOnly: boolean): Machine {
   const addresses = addressesFor(qr, peer)
-  return { peerId: peer.peerId, name: peer.name || qr.name || qr.host, addresses, lastGood: addresses[0], fingerprint: peer.fingerprint || qr.fingerprint, token, readOnly, platform: peer.platform, version: peer.version, pairedAt: Date.now() }
+  return { peerId: peer.peerId, name: peer.name || qr.name || qr.host, addresses, lastGood: addresses[0], fingerprint: peer.fingerprint || qr.fingerprint, token, readOnly, platform: peer.platform, version: peer.version, pairedAt: Date.now(), features: peer.features ?? [] }
 }

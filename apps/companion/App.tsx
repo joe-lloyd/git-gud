@@ -14,6 +14,9 @@ import { ReposScreen } from './src/screens/ReposScreen'
 import { RepoScreen } from './src/screens/RepoScreen'
 import { CommitScreen } from './src/screens/CommitScreen'
 import { DiffScreen } from './src/screens/DiffScreen'
+import { PullsScreen } from './src/screens/PullsScreen'
+import { PullScreen } from './src/screens/PullScreen'
+import { PullFilesScreen } from './src/screens/PullFilesScreen'
 import { handleNotificationResponse, registerPush, setupNotificationActions } from './src/push'
 import { createNavigationContainerRef } from '@react-navigation/native'
 
@@ -51,6 +54,9 @@ const Root: React.FC = () => {
         <Stack.Screen name="Repo" component={screen(RepoScreen)} />
         <Stack.Screen name="Commit" component={screen(CommitScreen)} />
         <Stack.Screen name="Diff" component={screen(DiffScreen)} />
+        <Stack.Screen name="Pulls" component={screen(PullsScreen)} />
+        <Stack.Screen name="Pull" component={screen(PullScreen)} />
+        <Stack.Screen name="PullFiles" component={screen(PullFilesScreen)} />
       </Stack.Navigator>
     </NavigationContainer>
   )

@@ -6,6 +6,7 @@ import { theme } from '../ui/theme'
 import { useAppState } from '../state/AppState'
 import type { RootStack } from '../navigation'
 import { withRelay } from '../net/peerClient'
+import { FORGE_FEATURE } from '@gitgud/peer-protocol'
 import { checkForUpdate, promptReload, versionInfo, versionLabel, type UpdateStatus } from '../updates'
 
 // Machines: every paired host, live reachability, repo count.
@@ -21,8 +22,11 @@ export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machine
     for (const m of machines) {
       setStatus((s) => ({ ...s, [m.peerId]: { state: 'connecting' } }))
       try {
-        const { address } = await client.probeAny(m.addresses, m.fingerprint)
+        const { address, info } = await client.probeAny(m.addresses, m.fingerprint)
         if (address.host !== m.lastGood?.host || address.port !== m.lastGood?.port) await updateMachine(m.peerId, { lastGood: address })
+        // A forge can be configured (or removed) on the host at any time.
+        const features = info.features ?? []
+        if (JSON.stringify(features) !== JSON.stringify(m.features ?? [])) await updateMachine(m.peerId, { features })
         const repos = await client.listRepos({ ...m, lastGood: address })
         // Scopes can change on the host at any time — refresh on every check.
         const me = await client.whoami({ ...m, lastGood: address }).catch(() => null)
@@ -41,6 +45,16 @@ export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machine
       <FlatList
         data={machines}
         keyExtractor={(m) => m.peerId}
+        ListHeaderComponent={<>{machines.filter((m) => m.features?.includes(FORGE_FEATURE)).map((m) => (
+          <Card key={`pulls-${m.peerId}`} onPress={() => navigation.navigate('Pulls', { peerId: m.peerId })} style={{ borderColor: theme.accentBorder }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Title>Pull requests</Title>
+              <View style={{ flex: 1 }} />
+              <Text style={{ color: theme.textMuted, fontSize: 12 }}>via {m.name} ›</Text>
+            </View>
+            <Hint>Review open pull requests on the forge {m.name} is connected to.</Hint>
+          </Card>
+        ))}</>}
         ListEmptyComponent={<Empty>No machines yet. On your computer open Git Gud → Settings → Share with other Git Gud instances → Show QR, then scan it here.</Empty>}
         renderItem={({ item: m }) => {
           const st = status[m.peerId]

@@ -7,10 +7,11 @@
 //   gitgud-headless ┘      (allow-list, GitService cache, watchers)
 import * as fs from "fs";
 import { basename, join } from "path";
-import { generateToken, type PeerEvent, type PeerInfo, type PeerRepoSummary } from "./peer-protocol";
+import { FORGE_FEATURE, generateToken, type PeerEvent, type PeerInfo, type PeerRepoSummary } from "./peer-protocol";
 import type { PeerServerHost } from "./peer-server";
 import type { PeerStore } from "./peer-store";
 import { isExpoPushToken, type PushSubscriber } from "./peer-push";
+import type { ForgeRpcHandler } from "./forge/forge-host";
 
 // ── Paths ───────────────────────────────────────────────────────────────
 
@@ -213,6 +214,9 @@ export interface PeerServerHostDeps {
   // M7: relay route (`relay://host:port/<peerId>#fp`) advertised in /info so
   // paired clients learn how to reach us from anywhere.
   relayRoute?(): string | undefined;
+  // Pull requests via a configured forge (headless `forges`). Rebuilt on
+  // config reload, hence a getter.
+  forge?(): ForgeRpcHandler | null;
   log?(msg: string): void;
 }
 
@@ -227,6 +231,7 @@ export function createPeerServerHost(d: PeerServerHostDeps): PeerServerHost {
       fingerprint: d.store.getTls().fingerprint,
       readOnly: d.readOnly(),
       ...(d.relayRoute?.() ? { relay: d.relayRoute() } : {}),
+      ...(d.forge?.()?.enabled() ? { features: [FORGE_FEATURE] } : {}),
     }),
     tls: () => d.store.getTls(),
     readOnly: () => d.readOnly(),
@@ -256,6 +261,7 @@ export function createPeerServerHost(d: PeerServerHostDeps): PeerServerHost {
     },
     touchDevice: (device) => d.store.touchPaired(device.peerId),
     registerReciprocal: d.onReciprocal,
+    forge: d.forge,
     log: d.log,
   };
 }

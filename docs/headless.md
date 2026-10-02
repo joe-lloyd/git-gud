@@ -49,6 +49,7 @@ code. Pairing is *closed* until you run `pair`; one code = one pairing.
 | `tokenTtlDays` | 0 | Bearer tokens expire after N days; Git Gud clients rotate automatically (`__rotateToken`) when < 7 days remain |
 | `heartbeatSeconds` | 15 | SSE keep-alive (5–60) |
 | `allowWritesOnPublicBind` | false | A public bind (not loopback / RFC1918 / tailnet) **forces read-only** unless this is true |
+| `forges` | `[]` | Forgejo/Gitea instances whose pull requests paired devices may read (see below) |
 
 Reload after editing: `gitgud-headless reload` (or `systemctl --user reload gitgud-headless`).
 
@@ -69,6 +70,50 @@ devices `~/.local/share/gitgud-headless/` (0700), audit
 `~/.local/state/gitgud-headless/audit.log`, control socket in
 `$XDG_RUNTIME_DIR/gitgud-headless/`. `GITGUD_HEADLESS_HOME=/dir` puts
 everything under one folder (several daemons on one box, tests).
+
+## Pull requests for the companion app
+
+The companion can review pull requests on a Forgejo (or Gitea) instance
+**through** the daemon: the daemon holds the token and calls the forge, and
+the phone only ever sees the results over its pinned connection. Revoking the
+phone on the daemon cuts its access to the forge too.
+
+1. On the forge, create a token for this machine (Settings → Applications)
+   with **read:repository, read:issue, read:user**. Nothing else is needed.
+2. Save it where only you can read it. The daemon refuses a token file other
+   users can read:
+   ```sh
+   (umask 077; pbpaste > ~/.config/gitgud-headless/forgejo-token)   # or paste with an editor
+   ```
+3. If the forge's certificate comes from a private CA (Caddy's local
+   authority, for example), give the daemon that CA. Node does not use the
+   macOS keychain, so this is required even when the browser and curl trust
+   it:
+   ```sh
+   security find-certificate -c "Caddy Local Authority - 2026 ECC Root" -p > ~/.config/gitgud-headless/forge-ca.pem
+   ```
+4. Add the forge to `config.jsonc` and reload:
+   ```jsonc
+   "forges": [{
+     "id": "home", "kind": "forgejo", "url": "https://git.home.arpa",
+     "tokenFile": "~/.config/gitgud-headless/forgejo-token",
+     "caFile": "~/.config/gitgud-headless/forge-ca.pem",
+     "owners": []            // optional: only these owners/orgs in the inbox
+   }]
+   ```
+   ```sh
+   gitgud-headless reload && gitgud-headless forge check
+   # ✓ home  https://git.home.arpa  as joe-lloyd  ·  4 open pull requests
+   ```
+
+On the phone, a **Pull requests** card appears on the Machines screen the
+next time it refreshes. The inbox toggles between **All open** and **Needs
+review** (open, not a draft, and no review from you on the latest commit).
+
+Review bots are recognised by their status context. The default is JEV
+(`jev/base-review`, with comment marker `<!-- jev-base-review -->`).
+Override it per forge with `"bots": [{ "name", "context", "commentMarker" }]`.
+Bot contexts are kept out of the belt (CI) rollup.
 
 ## Reaching it from another building
 

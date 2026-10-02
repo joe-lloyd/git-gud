@@ -29,6 +29,18 @@ export const Button: React.FC<{ label: string; onPress: () => void; primary?: bo
 export const Loading: React.FC<{ label?: string }> = ({ label }) => (
   <View style={{ padding: 24, alignItems: 'center', gap: 8 }}><ActivityIndicator color={theme.accent} />{label && <Hint>{label}</Hint>}</View>
 )
+// Two-or-more way switch (inbox filter, PR tabs).
+export function Segmented<T extends string>({ options, value, onChange }: { options: Array<{ value: T; label: string }>; value: T; onChange: (v: T) => void }) {
+  return (
+    <View style={styles.seg}>
+      {options.map((o) => (
+        <Pressable key={o.value} onPress={() => onChange(o.value)} style={[styles.segItem, value === o.value && { backgroundColor: theme.bgHover }]}>
+          <Text style={{ color: value === o.value ? theme.text : theme.textMuted, fontSize: 13, fontWeight: '600' }}>{o.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  )
+}
 export const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => <View style={{ padding: 24, alignItems: 'center' }}><Hint>{children}</Hint></View>
 
 const styles = StyleSheet.create({
@@ -43,4 +55,6 @@ const styles = StyleSheet.create({
   btn: { borderWidth: 1, borderColor: theme.border, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16, alignItems: 'center' },
   btnPrimary: { backgroundColor: theme.accent, borderColor: theme.accent },
   btnText: { color: theme.text, fontWeight: '600', fontSize: 14 },
+  seg: { flexDirection: 'row', margin: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.border, overflow: 'hidden' },
+  segItem: { flex: 1, paddingVertical: 8, alignItems: 'center', backgroundColor: theme.bgElevated },
 })

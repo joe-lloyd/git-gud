@@ -29,6 +29,8 @@ export const PAIR_LOCKOUT_MS = 60_000;
 
 export const PEER_URI_SCHEME = "gitgud-peer://";
 
+export * from "./forge";
+
 // ── Types ───────────────────────────────────────────────────────────────
 
 export type PeerInfo = {
@@ -45,6 +47,9 @@ export type PeerInfo = {
   // M7: how to reach this host from anywhere — `relay://host:port/<peerId>#fp`.
   // Clients store it and fall back to it when direct addresses stop answering.
   relay?: string;
+  // Optional host capabilities (additive). "forge" = pull requests via a
+  // configured forge (see ./forge.ts).
+  features?: string[];
 };
 
 // What kind of device is pairing. Hosts default `companion` (phone) devices
@@ -66,7 +71,8 @@ export type RpcRequest = { id: string; repoPath: string; method: string; args: u
 export type RpcResponse =
   | { id: string; ok: true; result: unknown }
   | { id: string; ok: false; error: string; code?: RpcErrorCode };
-export type RpcErrorCode = "unauthorized" | "forbidden-method" | "forbidden-repo" | "read-only" | "not-found" | "failed";
+// "stale": a forge request named a PR head that has since moved.
+export type RpcErrorCode = "unauthorized" | "forbidden-method" | "forbidden-repo" | "read-only" | "not-found" | "failed" | "stale";
 
 // A repo the host is willing to serve: its open tabs + recent projects.
 export type PeerRepoSummary = { path: string; name: string; open: boolean };

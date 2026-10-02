@@ -8,6 +8,18 @@ import { isPublicAddress } from "@gitgud/peer-protocol";
 
 export interface ScanRoot { path: string; depth: number }
 
+// A forge whose pull requests paired devices may browse (companion PR
+// review). The token is read from a 0600 file, never from config.jsonc.
+export interface ForgeEntry {
+  id: string;
+  kind: "forgejo";
+  url: string;
+  tokenFile: string;
+  caFile?: string;
+  owners: string[];
+  bots?: Array<{ name: string; context: string; commentMarker?: string }>;
+}
+
 export interface HeadlessConfig {
   name: string;
   port: number;
@@ -43,6 +55,8 @@ export interface HeadlessConfig {
   // A public bind (not loopback/RFC1918/tailnet) forces read-only unless
   // this is true — writes over the open internet are opt-in twice.
   allowWritesOnPublicBind: boolean;
+  // Pull request review for paired devices (read-only). [] = off.
+  forges: ForgeEntry[];
 }
 
 export const DEFAULT_CONFIG: HeadlessConfig = {
@@ -63,6 +77,7 @@ export const DEFAULT_CONFIG: HeadlessConfig = {
   tokenTtlDays: 0,
   heartbeatSeconds: 15,
   allowWritesOnPublicBind: false,
+  forges: [],
 };
 
 // ── XDG paths ───────────────────────────────────────────────────────────
@@ -152,11 +167,33 @@ function pick(raw: Record<string, unknown>): Partial<HeadlessConfig> {
   if (typeof raw.tokenTtlDays === "number") out.tokenTtlDays = raw.tokenTtlDays;
   if (typeof raw.heartbeatSeconds === "number") out.heartbeatSeconds = raw.heartbeatSeconds;
   if (typeof raw.allowWritesOnPublicBind === "boolean") out.allowWritesOnPublicBind = raw.allowWritesOnPublicBind;
+  if (Array.isArray(raw.forges)) out.forges = raw.forges.map(pickForge).filter((f): f is ForgeEntry => f !== null);
   if (raw.rendezvous && typeof raw.rendezvous === "object") {
     const r = raw.rendezvous as { url?: unknown; token?: unknown };
     if (typeof r.url === "string" && typeof r.token === "string") out.rendezvous = { url: r.url, token: r.token };
   }
   return out;
+}
+
+function pickForge(raw: unknown): ForgeEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.url !== "string" || typeof r.tokenFile !== "string") return null;
+  const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  const bots = Array.isArray(r.bots)
+    ? r.bots.filter((b): b is { name: string; context: string; commentMarker?: string } =>
+      !!b && typeof b === "object" && typeof (b as { name?: unknown }).name === "string" && typeof (b as { context?: unknown }).context === "string")
+      .map((b) => ({ name: b.name, context: b.context, ...(typeof b.commentMarker === "string" ? { commentMarker: b.commentMarker } : {}) }))
+    : undefined;
+  return {
+    id: typeof r.id === "string" && r.id.trim() ? r.id.trim() : "forge",
+    kind: "forgejo",
+    url: r.url.trim().replace(/\/+$/, ""),
+    tokenFile: r.tokenFile,
+    ...(typeof r.caFile === "string" ? { caFile: r.caFile } : {}),
+    owners: strings(r.owners),
+    ...(bots ? { bots } : {}),
+  };
 }
 
 export function validate(cfg: HeadlessConfig): void {
@@ -167,6 +204,18 @@ export function validate(cfg: HeadlessConfig): void {
   for (const c of cfg.allowSourceCidrs) if (!/^[0-9a-f.:]+(\/\d{1,3})?$/i.test(c)) throw new Error(`config: allowSourceCidrs entry "${c}" is not an IP or CIDR`);
   if (!Number.isFinite(cfg.tokenTtlDays) || cfg.tokenTtlDays < 0) throw new Error("config: tokenTtlDays must be ≥ 0");
   if (!Number.isInteger(cfg.heartbeatSeconds) || cfg.heartbeatSeconds < 5 || cfg.heartbeatSeconds > 60) throw new Error("config: heartbeatSeconds must be 5-60");
+  const ids = new Set<string>();
+  for (const f of cfg.forges) {
+    if (!/^https:\/\/[^/\s]+/.test(f.url)) throw new Error(`config: forges[].url must be https:// (got "${f.url}")`);
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(f.id)) throw new Error(`config: forges[].id must be 1-32 letters, digits, - or _ (got "${f.id}")`);
+    if (ids.has(f.id)) throw new Error(`config: duplicate forges[].id "${f.id}"`);
+    ids.add(f.id);
+  }
+}
+
+// "~/x" → "$HOME/x" (config paths are written by hand).
+export function expandHome(p: string, home: string = os.homedir()): string {
+  return p === "~" ? home : p.startsWith("~/") ? join(home, p.slice(2)) : p;
 }
 
 // Read-only is forced on a public bind unless explicitly allowed: exposing
@@ -227,7 +276,14 @@ export function renderDefaultConfig(overrides: Partial<HeadlessConfig> = {}): st
   "tokenTtlDays": ${c.tokenTtlDays},
   "heartbeatSeconds": ${c.heartbeatSeconds},
   // A public bind forces read-only unless this is true. Think twice.
-  "allowWritesOnPublicBind": ${c.allowWritesOnPublicBind}
+  "allowWritesOnPublicBind": ${c.allowWritesOnPublicBind},
+  // Pull requests for the companion app (read-only). The token lives in a
+  // 0600 file; caFile is the CA that signed the forge's certificate, e.g.
+  //   { "id": "home", "kind": "forgejo", "url": "https://git.home.arpa",
+  //     "tokenFile": "~/.config/gitgud-headless/forgejo-token",
+  //     "caFile": "~/.config/gitgud-headless/forge-ca.pem", "owners": [] }
+  // Check it with: gitgud-headless forge check
+  "forges": ${JSON.stringify(c.forges)}
 }
 `;
 }

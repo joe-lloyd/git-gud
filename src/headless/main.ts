@@ -7,6 +7,7 @@
 //   gitgud-headless status | devices | revoke <peerId8|peerId> | reload | stop
 //   gitgud-headless update [--channel stable|dev] [--check]
 //   gitgud-headless audit [-n 50]
+//   gitgud-headless forge check
 //
 // Env: GITGUD_HEADLESS_HOME (all dirs under one folder), XDG_* honoured.
 import * as fs from "fs";
@@ -36,6 +37,7 @@ Usage:
   gitgud-headless allow <peerId8> fetch,pull,push | none   (writes a read-only device may run; phones get --ff-only / non-force)
   gitgud-headless reload | stop
   gitgud-headless audit [-n 50]
+  gitgud-headless forge check                 (token user + open PRs per configured forge)
   gitgud-headless tls show | tls rotate --yes
   gitgud-headless update [--channel stable|dev] [--check]
   gitgud-headless --version | --help
@@ -142,6 +144,17 @@ async function main(argv: string[]): Promise<number> {
       const r = (await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "tls", action })) as { fingerprint: string; rotated: boolean };
       out(`${r.rotated ? "new " : ""}certificate: ${r.fingerprint}`);
       return 0;
+    }
+    case "forge": {
+      if (args[0] !== "check") { out("usage: gitgud-headless forge check"); return 1; }
+      const rows = (await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "forge-check" })) as Array<{ id: string; url: string; user: string | null; openPulls: number | null; error?: string }>;
+      if (!rows.length) { out(`no forge enabled — add "forges" to ${configPath(paths)} (see the comment there), then \`gitgud-headless reload\``); return 1; }
+      let bad = 0;
+      for (const r of rows) {
+        if (r.error) { bad++; out(`✗ ${r.id}  ${r.url}  ${r.error}`); }
+        else out(`✓ ${r.id}  ${r.url}  as ${r.user}  ·  ${r.openPulls} open pull request${r.openPulls === 1 ? "" : "s"}`);
+      }
+      return bad ? 1 : 0;
     }
     case "stop": await controlRequest(join(paths.runtimeDir, "control.sock"), { cmd: "stop" }); out("stopping"); return 0;
 
