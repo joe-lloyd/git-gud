@@ -7,15 +7,13 @@ import { useAppState } from '../state/AppState'
 import type { RootStack } from '../navigation'
 import { withRelay } from '../net/peerClient'
 import { FORGE_FEATURE } from '@gitgud/peer-protocol'
-import { checkForUpdate, promptReload, versionInfo, versionLabel, type UpdateStatus } from '../updates'
+import { useApkUpdate, versionLabel, type UpdateState } from '../updates'
 
 // Machines: every paired host, live reachability, repo count.
 export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machines'>> = ({ navigation }) => {
   const { machines, client, updateMachine } = useAppState()
   const [status, setStatus] = useState<Record<string, { state: 'connected' | 'offline' | 'connecting' | 'revoked'; repos?: number; error?: string }>>({})
-  const [upd, setUpd] = useState<{ status: UpdateStatus; error?: string }>({ status: 'idle' })
-  const v = versionInfo()
-  const checkUpdates = async () => { setUpd({ status: 'checking' }); const r = await checkForUpdate(); setUpd(r); if (r.status === 'ready') promptReload() }
+  const upd = useApkUpdate()
 
   const refresh = useCallback(async () => {
     if (!client) return
@@ -80,14 +78,37 @@ export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machine
         refreshing={false}
         ListFooterComponent={<View style={{ padding: 12, gap: 8 }}><Button primary label="Pair a machine (scan QR)" onPress={() => navigation.navigate('Pair')} /><Hint>Read-only by design: the phone can see history, working trees and diffs on the machines it is paired with and never runs writes. Revoke it any time from the host's Settings → Paired devices.</Hint>
           <View style={{ marginTop: 16, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 12, gap: 6 }}>
-            <Mono>{versionLabel(v)}</Mono>
-            {v.runtimeVersion && <Hint>runtime {v.runtimeVersion}{v.channel ? ` · channel ${v.channel}` : ''}{v.updateId ? ` · update ${v.updateId.slice(0, 8)}` : ''}</Hint>}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Button label={upd.status === 'checking' ? 'Checking…' : upd.status === 'downloading' ? 'Downloading…' : 'Check for updates'} disabled={upd.status === 'checking' || !v.otaEnabled} onPress={checkUpdates} />
-              <View style={{ flex: 1 }}><Hint>{!v.otaEnabled ? 'OTA updates are off in this build — updates ship as new APKs.' : upd.status === 'up-to-date' ? 'Up to date.' : upd.status === 'ready' ? 'Update downloaded — restart to apply.' : upd.status === 'error' ? `Update check failed: ${upd.error ?? ''}` : 'JS updates install without a new APK; native changes still need one.'}</Hint></View>
-            </View>
+            <Mono>{versionLabel()}</Mono>
+            {upd.state.kind !== 'unsupported' && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Button {...updateButton(upd.state, upd.check, upd.update)} />
+              <View style={{ flex: 1 }}><Hint>{updateHint(upd.state)}</Hint></View>
+            </View>}
           </View></View>}
       />
     </Screen>
   )
+}
+
+const mb = (bytes: number) => `${Math.round(bytes / 1e6)} MB`
+
+function updateButton(s: UpdateState, check: () => void, update: () => void): { label: string; onPress: () => void; primary?: boolean; disabled?: boolean } {
+  switch (s.kind) {
+    case 'unsupported': case 'current': return { label: 'Check for updates', onPress: check }
+    case 'checking': return { label: 'Checking…', onPress: check, disabled: true }
+    case 'available': return { label: `Update to ${s.release.tag}`, onPress: update, primary: true }
+    case 'downloading': return { label: `Downloading ${Math.round(s.progress * 100)}%`, onPress: update, disabled: true }
+    case 'installing': return { label: 'Installing…', onPress: update, disabled: true }
+    case 'error': return s.release ? { label: 'Retry update', onPress: update, primary: true } : { label: 'Check for updates', onPress: check }
+  }
+}
+
+function updateHint(s: UpdateState): string {
+  switch (s.kind) {
+    case 'unsupported': case 'checking': return ''
+    case 'current': return 'Up to date.'
+    case 'available': return `${mb(s.release.size)} download. Android asks you to confirm the install.`
+    case 'downloading': return `${mb(s.release.size * s.progress)} of ${mb(s.release.size)}`
+    case 'installing': return 'Confirm in the Android installer. The app restarts on the new version.'
+    case 'error': return s.message
+  }
 }

@@ -1,82 +1,97 @@
-// Over-the-air JS updates (expo-updates) + a single place that knows *what*
-// is running: native build version, embedded vs downloaded JS, and the
-// release tag / commit the JS came from (stamped into app.json by CI).
-import { useEffect, useState } from 'react'
-import { Alert, AppState } from 'react-native'
+// Self-update by full APK: ask GitHub Releases for a newer companion APK,
+// download it, and hand it to Android's package installer. Android always
+// shows its own "Update this app?" confirmation for a sideloaded APK; the
+// first time it also asks to allow installs from Git Gud.
+import { useCallback, useEffect, useState } from 'react'
+import { Platform } from 'react-native'
 import Constants from 'expo-constants'
-import * as Updates from 'expo-updates'
+import * as FileSystem from 'expo-file-system'
+import * as IntentLauncher from 'expo-intent-launcher'
+import { newerApk, parseReleases, type ApkRelease } from './apkRelease'
+
+const RELEASES_URL = 'https://api.github.com/repos/joe-lloyd/git-gud/releases?per_page=30'
+const FLAG_GRANT_READ_URI_PERMISSION = 1
 
 export interface VersionInfo {
-  appVersion: string            // native build version (APK), e.g. 1.14.2
-  jsTag: string                 // release tag the JS was built from (CI stamp) or 'dev'
-  jsSha: string                 // short commit sha (CI stamp) or ''
-  runtimeVersion: string | null // expo-updates runtime (fingerprint) the JS requires
-  source: 'embedded' | 'update' | 'dev'
-  updateId: string | null
-  updatedAt: Date | null
-  channel: string | null
-  otaEnabled: boolean
+  appVersion: string // e.g. 1.20.1 (CI stamp) or 0.1.0 locally
+  tag: string        // release tag the build came from, or 'dev'
+  sha: string        // short commit sha, or ''
 }
 
 export function versionInfo(): VersionInfo {
   const extra = (Constants.expoConfig?.extra ?? {}) as { build?: { tag?: string; sha?: string } }
   return {
     appVersion: Constants.expoConfig?.version ?? '0.0.0',
-    jsTag: extra.build?.tag ?? 'dev',
-    jsSha: extra.build?.sha?.slice(0, 7) ?? '',
-    runtimeVersion: Updates.runtimeVersion ?? null,
-    // With OTA off every launch runs the bundled JS, whatever isEmbeddedLaunch says.
-    source: __DEV__ ? 'dev' : !Updates.isEnabled || Updates.isEmbeddedLaunch ? 'embedded' : 'update',
-    updateId: Updates.updateId ?? null,
-    updatedAt: Updates.createdAt ?? null,
-    channel: Updates.channel ?? null,
-    otaEnabled: Updates.isEnabled,
+    tag: extra.build?.tag ?? 'dev',
+    sha: extra.build?.sha?.slice(0, 7) ?? '',
   }
 }
 
-/** "1.14.2 · js v1.14.3 (abc1234, OTA 27 Aug 11:02)" — always shows both halves so every version is traceable. */
+/** "Git Gud 1.20.1 (v1.20.1 abc1234)". */
 export function versionLabel(v: VersionInfo = versionInfo()): string {
-  const js = `${v.jsTag}${v.jsSha ? ` ${v.jsSha}` : ''}`
-  const how = v.source === 'dev' ? 'dev server' : v.source === 'embedded' ? 'built in' : `OTA${v.updatedAt ? ` ${v.updatedAt.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${v.updatedAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : ''}`
-  return `App ${v.appVersion} · JS ${js} (${how})`
+  return `Git Gud ${v.appVersion} (${v.tag}${v.sha ? ` ${v.sha}` : ''})`
 }
 
-export type UpdateStatus = 'idle' | 'checking' | 'downloading' | 'ready' | 'up-to-date' | 'disabled' | 'error'
+export type UpdateState =
+  | { kind: 'unsupported' }
+  | { kind: 'checking' }
+  | { kind: 'current' }
+  | { kind: 'available'; release: ApkRelease }
+  | { kind: 'downloading'; release: ApkRelease; progress: number }
+  | { kind: 'installing'; release: ApkRelease }
+  | { kind: 'error'; message: string; release?: ApkRelease }
 
-/** Check for an OTA update; on success the caller decides when to reload. Never throws. */
-export async function checkForUpdate(): Promise<{ status: UpdateStatus; error?: string }> {
-  if (!Updates.isEnabled || __DEV__) return { status: 'disabled' }
-  try {
-    const r = await Updates.checkForUpdateAsync()
-    if (!r.isAvailable) return { status: 'up-to-date' }
-    await Updates.fetchUpdateAsync()
-    return { status: 'ready' }
-  } catch (e) { return { status: 'error', error: String((e as Error).message ?? e) } }
+async function findUpdate(current: string): Promise<ApkRelease | null> {
+  const res = await fetch(RELEASES_URL, { headers: { Accept: 'application/vnd.github+json' } })
+  if (!res.ok) throw new Error(`GitHub answered ${res.status}`)
+  return newerApk(parseReleases(await res.json()), current)
 }
 
-export function promptReload(): void {
-  Alert.alert('Update ready', 'A new version of the companion app was downloaded. Restart now?', [
-    { text: 'Later', style: 'cancel' },
-    { text: 'Restart', onPress: () => { Updates.reloadAsync().catch(() => {}) } },
-  ])
-}
+/** Checks on mount; `update()` downloads the APK and opens the installer. */
+export function useApkUpdate(): { state: UpdateState; check: () => void; update: () => void } {
+  const supported = Platform.OS === 'android'
+  const [state, setState] = useState<UpdateState>(supported ? { kind: 'checking' } : { kind: 'unsupported' })
 
-/** Auto-update: check on launch and whenever the app returns to the foreground (at most every 10 min). */
-export function useAutoUpdate(): { status: UpdateStatus; error?: string; check: () => Promise<void> } {
-  const [state, setState] = useState<{ status: UpdateStatus; error?: string }>({ status: Updates.isEnabled && !__DEV__ ? 'idle' : 'disabled' })
-  const check = async () => {
-    if (state.status === 'checking' || state.status === 'downloading') return
-    setState({ status: 'checking' })
-    const r = await checkForUpdate()
-    setState(r)
-    if (r.status === 'ready') promptReload()
-  }
-  useEffect(() => {
-    let last = 0
-    const run = () => { if (Date.now() - last > 10 * 60_000) { last = Date.now(); check() } }
-    run()
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') run() })
-    return () => sub.remove()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  return { ...state, check }
+  const check = useCallback(() => {
+    if (!supported) return
+    setState({ kind: 'checking' })
+    findUpdate(versionInfo().appVersion)
+      .then((release) => setState(release ? { kind: 'available', release } : { kind: 'current' }))
+      .catch((e: unknown) => setState({ kind: 'error', message: `Update check failed: ${(e as Error).message ?? e}` }))
+  }, [supported])
+
+  const install = useCallback(async (release: ApkRelease) => {
+    const dir = `${FileSystem.cacheDirectory}apk/`
+    try {
+      // One APK at a time: clear earlier downloads (~100 MB each) first.
+      await FileSystem.deleteAsync(dir, { idempotent: true })
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true })
+      setState({ kind: 'downloading', release, progress: 0 })
+      const task = FileSystem.createDownloadResumable(release.url, dir + release.name, {}, (p) => {
+        const total = p.totalBytesExpectedToWrite > 0 ? p.totalBytesExpectedToWrite : release.size
+        setState({ kind: 'downloading', release, progress: total > 0 ? p.totalBytesWritten / total : 0 })
+      })
+      const done = await task.downloadAsync()
+      if (!done || done.status !== 200) throw new Error(`download failed (HTTP ${done?.status ?? '?'})`)
+      setState({ kind: 'installing', release })
+      // Returns once the installer closes. On success Android replaces and
+      // kills this process, so getting here means it was cancelled or failed.
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: await FileSystem.getContentUriAsync(done.uri),
+        type: 'application/vnd.android.package-archive',
+        flags: FLAG_GRANT_READ_URI_PERMISSION,
+      })
+      setState({ kind: 'available', release })
+    } catch (e) {
+      setState({ kind: 'error', message: `Update failed: ${(e as Error).message ?? e}`, release })
+    }
+  }, [])
+
+  const update = useCallback(() => {
+    const release = state.kind === 'available' || state.kind === 'error' ? state.release : undefined
+    if (release) install(release)
+  }, [state, install])
+
+  useEffect(() => { check() }, [check])
+  return { state, check, update }
 }
