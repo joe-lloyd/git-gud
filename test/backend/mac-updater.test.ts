@@ -4,7 +4,10 @@ import { describe, it, expect, vi } from 'vitest'
 // test never touch it, so a stub is enough to load the module in node.
 vi.mock('electron', () => ({ app: {} }))
 
-import { parseFeed, isNewerVersion, pickAsset } from '../../src/main/mac-updater'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { parseFeed, isNewerVersion, pickAsset, removeTree } from '../../src/main/mac-updater'
 
 const FEED = `version: 1.1.1
 files:
@@ -74,5 +77,22 @@ describe('pickAsset', () => {
 
   it('returns null when no zip matches', () => {
     expect(pickAsset([{ url: 'Git-Gud-1.1.1.dmg', sha512: 'x', size: 1 }], 'arm64')).toBeNull()
+  })
+})
+
+describe('removeTree', () => {
+  // Regression: a leftover pending-update bundle (only app.asar survived an
+  // ASAR-patched fs.rm) blocked every later update download.
+  it.skipIf(process.platform === 'win32')('deletes an unpacked .app bundle including app.asar', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'gg-pending-'))
+    const res = join(root, 'Git Gud.app', 'Contents', 'Resources')
+    mkdirSync(res, { recursive: true })
+    writeFileSync(join(res, 'app.asar'), 'not really an archive')
+    await removeTree(root)
+    expect(existsSync(root)).toBe(false)
+  })
+
+  it.skipIf(process.platform === 'win32')('is a no-op for a missing path', async () => {
+    await expect(removeTree(join(tmpdir(), 'gg-does-not-exist-' + Date.now()))).resolves.toBeUndefined()
   })
 })

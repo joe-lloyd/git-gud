@@ -72,6 +72,18 @@ export function pickAsset(files: FeedFile[], arch: string): FeedFile | null {
   return zips.find((f) => !f.url.includes("arm64")) ?? null;
 }
 
+// Delete a directory tree that may contain an .app bundle. Electron's
+// ASAR-aware fs treats Contents/Resources/app.asar as a directory, so
+// fs.rm({ recursive }) recurses "into" it, can't unlink it, and dies with
+// ENOTEMPTY — leaving a stub bundle behind that broke every later update
+// (the download step starts by clearing the work dir). The real rm has no
+// such view of the filesystem.
+export function removeTree(path: string): Promise<void> {
+  return new Promise((res, rej) => {
+    execFile("/bin/rm", ["-rf", "--", path], (err) => (err ? rej(err) : res()));
+  });
+}
+
 export class MacUpdater {
   private events: MacUpdateEvents;
   private channel: () => UpdateChannel;
@@ -128,7 +140,7 @@ export class MacUpdater {
       if (!asset) throw new Error(`No mac zip for arch ${process.arch} in update feed`);
 
       const dir = this.workDir();
-      await fsp.rm(dir, { recursive: true, force: true });
+      await removeTree(dir);
       await fsp.mkdir(dir, { recursive: true });
       const zipPath = join(dir, asset.url);
 
