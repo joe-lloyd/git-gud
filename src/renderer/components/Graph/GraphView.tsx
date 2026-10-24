@@ -388,6 +388,16 @@ export const GraphView: React.FC<GraphViewProps> = ({
   // rides along with the scrolled content.
   React.useEffect(() => { draw(); }, [draw]);
 
+  // Chromium can drop a 2D canvas's backing store (GPU process reset, memory
+  // pressure, sleep/wake) and later restore it blank. Nothing in `draw`'s deps
+  // changes then, so without this the lanes stay gone until the next scroll.
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener("contextrestored", draw);
+    return () => canvas.removeEventListener("contextrestored", draw);
+  }, [draw]);
+
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
