@@ -44,7 +44,7 @@ for (const file of episodeFiles) {
   // Pre-flight: every t.cue("word") must name a word of its line, or the take dies minutes in.
   const source = await readFile(join(VIDEO, "tools", "takes", file), "utf8");
   const problems: string[] = [];
-  for (const block of source.split(/t\.line\("/).slice(1)) {
+  for (const block of source.split(/\b\w\.line\("/).slice(1)) {
     const lineId = block.slice(0, block.indexOf('"'));
     const line = vo.get(lineId);
     if (!line) {
@@ -52,7 +52,7 @@ for (const file of episodeFiles) {
       continue;
     }
     const spoken = line.words.map((w) => w.word.toLowerCase().replace(/[^a-z0-9-]/g, ""));
-    for (const [, word, nth] of block.matchAll(/t\.cue\("([^"]+)"(?:,\s*(\d+))?\)/g)) {
+    for (const [, word, nth] of block.matchAll(/\b\w\.cue\("([^"]+)"(?:,\s*(\d+))?\)/g)) {
       if (spoken.filter((w) => w === word!.toLowerCase()).length < Number(nth ?? 1)) problems.push(`${lineId}: no "${word}" in "${line.say}"`);
     }
   }
