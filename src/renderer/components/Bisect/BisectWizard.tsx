@@ -6,53 +6,44 @@ import './BisectWizard.css'
 interface BisectWizardProps {
   commits: CommitNode[]
   onClose: () => void
+  /** git checked out another commit to test; the graph should follow. */
+  onStep: () => void
 }
 
 type BisectState = 'idle' | 'running' | 'done'
 
-export const BisectWizard: React.FC<BisectWizardProps> = ({ commits, onClose }) => {
+export const BisectWizard: React.FC<BisectWizardProps> = ({ commits, onClose, onStep }) => {
   const [state, setState] = useState<BisectState>('idle')
   const [badSha, setBadSha] = useState('')
   const [goodSha, setGoodSha] = useState('')
   const [output, setOutput] = useState('')
   const [error, setError] = useState('')
-  const [markedGood, setMarkedGood] = useState<Set<string>>(new Set())
-  const [markedBad, setMarkedBad] = useState<Set<string>>(new Set())
 
   const handleStart = async () => {
     setError('')
     try {
       await window.gitApi.bisectStart()
-      if (badSha) { const o = await window.gitApi.bisectBad(badSha); setOutput(o) }
-      if (goodSha) {
-        const o = await window.gitApi.bisectGood(goodSha)
-        setOutput(o)
-        setMarkedBad(new Set([badSha]))
-        setMarkedGood(new Set([goodSha]))
-      }
+      // git only starts halving once it knows a bad commit. Blank means HEAD.
+      await window.gitApi.bisectBad(badSha || undefined)
+      setOutput(await window.gitApi.bisectGood(goodSha))
       setState('running')
+      onStep()
     } catch (e) { setError(String(e)) }
   }
 
-  const handleGood = async (sha: string) => {
-    const o = await window.gitApi.bisectGood(sha)
-    setMarkedGood((p) => new Set([...p, sha]))
+  // Marks the commit git checked out for testing, then git picks the next one.
+  const mark = async (verdict: 'good' | 'bad') => {
+    const o = verdict === 'good' ? await window.gitApi.bisectGood() : await window.gitApi.bisectBad()
     setOutput(o)
     if (o.includes('is the first bad commit')) setState('done')
-  }
-
-  const handleBad = async (sha: string) => {
-    const o = await window.gitApi.bisectBad(sha)
-    setMarkedBad((p) => new Set([...p, sha]))
-    setOutput(o)
-    if (o.includes('is the first bad commit')) setState('done')
+    onStep()
   }
 
   const handleReset = async () => {
     await window.gitApi.bisectReset()
     setState('idle')
     setBadSha(''); setGoodSha(''); setOutput('')
-    setMarkedGood(new Set()); setMarkedBad(new Set())
+    onStep()
   }
 
   // Show only last 50 commits in the list
@@ -96,33 +87,18 @@ export const BisectWizard: React.FC<BisectWizardProps> = ({ commits, onClose }) 
 
           {(state === 'running' || state === 'done') && (
             <>
-              <div className="bisect-output mono">{output || 'Bisect started — mark commits below'}</div>
-              {state === 'done' && (
-                <div className="bisect-result"><Icon name="check-circle" size={13} /> Bug introduced found! See output above.</div>
+              <div className="bisect-output mono">{output}</div>
+              {state === 'done' ? (
+                <div className="bisect-result"><Icon name="check-circle" size={13} /> Found the first bad commit. It's named above.</div>
+              ) : (
+                <div className="bisect-step">
+                  <p className="bisect-step-hint">Test the commit git checked out, then mark it.</p>
+                  <div className="bisect-actions">
+                    <button className="bisect-btn good" onClick={() => mark('good')}>Good <Icon name="check" size={11} /></button>
+                    <button className="bisect-btn bad" onClick={() => mark('bad')}>Bad <Icon name="x" size={11} /></button>
+                  </div>
+                </div>
               )}
-              <div className="bisect-commit-list">
-                {visibleCommits.map((c) => {
-                  const isGood = markedGood.has(c.sha)
-                  const isBad = markedBad.has(c.sha)
-                  return (
-                    <div
-                      key={c.sha}
-                      className={`bisect-commit-row ${isGood ? 'good' : ''} ${isBad ? 'bad' : ''}`}
-                    >
-                      <span className="ir-sha mono">{c.shortSha}</span>
-                      <span className="ir-msg truncate">{c.message}</span>
-                      {!isGood && !isBad && state === 'running' && (
-                        <div className="bisect-actions">
-                          <button className="bisect-btn good" onClick={() => handleGood(c.sha)}>Good <Icon name="check" size={11} /></button>
-                          <button className="bisect-btn bad" onClick={() => handleBad(c.sha)}>Bad <Icon name="x" size={11} /></button>
-                        </div>
-                      )}
-                      {isGood && <span className="bisect-tag good"><Icon name="check" size={10} /> good</span>}
-                      {isBad  && <span className="bisect-tag bad"><Icon name="x" size={10} /> bad</span>}
-                    </div>
-                  )
-                })}
-              </div>
             </>
           )}
         </div>

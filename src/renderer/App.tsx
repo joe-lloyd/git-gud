@@ -1515,6 +1515,7 @@ export default function App() {
                     <BisectWizard
                       commits={repo.commits}
                       onClose={() => { closeModal(); repo.methods.refresh() }}
+                      onStep={repo.methods.refresh}
                     />
                   ) : modal === 'patch' ? (
                     <PatchPanel

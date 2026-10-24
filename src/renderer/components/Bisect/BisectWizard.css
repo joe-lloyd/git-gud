@@ -81,40 +81,14 @@
   color: var(--success);
 }
 
-.bisect-commit-list {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  /* Horizontal scroll for long commit messages — column-flex requires the
-     items to use min-width: max-content so they don't shrink to fit. */
-  overflow-x: auto;
-}
-.bisect-commit-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 5px;
-  background: var(--bg-elevated);
-  border: 1px solid transparent;
-  transition: background 0.1s;
-  min-width: max-content;
-}
-/* Inside bisect rows, let the message expand fully so the user can scroll
-   sideways to read it instead of truncating with ellipsis. */
-.bisect-commit-row .ir-msg {
-  overflow: visible;
-  text-overflow: clip;
-  flex: 0 0 auto;
-}
-.bisect-commit-row.good { background: rgba(104,211,145,0.08); border-color: rgba(104,211,145,0.2); }
-.bisect-commit-row.bad  { background: rgba(252,129,129,0.08); border-color: rgba(252,129,129,0.2); }
-
-.bisect-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.bisect-step { display: flex; flex-direction: column; gap: 8px; }
+.bisect-step-hint { font-size: 12px; color: var(--text-secondary); margin: 0; }
+.bisect-actions { display: flex; gap: 8px; }
 .bisect-btn {
-  padding: 3px 10px;
-  border-radius: 4px;
-  font-size: 11px;
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
   font-weight: 600;
   border: 1px solid;
 }
@@ -122,7 +96,3 @@
 .bisect-btn.good:hover { background: rgba(104,211,145,0.25); }
 .bisect-btn.bad  { background: rgba(252,129,129,0.15); color: var(--danger);  border-color: rgba(252,129,129,0.3); }
 .bisect-btn.bad:hover  { background: rgba(252,129,129,0.25); }
-
-.bisect-tag { font-size: 10px; font-weight: 700; flex-shrink: 0; }
-.bisect-tag.good { color: var(--success); }
-.bisect-tag.bad  { color: var(--danger); }
