@@ -1943,13 +1943,22 @@ export class GitService {
         // Replay the commits after the range onto the squashed commit.
         await this.git
           .env({ ...process.env, GIT_EDITOR: "true" })
-          .raw(["rebase", "--onto", squashed, newest, "HEAD", "--autostash"]);
+          .raw(["rebase", "--onto", squashed, newest, await this.rebaseTarget(), "--autostash"]);
       }
       return { success: true };
     } catch (e: unknown) {
       const conflict = (await this.getConflictState()).inRebase;
       return { success: false, error: String(e), conflict };
     }
+  }
+
+  /**
+   * What a history rewrite replays: the branch you are on, by name. Passing the
+   * literal "HEAD" makes git rebase a detached HEAD and leave the branch where
+   * it was, so the rewrite seemed to work until you switched away from it.
+   */
+  private async rebaseTarget(): Promise<string> {
+    return (await this.git.raw(["branch", "--show-current"])).trim() || "HEAD";
   }
 
   /** Drop a contiguous range from history, replaying any later commits. */
@@ -1967,7 +1976,7 @@ export class GitService {
       // base, dropping the range. When newest === HEAD this resets to the base.
       await this.git
         .env({ ...process.env, GIT_EDITOR: "true" })
-        .raw(["rebase", "--onto", `${oldest}^`, newest, "HEAD", "--autostash"]);
+        .raw(["rebase", "--onto", `${oldest}^`, newest, await this.rebaseTarget(), "--autostash"]);
       return { success: true };
     } catch (e: unknown) {
       const conflict = (await this.getConflictState()).inRebase;

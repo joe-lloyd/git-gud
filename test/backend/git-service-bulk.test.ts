@@ -17,6 +17,10 @@ describe('GitService bulk / worktree / streaming', () => {
   // Subject lines on the current branch's history (HEAD ancestry only).
   const headMessages = async (): Promise<string[]> =>
     (await git.raw(['log', '--format=%s', 'HEAD'])).trim().split('\n').filter(Boolean)
+  // The branch you were on, so a rewrite that leaves HEAD detached shows up.
+  const branchMessages = async (branch = 'main'): Promise<string[]> =>
+    (await git.raw(['log', '--format=%s', branch])).trim().split('\n').filter(Boolean)
+  const currentBranch = async (): Promise<string> => (await git.raw(['branch', '--show-current'])).trim()
   const headCount = async (): Promise<number> =>
     Number((await git.raw(['rev-list', '--count', 'HEAD'])).trim())
 
@@ -66,6 +70,14 @@ describe('GitService bulk / worktree / streaming', () => {
     expect(msgs).toContain('d') // later commit preserved
   })
 
+  it('squashCommits below the tip moves the branch, not a detached HEAD', async () => {
+    const [, b, c] = await makeCommits(['a', 'b', 'c', 'd'])
+    const r = await service.squashCommits([b, c], 'squashed b+c')
+    expect(r.success).toBe(true)
+    expect(await currentBranch()).toBe('main')
+    expect(await branchMessages()).toEqual(['d', 'squashed b+c', 'a', 'initial'])
+  })
+
   it('rejects a non-contiguous squash selection', async () => {
     const [, b, , d] = await makeCommits(['a', 'b', 'c', 'd'])
     const before = await headCount()
@@ -88,6 +100,14 @@ describe('GitService bulk / worktree / streaming', () => {
     expect(msgs).not.toContain('b')
     expect(msgs).not.toContain('c')
     expect(msgs).toContain('d') // later commit preserved
+  })
+
+  it('dropCommits below the tip moves the branch, not a detached HEAD', async () => {
+    const [, b, c] = await makeCommits(['a', 'b', 'c', 'd'])
+    const r = await service.dropCommits([b, c])
+    expect(r.success).toBe(true)
+    expect(await currentBranch()).toBe('main')
+    expect(await branchMessages()).toEqual(['d', 'a', 'initial'])
   })
 
   it('revertMany adds a revert commit per selected commit', async () => {
