@@ -1,0 +1,49 @@
+{
+  "title": "Meet Git Gud",
+  "subtitle": "A Git client with a lane-colored commit graph",
+  "sections": [
+    {
+      "title": "What Git Gud is",
+      "intent": "Say what it is, name the four apps, and say what the series covers.",
+      "lines": [
+        { "say": "This is Git Gud. It's a desktop Git client built around one idea: you should be able to see your history.", "show": "Title card.", "fx": { "name": "GitGudTitle", "props": { "title": "Git Gud", "subtitle": "A Git client you can see through", "footer": "Episode 1 · Meet Git Gud" } } },
+        { "say": "Every branch gets its own colored lane, and everything you do runs as a plain git command you can read.", "show": "The commit graph of the demo repo, scrolling.", "take": "tour" },
+        { "say": "Git Gud is a family of four apps. The desktop app is the one you'll use most.", "show": "Diagram: the four apps.", "fx": { "name": "GitGudDiagram", "props": { "focus": "family", "step": 1, "caption": "One protocol, four apps" } } },
+        { "say": "A headless daemon serves repositories from a server with no screen. A relay lets your devices reach each other from anywhere.", "show": "Diagram highlights the daemon and relay.", "fx": { "name": "GitGudDiagram", "props": { "focus": "family", "step": 2, "caption": "One protocol, four apps" } } },
+        { "say": "And a companion app puts your repositories on your phone.", "show": "Diagram highlights the phone.", "fx": { "name": "GitGudDiagram", "props": { "focus": "family", "step": 3, "caption": "One protocol, four apps" } } }
+      ]
+    },
+    {
+      "title": "Opening a repository",
+      "intent": "Start page, open a repo, tabs.",
+      "take": "tour",
+      "lines": [
+        { "say": "When you start Git Gud, you land on the start page. Open Repository picks any folder with a git repository in it." },
+        { "say": "Each repository opens in its own tab. The home button takes you back to the start page, where your recent repositories wait." },
+        { "say": "Close the app and your tabs come back next time, exactly as you left them." }
+      ]
+    },
+    {
+      "title": "A tour of the window",
+      "intent": "Name each region of the main window.",
+      "take": "tour",
+      "lines": [
+        { "say": "Here's the main window. In the middle is the commit graph: one row per commit, newest at the top." },
+        { "say": "On the left, the sidebar lists your branches, remote branches, stashes, worktrees and tags." },
+        { "say": "Under them sit the power tools: bisect, patch, reflog and clean. We'll get to each one." },
+        { "say": "On the right is the detail panel. With nothing selected, it shows your uncommitted changes and the commit box." },
+        { "say": "Select a commit and the same panel shows that commit instead: its message, author, and the files it changed." },
+        { "say": "Across the top, the toolbar has fetch, pull and push, stash and pop, and a new branch button. The pill in the middle is the branch you're on." },
+        { "say": "At the bottom is the console dock. One half is a shell. The other half is the git activity log, which shows every command the app runs for you." }
+      ]
+    },
+    {
+      "title": "What this series covers",
+      "intent": "List the episodes.",
+      "lines": [
+        { "say": "This series walks through everything Git Gud does, one episode per area.", "fx": { "name": "GitGudCard", "props": { "kicker": "The series", "title": "Everything Git Gud does", "layout": "grid", "items": "GitCommit | The commit graph | Lanes, refs, search\nPlus | Staging and committing | Files, hunks, single lines\nGitBranch | Branches and stashes | Tags, worktrees, drag and drop\nCloudUpload | Remotes | Fetch, pull, push, sign-in\nScissors | Rewriting history | Rebase, squash, reset\nSwords | Conflicts | Conflict editor, auto-fix\nLifeBuoy | Recovery tools | Reflog, bisect, patch, clean\nEye | Gerrit mode | Push for review\nSettings | Settings and updates | Channels, contrast\nLink | Peer connections | Drive another machine\nServer | Headless and relay | Linux daemon, rendezvous\nSmartphone | Companion app | Your repos on your phone" } } },
+        { "say": "The demo repository is tidepool, a small tide chart app with a few weeks of history from four people. Let's look at its graph.", "fx": { "name": "GitGudTitle", "props": { "title": "Next: the commit graph", "subtitle": "Episode 2", "footer": "" } } }
+      ]
+    }
+  ]
+}

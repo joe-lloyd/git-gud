@@ -1,0 +1,71 @@
+{
+  "name": "gitgud-fx",
+  "label": "Git Gud",
+  "version": "1.0.0",
+  "description": "Title, chapter, infographic card and animated diagrams in Git Gud's dark neon theme: near-black panels, hot pink accent, lane colors from the commit graph.",
+  "author": "Joseph Lloyd",
+  "category": "Git Gud",
+  "tags": ["git-gud", "git", "diagram", "title", "infographic"],
+  "entry": "index.tsx",
+  "templates": [
+    {
+      "name": "GitGudTitle",
+      "label": "Git Gud title",
+      "description": "Full-frame title card with the burning-branch logo drawing itself in, fires flickering.",
+      "defaultDurationSeconds": 6,
+      "category": "Titles",
+      "icon": "Type",
+      "fields": [
+        { "key": "title", "type": "text", "default": "Git Gud" },
+        { "key": "subtitle", "type": "text", "default": "A Git client that runs anywhere you do" },
+        { "key": "footer", "type": "text", "default": "" }
+      ]
+    },
+    {
+      "name": "GitGudChapter",
+      "label": "Git Gud chapter",
+      "description": "Chapter label with a pink number badge that slides in at the bottom left over footage.",
+      "defaultDurationSeconds": 3.5,
+      "category": "Titles",
+      "icon": "Tag",
+      "fields": [
+        { "key": "number", "type": "number", "default": 1, "min": 0, "max": 99 },
+        { "key": "title", "type": "text", "default": "Chapter" }
+      ]
+    },
+    {
+      "name": "GitGudCard",
+      "label": "Git Gud card",
+      "description": "Full-frame infographic: a heading and items that enter one after another, as a list, a grid of up to 12 tiles, or numbered steps on a git-graph rail.",
+      "defaultDurationSeconds": 8,
+      "category": "Infographics",
+      "icon": "LayoutGrid",
+      "fields": [
+        { "key": "kicker", "type": "text", "default": "Episode 1", "description": "Small pink line above the title. Empty hides it." },
+        { "key": "title", "type": "text", "default": "What Git Gud does" },
+        {
+          "key": "items",
+          "type": "text",
+          "multiline": true,
+          "default": "GitCommit | Commit | Stage lines, write a message, done\nGitBranch | Branch | Create, switch and delete from the graph\nCloudUpload | Push | Send your commits to origin\nLifeBuoy | Recover | Undo almost anything",
+          "description": "One item per line: \"IconName | Label | detail\". IconName is a Lucide name such as GitCommit, GitBranch, GitMerge, CloudUpload, Download, Scissors, Swords, LifeBuoy, Eye, Settings, Link, Server, Smartphone, Check, Database, Repeat, Undo2, Pencil, Lock, ShieldCheck, Key, Bell, Timer; unknown names draw a dot."
+        },
+        { "key": "layout", "type": "select", "default": "list", "options": ["list", "grid", "steps"], "description": "list: rows (up to about 8). grid: tiles in up to 4 columns (up to 12). steps: numbered steps left to right on a lane rail (up to about 6)." },
+        { "key": "highlight", "type": "number", "default": 0, "min": 0, "max": 12, "step": 1, "description": "1-based item to emphasize after all items are in; the others dim. 0 = none." }
+      ]
+    },
+    {
+      "name": "GitGudDiagram",
+      "label": "Git Gud diagram",
+      "description": "Animated diagrams built up one step per narrated line. focus: family (the four apps), trees (working tree, staging, history), remote (fetch, pull, push), autofix (stash and retry), peers (remote control of another machine), pairing (code and fingerprint), reach (LAN, Tailscale, relay), daemon (gitgud-headless), relay (what the relay can see).",
+      "defaultDurationSeconds": 8,
+      "category": "Diagrams",
+      "icon": "Network",
+      "fields": [
+        { "key": "focus", "type": "select", "default": "family", "options": ["family", "trees", "remote", "autofix", "peers", "pairing", "reach", "daemon", "relay"] },
+        { "key": "step", "type": "number", "default": 1, "min": 1, "max": 4, "step": 1, "description": "Build stage, 1 to 4. Earlier steps show fully built and slightly dimmed; this step's parts animate in and glow. Steps per focus: family 4, trees 3, remote 2, autofix 4, peers 3, pairing 4, reach 3, relay 4, daemon 1; a higher value shows the last step." },
+        { "key": "caption", "type": "text", "default": "", "description": "Heading at the top left. Empty hides it." }
+      ]
+    }
+  ]
+}

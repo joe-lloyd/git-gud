@@ -1,0 +1,53 @@
+{
+  "title": "The headless daemon and the relay",
+  "subtitle": "Git Gud for servers, reachable from anywhere",
+  "sections": [
+    {
+      "title": "A Git Gud with no screen",
+      "intent": "What gitgud-headless is.",
+      "lines": [
+        { "say": "Not every machine has a screen. A NAS, a dev server, a Raspberry Pi. For those, there's gitgud-headless: a single-file daemon that speaks the same protocol as the desktop app.", "fx": { "name": "GitGudDiagram", "props": { "focus": "daemon", "step": 1, "caption": "gitgud-headless" } } }
+      ]
+    },
+    {
+      "title": "Setting it up",
+      "intent": "Terminal walkthrough.",
+      "take": "terminal",
+      "lines": [
+        { "say": "One install script puts it in your home folder and sets up a systemd service. Then init writes a config with the repositories to share." },
+        { "say": "It's careful by default. It listens only on this machine, and it's read-only until you say otherwise. Here I pass writable, and the address to listen on." },
+        { "say": "Serve starts it. It prints its certificate fingerprint, the port, and the repositories it shares." },
+        { "say": "Unlike the desktop, the daemon refuses to pair until you ask. Pair opens a ten-minute window, prints a code, and with the Q R flag, draws a Q R code right in the terminal." }
+      ]
+    },
+    {
+      "title": "Connecting from the desktop",
+      "intent": "Pair desktop to daemon.",
+      "take": "headless-desktop",
+      "lines": [
+        { "say": "On the desktop, Connect to a Peer, Connect by address, and paste the pairing link." },
+        { "say": "The daemon's repositories appear, and they work like any other peer." }
+      ]
+    },
+    {
+      "title": "Managing devices",
+      "intent": "status, devices, allow, audit.",
+      "take": "terminal",
+      "lines": [
+        { "say": "Back on the server, devices lists everything that's paired." },
+        { "say": "Allow gives one device a narrow set of writes, like fetch and pull, without making it fully writable. Revoke removes a device." },
+        { "say": "And audit shows a log of every pairing attempt and every git command that changed something. Update fetches a new release and checks its checksum before replacing itself." }
+      ]
+    },
+    {
+      "title": "The relay",
+      "intent": "Rendezvous through a relay.",
+      "lines": [
+        { "say": "Now the hard case: your server is at home, you're on a train, and there's no VPN. gitgud-relay is a tiny service you host anywhere public. There's a one-command deploy script for Azure.", "fx": { "name": "GitGudDiagram", "props": { "focus": "relay", "step": 1, "caption": "gitgud-relay" } } },
+        { "say": "Your server keeps a connection open to the relay. When your laptop or phone wants in, the relay joins the two connections together.", "fx": { "name": "GitGudDiagram", "props": { "focus": "relay", "step": 2, "caption": "gitgud-relay" } } },
+        { "say": "The relay only ever sees encrypted bytes. The encryption runs end to end, from your device to the host, with the same pinned certificate as before. The relay picks the route by reading the server's id from the connection's opening message, and nothing more.", "fx": { "name": "GitGudDiagram", "props": { "focus": "relay", "step": 3, "caption": "gitgud-relay" } } },
+        { "say": "So a relay can't read your code, and it can't pair with your machines. At worst, it can stop passing traffic.", "fx": { "name": "GitGudDiagram", "props": { "focus": "relay", "step": 4, "caption": "gitgud-relay" } } }
+      ]
+    }
+  ]
+}

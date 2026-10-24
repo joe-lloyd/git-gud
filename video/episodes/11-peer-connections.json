@@ -1,0 +1,66 @@
+{
+  "title": "Peer connections",
+  "subtitle": "Drive another machine's repositories",
+  "sections": [
+    {
+      "title": "What a peer is",
+      "intent": "Host runs git, you see results.",
+      "lines": [
+        { "say": "Peer connections let one Git Gud drive the repositories on another machine. Your desktop, a laptop, a build box under the desk.", "fx": { "name": "GitGudDiagram", "props": { "focus": "peers", "step": 1, "caption": "Your window, their repository" } } },
+        { "say": "The machine with the repository is the host. It runs every git command itself. Your Git Gud only shows the results, and streams the host's working tree live as files change.", "fx": { "name": "GitGudDiagram", "props": { "focus": "peers", "step": 2, "caption": "Your window, their repository" } } },
+        { "say": "Nothing is copied. You're looking at the real repository on the other machine.", "fx": { "name": "GitGudDiagram", "props": { "focus": "peers", "step": 3, "caption": "Your window, their repository" } } }
+      ]
+    },
+    {
+      "title": "Sharing a machine",
+      "intent": "Turn on sharing on the host.",
+      "take": "peers",
+      "lines": [
+        { "say": "Here are two Git Guds. The one on the right is the build box. It has tidepool open." },
+        { "say": "On the build box, open Settings and switch on Share with other Git Gud instances." },
+        { "say": "It shows this machine's name, the port it listens on, and a six-digit pairing code. Generate a new code at any time." }
+      ]
+    },
+    {
+      "title": "Pairing",
+      "intent": "Connect from the other instance.",
+      "take": "peers",
+      "lines": [
+        { "say": "On the left, choose Connect to a Peer. Git Gud finds machines on the same network by itself. The build box is listed under Nearby." },
+        { "say": "Click it, and type the six-digit code from the build box." },
+        { "say": "That's it. The two are paired, and the build box lists its repositories." },
+        { "say": "Open tidepool. The tab says where it lives. Everything you saw in the earlier episodes works here, and the build box runs it." }
+      ]
+    },
+    {
+      "title": "Live and safe",
+      "intent": "Live updates, read-only, revoke.",
+      "take": "peers",
+      "lines": [
+        { "say": "Edit a file on the build box, and the change shows up here within a second." },
+        { "say": "Commit from here, and the commit is made on the build box. Its own window updates too." },
+        { "say": "The host stays in charge. In its sharing settings, each paired device has a read-only switch, and Revoke cuts a device off for good." },
+        { "say": "A global read-only switch locks every device at once, for when you only want to look." }
+      ]
+    },
+    {
+      "title": "How pairing stays secure",
+      "intent": "Fingerprints, HMAC proof, pinning.",
+      "lines": [
+        { "say": "Pairing is built so the code never crosses the network. When you connect, the host shows its certificate, and your Git Gud remembers its fingerprint.", "fx": { "name": "GitGudDiagram", "props": { "focus": "pairing", "step": 1, "caption": "Pairing" } } },
+        { "say": "Instead of sending the code, your side sends a proof: the code mixed with that fingerprint, using H MAC. Only someone who knows the code can make it, and it only works for that one certificate.", "fx": { "name": "GitGudDiagram", "props": { "focus": "pairing", "step": 2, "caption": "Pairing" } } },
+        { "say": "The host checks the proof and hands back a token. From then on every connection is encrypted, and checked against the pinned certificate.", "fx": { "name": "GitGudDiagram", "props": { "focus": "pairing", "step": 3, "caption": "Pairing" } } },
+        { "say": "If the certificate ever changes, Git Gud stops and warns you instead of trusting it. And after five wrong codes, the host locks pairing for a while.", "fx": { "name": "GitGudDiagram", "props": { "focus": "pairing", "step": 4, "caption": "Pairing" } } }
+      ]
+    },
+    {
+      "title": "Reaching a machine",
+      "intent": "LAN, Tailscale, relay.",
+      "lines": [
+        { "say": "On the same network, machines find each other with a small broadcast on port 47832, and talk over HTTPS on port 47831.", "fx": { "name": "GitGudDiagram", "props": { "focus": "reach", "step": 1, "caption": "Three ways in" } } },
+        { "say": "Away from home, connect by Tailscale name, or by any address, with Connect by address.", "fx": { "name": "GitGudDiagram", "props": { "focus": "reach", "step": 2, "caption": "Three ways in" } } },
+        { "say": "And with no VPN at all, a relay you host can pass the connection along. That's in the next episode.", "fx": { "name": "GitGudDiagram", "props": { "focus": "reach", "step": 3, "caption": "Three ways in" } } }
+      ]
+    }
+  ]
+}

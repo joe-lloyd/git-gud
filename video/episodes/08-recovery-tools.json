@@ -1,0 +1,58 @@
+{
+  "title": "Recovery and power tools",
+  "subtitle": "Reflog, bisect, patch, clean and the console",
+  "sections": [
+    {
+      "title": "The reflog",
+      "intent": "Undo a hard reset.",
+      "take": "recovery",
+      "lines": [
+        { "say": "First, a mistake. I reset main hard, three commits back. Those commits are gone from the graph." },
+        { "say": "They're not really gone. Git records every place your branch has been, in the reflog. Open it from the sidebar." },
+        { "say": "Each entry is a moment: the reset, the commit before it, the checkout before that. Pick the entry from before the reset, and choose Restore HEAD here." },
+        { "say": "Git Gud asks to confirm, and the three commits are back." }
+      ]
+    },
+    {
+      "title": "Bisect",
+      "intent": "Find the commit that broke the tests.",
+      "take": "bisect",
+      "lines": [
+        { "say": "Tidepool's unit tests fail on main. They passed at version one point zero. Somewhere between, a commit broke them. Bisect finds it." },
+        { "say": "Open Bisect. Leave the bad commit empty to mean the current one, and pick v1.0.0 as good. Start Bisect." },
+        { "say": "Git checks out a commit halfway between. I run the tests in the console. They pass, so I mark it good." },
+        { "say": "Git jumps halfway again. This time the tests fail, so I mark it bad." },
+        { "say": "One more step, and Git Gud names the first bad commit: share one rounding helper. Rounding to one decimal broke the conversions." },
+        { "say": "Reset bisect puts you back where you started." }
+      ]
+    },
+    {
+      "title": "Patches",
+      "intent": "Export and apply.",
+      "take": "tools",
+      "lines": [
+        { "say": "Patch turns changes into a file you can mail or paste. Export writes your uncommitted changes, or any commit from the graph's menu, as a patch." },
+        { "say": "Apply takes patch text, pastes it in, and applies it to your working tree." }
+      ]
+    },
+    {
+      "title": "Clean",
+      "intent": "Untracked and ignored files.",
+      "take": "tools",
+      "lines": [
+        { "say": "Clean deletes files git doesn't track, like build output. First it shows exactly what would go, and you can untick anything you want to keep." },
+        { "say": "Because there's no undo, you type the word delete before the button unlocks." }
+      ]
+    },
+    {
+      "title": "The console dock",
+      "intent": "Shell and activity log.",
+      "take": "tools",
+      "lines": [
+        { "say": "The console runs any command at the root of your repository. Up and down recall earlier commands, and Stop ends a long one." },
+        { "say": "Next to it, the git activity log lists every git command Git Gud ran, with its output and exit code. Changes only hides the read-only queries, so you see what actually changed your repository." },
+        { "say": "Copy grabs the whole log, which is handy for a bug report. Nothing Git Gud does is hidden from you." }
+      ]
+    }
+  ]
+}

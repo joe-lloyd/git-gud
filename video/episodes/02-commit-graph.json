@@ -1,0 +1,88 @@
+{
+  "title": "Reading the commit graph",
+  "subtitle": "Lanes, refs, selection and search",
+  "sections": [
+    {
+      "title": "Lanes and nodes",
+      "intent": "How to read the graph.",
+      "take": "graph",
+      "lines": [
+        {
+          "say": "This is tidepool's history. Every branch draws in its own color, so you can follow one line of work from top to bottom."
+        },
+        {
+          "say": "Pink is main. The purple lane is feature hourly forecast. It branched off main, and it hasn't been merged back yet."
+        },
+        {
+          "say": "Further down, two lanes rejoin main. Those are merges: dark mode and a chart fix, both finished and merged."
+        },
+        {
+          "say": "At the very top, the dashed node is your uncommitted work. It shows how many files have changed, and it sits right above the commit you have checked out."
+        },
+        {
+          "say": "The diamond is a stash, drawn where it was made. A stash is changes you put aside for later."
+        }
+      ]
+    },
+    {
+      "title": "Ref pills",
+      "intent": "Explain the pills in the left column.",
+      "take": "graph",
+      "lines": [
+        {
+          "say": "The left column holds ref pills. A filled pill marks the branch you're on. The icons tell you where a branch lives: on this computer, on the remote, or both."
+        },
+        {
+          "say": "Tags get their own pills too. When a commit has more refs than fit, they fold into a plus chip. Hover it to see them all."
+        },
+        {
+          "say": "The tag button in the toolbar chooses which labels the graph shows: local branches, remote branches and tags. Switch some off when the left column gets busy, and back on just as fast."
+        }
+      ]
+    },
+    {
+      "title": "Selecting commits",
+      "intent": "Single select, detail panel, keyboard, multi-select.",
+      "take": "graph",
+      "lines": [
+        {
+          "say": "Click a commit to select it. The detail panel shows the full message, the author and date, and every file the commit touched."
+        },
+        {
+          "say": "Click a file and its diff opens in the middle of the window, where the graph was. Escape brings the graph back."
+        },
+        {
+          "say": "The arrow keys move the selection up and down the history, so you can read commit after commit without the mouse."
+        },
+        {
+          "say": "Shift-click selects a range. Command-click adds or removes single commits."
+        },
+        {
+          "say": "With several commits selected, the panel summarizes them: how many, who wrote them, and a combined count of changed lines. We'll use that for squashing in a later episode."
+        }
+      ]
+    },
+    {
+      "title": "Searching history",
+      "intent": "Message search and content (pickaxe) search.",
+      "take": "graph",
+      "lines": [
+        {
+          "say": "Command F opens search. In message mode it matches commit messages, authors and SHAs as you type."
+        },
+        {
+          "say": "The counter shows which match you're on. Enter steps to older matches, and the graph jumps to each one."
+        },
+        {
+          "say": "Content mode searches inside the changes themselves. It finds every commit whose diff added or removed your text."
+        },
+        {
+          "say": "So if you want to know when a constant first appeared, or which commit deleted a function, type its name here."
+        },
+        {
+          "say": "That's the graph. Next, we'll make some commits of our own."
+        }
+      ]
+    }
+  ]
+}

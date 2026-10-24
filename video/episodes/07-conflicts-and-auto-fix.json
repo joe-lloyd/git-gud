@@ -1,0 +1,51 @@
+{
+  "title": "Conflicts and auto-fix",
+  "subtitle": "The conflict editor, rerere, and blocked actions",
+  "sections": [
+    {
+      "title": "When a merge stops",
+      "intent": "Conflict takeover.",
+      "take": "conflicts",
+      "lines": [
+        { "say": "Let's merge feature metric default into main. Both branches changed the same line of units dot J S, so git can't decide alone." },
+        { "say": "Git Gud switches into conflict mode. The top bar says a merge is paused, and the right panel lists the files that need you." },
+        { "say": "Each file can be opened in the conflict editor. When they're all resolved, Continue finishes the merge. Abort puts everything back as it was." }
+      ]
+    },
+    {
+      "title": "The conflict editor",
+      "intent": "Panes, blocks, result.",
+      "take": "conflicts",
+      "lines": [
+        { "say": "The conflict editor shows three panes. Current is your branch. Incoming is the branch you're merging. In the middle is the result you're writing." },
+        { "say": "Lines both sides share are lightly tinted. Lines that differ are strongly tinted, and the words that changed are marked." },
+        { "say": "Each conflict block has buttons: use this side, or keep both. The arrows jump between blocks." },
+        { "say": "You can also click any single line in a side pane, and it's inserted into the result at your cursor." },
+        { "say": "The result is a real editor, with syntax highlighting. Here the best answer is a mix of both: read the environment variable, and fall back to metres." },
+        { "say": "The gutter tags show where every line came from: current, incoming, both, or edited by you. The legend counts them." },
+        { "say": "Save and mark resolved writes the file and stages it. If conflict markers are still in there, it warns you first." },
+        { "say": "Continue, and the merge commit is made." }
+      ]
+    },
+    {
+      "title": "Remembering resolutions",
+      "intent": "rerere.",
+      "lines": [
+        { "say": "If you resolve the same conflict again and again, for example while rebasing a long branch, turn on Reuse recorded conflict resolutions in Settings.", "fx": { "name": "GitGudCard", "props": { "kicker": "Settings", "title": "Reuse recorded conflict resolutions", "layout": "steps", "items": "Swords | Resolve once | You fix a conflict by hand\nDatabase | Git remembers | rerere records your answer\nRepeat | Same conflict again | The answer is applied for you\nUndo2 | Not right? | Forget it from the banner" } } }
+      ]
+    },
+    {
+      "title": "Auto-fix for blocked actions",
+      "intent": "Dirty tree checkout auto-fix.",
+      "take": "autofix",
+      "lines": [
+        { "say": "Git often refuses to act because of uncommitted changes. Checking out a branch, pulling, cherry-picking: they all stop if your edits would be overwritten." },
+        { "say": "Watch. I have local edits to the README, and I double-click a branch that changes the README too." },
+        { "say": "Instead of an error, Git Gud stashes my edits, retries the checkout, and tells me exactly what it did, step by step." },
+        { "say": "For a checkout it keeps the stash rather than dropping my edits onto another branch. The message offers to pop it right now if I want them here." },
+        { "say": "For a pull, the edits are put back automatically once the pull is done. If putting them back conflicts, the stash is kept safe and the conflict panel opens.", "fx": { "name": "GitGudDiagram", "props": { "focus": "autofix", "step": 4, "caption": "Auto-fix: stash, retry, put back" } } },
+        { "say": "If you'd rather decide yourself every time, switch off Auto-fix blocked actions in Settings, and you'll get the old prompts back." }
+      ]
+    }
+  ]
+}

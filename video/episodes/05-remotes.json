@@ -1,0 +1,47 @@
+{
+  "title": "Working with remotes",
+  "subtitle": "Fetch, pull, push and sign-in",
+  "sections": [
+    {
+      "title": "Local and remote",
+      "intent": "Explain fetch/pull/push.",
+      "lines": [
+        { "say": "Your repository has a copy on a server, called a remote. Fetch downloads what's new there without touching your work.", "fx": { "name": "GitGudDiagram", "props": { "focus": "remote", "step": 1, "caption": "Fetch looks, pull brings it in" } } },
+        { "say": "Pull fetches and then brings those commits into your branch. Push sends your commits up.", "fx": { "name": "GitGudDiagram", "props": { "focus": "remote", "step": 2, "caption": "Fetch looks, pull brings it in" } } }
+      ]
+    },
+    {
+      "title": "Fetch, pull and push",
+      "intent": "Toolbar remote buttons.",
+      "take": "remotes",
+      "lines": [
+        { "say": "Click Fetch. A teammate pushed two commits to main, and now they show up in the graph on the remote branch, above ours." },
+        { "say": "The branch pill counts it for you: two commits behind." },
+        { "say": "The arrow next to Pull offers three ways to pull: a normal pull, fast-forward only, which refuses to make a merge, or pull with rebase." },
+        { "say": "A plain pull here fast-forwards main to the new commits." },
+        { "say": "Now commit something and the pill says one ahead. Click Push to send it." },
+        { "say": "Push has its own menu, with force push. Git Gud always uses force with lease, which refuses to overwrite work you haven't seen." }
+      ]
+    },
+    {
+      "title": "When branches diverge",
+      "intent": "Diverged dialog and auto-fix pointer.",
+      "lines": [
+        { "say": "If you and the remote both have new commits, a pull can't simply fast-forward. Git Gud asks whether to merge or to rebase, and explains the difference right there.", "fx": { "name": "GitGudCard", "props": { "kicker": "Pull", "title": "Local and remote have diverged", "layout": "list", "items": "GitMerge | Merge | Keeps both histories and joins them with a merge commit\nGitPullRequestArrow | Rebase | Replays your commits on top of the remote ones, for a straight line" } } },
+        { "say": "And if a push is rejected because the remote moved, the message offers to pull right away." , "fx": { "name": "GitGudCard", "props": { "kicker": "Push rejected", "title": "The remote has commits you don't", "layout": "steps", "items": "CloudUpload | Push | The remote refuses: it moved on\nDownload | Pull now | One click, from the message\nCheck | Push again | Now it goes through" } } }
+      ]
+    },
+    {
+      "title": "Signing in to your host",
+      "intent": "Integrations panel and clone.",
+      "take": "integrations",
+      "lines": [
+        { "say": "The GitHub button opens Integrations. Git Gud signs in to GitHub, GitLab and Bitbucket." },
+        { "say": "GitHub uses a device code: Git Gud shows a code, you approve it in the browser, and that's it. GitLab and Bitbucket take an access token, and GitLab works with self-hosted servers too." },
+        { "say": "Once you're signed in, pushing and pulling to that host just works. Git Gud adds your token to each git command for that host only. Tokens are encrypted on your machine." },
+        { "say": "From here you can also create a new repository on the host for the project you have open, and Git Gud adds it as origin." },
+        { "say": "And Clone from Remote on the start page clones by URL, or lets you browse your own repositories on each host you're signed in to." }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "git-gud-video",
+  "private": true,
+  "type": "module",
+  "description": "Builds the Git Gud tutorial video series. Installed on its own: pnpm --dir video install --ignore-workspace",
+  "devDependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "title": "Rewriting history",
+  "subtitle": "Cherry-pick, revert, reset and interactive rebase",
+  "sections": [
+    {
+      "title": "The commit menu",
+      "intent": "Context menu tour.",
+      "take": "history",
+      "lines": [
+        { "say": "Right-click any commit. This menu is where history gets rewritten." },
+        { "say": "You can check the commit out on its own, start a branch or a tag there, cherry-pick it onto your branch, or revert it." },
+        { "say": "Reset moves your branch to this commit. Soft keeps the changes staged, mixed keeps them as unstaged changes, and hard throws them away. Hard asks first." },
+        { "say": "There's also rebase onto this commit, merge it into the current branch, export it as a patch, and edit the author of your last commit." }
+      ]
+    },
+    {
+      "title": "Cherry-pick and revert",
+      "intent": "Show both.",
+      "take": "history",
+      "lines": [
+        { "say": "Cherry-pick copies a commit from another branch onto yours. Here's the radar spike, copied onto main as a new commit." },
+        { "say": "Revert makes a new commit that undoes an old one. History stays honest: the mistake and its fix are both there." }
+      ]
+    },
+    {
+      "title": "Interactive rebase",
+      "intent": "The rebase dialog.",
+      "take": "history",
+      "lines": [
+        { "say": "Interactive rebase from here opens a list of every commit since the one you clicked." },
+        { "say": "Drag rows to reorder them. Click the action to cycle it: pick keeps a commit, reword changes its message, squash and fixup fold it into the one before, and drop removes it." },
+        { "say": "Double-click a message to reword it in place." },
+        { "say": "Apply, and Git Gud runs the rebase. The graph redraws with the new history." }
+      ]
+    },
+    {
+      "title": "Squash and drop a range",
+      "intent": "Multi-select operations.",
+      "take": "history",
+      "lines": [
+        { "say": "For quick cleanups you don't need the dialog. Select a run of commits with shift-click." },
+        { "say": "The panel offers squash, cherry-pick, revert and drop for the whole selection. Squash and drop need commits that sit next to each other." },
+        { "say": "Squash them, and three small commits become one." },
+        { "say": "Every one of these is an ordinary git command in the activity log. If you don't like the result, the reflog can take you back. That's coming up in the recovery episode." }
+      ]
+    }
+  ]
+}

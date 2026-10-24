@@ -1,0 +1,103 @@
+{
+  "title": "Staging and committing",
+  "subtitle": "Files, hunks and single lines",
+  "sections": [
+    {
+      "title": "Three places for a change",
+      "intent": "Working tree, index, commit.",
+      "lines": [
+        {
+          "say": "Git keeps your changes in three places. Your working tree is the files on disk. The staging area holds what goes into the next commit. And a commit saves it into history.",
+          "fx": {
+            "name": "GitGudDiagram",
+            "props": {
+              "focus": "trees",
+              "step": 3,
+              "caption": "Working tree, staging area, history"
+            }
+          }
+        },
+        {
+          "say": "Git Gud lets you move changes into the staging area in pieces as small as one line, so each commit says one thing.",
+          "fx": {
+            "name": "GitGudDiagram",
+            "props": {
+              "focus": "trees",
+              "step": 2,
+              "caption": "Stage exactly what belongs together"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "The changes list",
+      "intent": "Working tree panel.",
+      "take": "staging",
+      "lines": [
+        {
+          "say": "With no commit selected, the right panel lists your changes. Modified files have a pencil. New files have a plus."
+        },
+        {
+          "say": "Each row has buttons to stage the file or to discard it. Stage all takes everything at once."
+        },
+        {
+          "say": "The arrow keys walk through the list and open each file's diff as you go. To stage a whole file, click its arrow."
+        }
+      ]
+    },
+    {
+      "title": "The diff viewer",
+      "intent": "Open diff, modes, hunks, lines.",
+      "take": "staging",
+      "lines": [
+        {
+          "say": "Here's the diff for forecast dot T S. Removed lines are red, added lines are green, and the change is split into hunks."
+        },
+        {
+          "say": "Word diff highlights exactly which words changed inside each line. It's much easier to read when a line was only edited a little."
+        },
+        {
+          "say": "Side by side puts the old file on the left and the new one on the right."
+        },
+        {
+          "say": "This file has two separate changes. The unit conversion belongs in the commit. The debug log at the bottom does not."
+        },
+        {
+          "say": "So stage just the first hunk. Press S, or use the hunk's stage button. The file now shows up in both lists: part staged, part not."
+        },
+        {
+          "say": "You can go smaller still. In the README, click the plus or minus next to a single line, and only that line is staged."
+        },
+        {
+          "say": "And the debug log? Discard chunk throws a hunk away. It asks you to click twice, because there's no undo for that."
+        },
+        {
+          "say": "Press the question mark to see every key: J and K move between hunks, S stages, D discards."
+        }
+      ]
+    },
+    {
+      "title": "Committing",
+      "intent": "Commit box and options.",
+      "take": "staging",
+      "lines": [
+        {
+          "say": "Now write the commit. The subject line has a counter, because short subjects read best in the graph."
+        },
+        {
+          "say": "The description is optional. Below it are three options. Amend last commit folds the staged changes into the commit you just made."
+        },
+        {
+          "say": "Skip hooks commits without running your pre-commit hooks. Sign-off adds a Signed-off-by line."
+        },
+        {
+          "say": "Press Command Enter, or click Commit to main. The new commit appears at the top of the graph, and the rest of the README edit is still waiting in your changes."
+        },
+        {
+          "say": "And in the git activity log, you can see exactly what that cost: a git commit with your message."
+        }
+      ]
+    }
+  ]
+}
