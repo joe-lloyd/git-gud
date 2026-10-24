@@ -5,6 +5,8 @@ import { useCopied } from '../../hooks/useCopied'
 import './ConsoleDock.css'
 
 interface ConsoleDockProps {
+  /** Shown or hidden; it stays mounted either way. */
+  visible: boolean
   /** Active worktree path — both consoles reset when it changes. */
   repoPath: string | null
   height: number
@@ -21,10 +23,12 @@ const MAX_GIT_ENTRIES = 500
 const MAX_CONSOLE_CHUNKS = 4000
 
 export const ConsoleDock: React.FC<ConsoleDockProps> = ({
-  repoPath, height, splitPct, onVDragStart, onSplitDragStart, onClose, onCommandDone,
+  visible, repoPath, height, splitPct, onVDragStart, onSplitDragStart, onClose, onCommandDone,
 }) => {
+  // Hidden, not unmounted: the git activity log and the console's output keep
+  // collecting while the dock is closed, so opening it shows what already ran.
   return (
-    <div className="console-dock" style={{ height }}>
+    <div className="console-dock" style={{ height, display: visible ? undefined : 'none' }}>
       <div className="panel-resize-handle panel-resize-handle--h cdock-top" onMouseDown={onVDragStart} title="Drag to resize">
         <div className="panel-resize-grip panel-resize-grip--h" />
       </div>

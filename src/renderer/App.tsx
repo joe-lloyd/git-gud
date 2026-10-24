@@ -1477,17 +1477,16 @@ export default function App() {
                   )}
                 </div>
 
-                {consoleVisible && (
-                  <ConsoleDock
-                    repoPath={repo.repoPath}
-                    height={consoleHeight}
-                    splitPct={consoleSplitPct}
-                    onVDragStart={startConsoleVDrag}
-                    onSplitDragStart={startConsoleSplitDrag}
-                    onClose={() => setConsoleVisible(false)}
-                    onCommandDone={repo.methods.refresh}
-                  />
-                )}
+                <ConsoleDock
+                  visible={consoleVisible}
+                  repoPath={repo.repoPath}
+                  height={consoleHeight}
+                  splitPct={consoleSplitPct}
+                  onVDragStart={startConsoleVDrag}
+                  onSplitDragStart={startConsoleSplitDrag}
+                  onClose={() => setConsoleVisible(false)}
+                  onCommandDone={repo.methods.refresh}
+                />
               </div>
 
               <div
