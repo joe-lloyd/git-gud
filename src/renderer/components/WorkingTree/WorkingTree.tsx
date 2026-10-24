@@ -391,7 +391,10 @@ export const WorkingTree: React.FC<WorkingTreeProps> = ({ repoPath, status, onRe
           />
           <span>Amend last commit</span>
         </label>
-        {amend && (status?.ahead ?? 0) === 0 && (
+        {/* In Gerrit mode every amend is a new patchset, and a commit under
+            review is always ahead of its upstream (it went to refs/for/…),
+            so the hint can't wait for ahead === 0 like the warning does. */}
+        {amend && (gerritMode || (status?.ahead ?? 0) === 0) && (
           gerritMode ? (
             <div className="wt-amend-hint">
               <Icon name="info" size={12} /> Amending creates a new patchset when pushed for review.
