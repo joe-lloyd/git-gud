@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { FlatList, Text, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import { useFocusEffect } from '@react-navigation/native'
 import { Badge, Button, Card, Dot, Empty, Hint, Mono, Screen, Title } from '../ui/atoms'
 import { theme } from '../ui/theme'
 import { useAppState } from '../state/AppState'
@@ -36,7 +37,10 @@ export const MachinesScreen: React.FC<NativeStackScreenProps<RootStack, 'Machine
       }
     }
   }, [client, machines, updateMachine])
-  useEffect(() => { refresh() }, [refresh])
+  // The screen stays mounted under the ones pushed on top of it, so re-check
+  // every time it comes back into view: a scope granted on the host shows up
+  // as soon as you step back out, not only after a restart.
+  useFocusEffect(useCallback(() => { refresh() }, [refresh]))
 
   return (
     <Screen>
