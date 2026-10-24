@@ -7,7 +7,8 @@ import { mkdirSync, symlinkSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const NEON_HOME = join(homedir(), ".neon-video-gitgud");
+// NEON_HOME picks another instance, e.g. one for uploads while this one renders.
+export const NEON_HOME = process.env.NEON_HOME ?? join(homedir(), ".neon-video-gitgud");
 const env = { ...process.env, NEON_HOME, PATH: `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH}` };
 
 function prepare() {

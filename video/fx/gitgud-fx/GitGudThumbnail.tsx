@@ -36,7 +36,7 @@ export const GitGudThumbnail: React.FC<{ number: number; title: string; kicker: 
       </div>
 
       <div style={{ position: "absolute", left: 170, top: 450, width: 1080, fontSize: long ? 128 : 150, fontWeight: 900, lineHeight: 1.0, letterSpacing: -4, textShadow: "0 6px 30px rgba(0,0,0,0.6)" }}>
-        {words.map((w) => (
+        {words.map((w, i) => (
           <span key={i} style={{ color: i === words.length - 1 ? THEME.accent : THEME.text }}>{w}{i < words.length - 1 ? " " : ""}</span>
         ))}
       </div>

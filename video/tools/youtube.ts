@@ -106,7 +106,7 @@ if (command === "describe") {
     await writeFile(notes, await description(e, uploaded));
     const job = neon<{ videoId?: string; url?: string; warnings?: string[]; status?: string }>(
       "youtube", "upload", join(BUILD, "renders", `${e.id}.mp4`),
-      "--title", videoTitle(e), "--no-kids", "--privacy", privacy, "--ai-content",
+      "--title", videoTitle(e), "--no-kids", "--privacy", privacy,
       "--description-file", notes, "--tags", tags(e), "--thumbnail", join(BUILD, "thumbs", `${e.id}.png`),
     );
     const videoId = job.videoId ?? /(?:v=|youtu\.be\/)([\w-]{11})/.exec(job.url ?? "")?.[1];
