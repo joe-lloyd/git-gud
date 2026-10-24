@@ -1,21 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import type { Page } from "playwright-core";
 import { launchGitGud } from "../app.ts";
 import type { TakeFn } from "../record.ts";
-import { callout, hideConsole } from "./lib.ts";
-
-/** Hides every Nearby machine except the build box: other Git Guds on this network are not part of the demo. */
-const onlyBuildBox = (page: Page) =>
-  page.evaluate(() => {
-    const hide = () =>
-      document.querySelectorAll<HTMLElement>(".peer-rail button").forEach((b) => {
-        const text = b.textContent ?? "";
-        if (!text.includes("build-box") && !text.includes("Connect by address")) b.style.display = "none";
-      });
-    new MutationObserver(hide).observe(document.body, { childList: true, subtree: true });
-    hide();
-  });
+import { callout, hideConsole, onlyBuildBox } from "./lib.ts";
 
 export const takes: Record<string, TakeFn> = {
   // Both windows record at once; each narrated line plays over the window it talks about.

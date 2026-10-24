@@ -45,3 +45,15 @@ export async function sweep(t: Take, targets: Locator[], pause = 0.35) {
     await t.pause(pause);
   }
 }
+
+/** Hides every Nearby machine except the build box: other Git Guds on this network are not part of the demo. */
+export const onlyBuildBox = (page: Page) =>
+  page.evaluate(() => {
+    const hide = () =>
+      document.querySelectorAll<HTMLElement>(".peer-rail button").forEach((b) => {
+        const text = b.textContent ?? "";
+        if (!text.includes("build-box") && !text.includes("Connect by address")) b.style.display = "none";
+      });
+    new MutationObserver(hide).observe(document.body, { childList: true, subtree: true });
+    hide();
+  });
