@@ -4,7 +4,8 @@ import simpleGit, {
   StatusResult,
 } from "simple-git";
 import { spawn } from "child_process";
-import { existsSync, readFileSync, statSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { isAbsolute, join } from "path";
 import {
   buildReviewRefspec,
@@ -370,6 +371,11 @@ export interface CommitOpts {
   noVerify?: boolean;
   signoff?: boolean;
 }
+
+/** One row of the interactive rebase dialog. */
+export type RebaseCommitInfo = { sha: string; shortSha: string; message: string };
+export type RebaseAction = "pick" | "reword" | "squash" | "fixup" | "drop";
+export type RebaseStep = { sha: string; action: RebaseAction; message?: string };
 
 export class GitService {
   private git: SimpleGit;
@@ -2159,6 +2165,77 @@ export class GitService {
 
   async reset(sha: string, mode: "soft" | "mixed" | "hard"): Promise<void> {
     await this.git.raw(["reset", `--${mode}`, sha]);
+  }
+
+  /**
+   * The commits an interactive rebase from `sha` would replay: `sha` and every
+   * commit after it on the current branch, newest first (graph order). A range
+   * holding a merge is refused, because `rebase -i` would flatten it.
+   */
+  async getRebaseCommits(sha: string): Promise<{ commits?: RebaseCommitInfo[]; error?: string }> {
+    const isRoot = !(await this.git.raw(["rev-list", "--parents", "-n", "1", sha])).trim().includes(" ");
+    const range = isRoot ? ["HEAD"] : [`${sha}^..HEAD`];
+    const merges = (await this.git.raw(["rev-list", "--merges", ...range])).trim();
+    if (merges) return { error: "There is a merge commit after this one. Interactive rebase works on a straight run of commits." };
+    const out = (await this.git.raw(["log", "--format=%H%x00%h%x00%s", ...range])).trim();
+    const commits = out ? out.split("\n").map((line) => {
+      const [sha, shortSha, message] = line.split("\0");
+      return { sha: sha!, shortSha: shortSha!, message: message ?? "" };
+    }) : [];
+    if (!commits.some((c) => c.sha === sha)) return { error: "That commit is not on the current branch." };
+    return { commits };
+  }
+
+  /**
+   * Runs `git rebase -i` with the plan from the rebase dialog, `steps` newest
+   * first as shown there. git is handed the todo through GIT_SEQUENCE_EDITOR, and
+   * a reword amends the picked commit with the new message, so no editor ever
+   * opens. On conflicts the repo is left mid-rebase and `conflict: true` lets
+   * the conflict panel take over.
+   */
+  async interactiveRebase(steps: RebaseStep[]): Promise<{ success: boolean; error?: string; conflict?: boolean }> {
+    if (steps.length === 0) return { success: false, error: "Nothing to rebase." };
+    const oldestFirst = [...steps].reverse();
+    const firstKept = oldestFirst.find((s) => s.action !== "drop");
+    if (firstKept && (firstKept.action === "squash" || firstKept.action === "fixup")) {
+      return { success: false, error: "The oldest commit can't be squashed: there's no earlier commit in the list to fold it into." };
+    }
+    const work = mkdtempSync(join(tmpdir(), "gitgud-rebase-"));
+    try {
+      const todo: string[] = [];
+      for (const [i, step] of oldestFirst.entries()) {
+        if (step.action === "reword") {
+          const file = join(work, `message-${i}.txt`);
+          writeFileSync(file, step.message ?? "");
+          todo.push(`pick ${step.sha}`, `exec git commit --amend --only --allow-empty --no-verify -F "${file}"`);
+        } else {
+          todo.push(`${step.action} ${step.sha}`);
+        }
+      }
+      const todoFile = join(work, "todo");
+      writeFileSync(todoFile, `${todo.join("\n")}\n`);
+      // The sequence editor replaces git's todo with ours. It runs under this
+      // process's own runtime, so it works the same on every platform.
+      const editor = join(work, "sequence-editor.js");
+      writeFileSync(editor, "require('fs').copyFileSync(process.env.GITGUD_REBASE_TODO, process.argv[2])\n");
+      const oldest = oldestFirst[0]!.sha;
+      const isRoot = !(await this.git.raw(["rev-list", "--parents", "-n", "1", oldest])).trim().includes(" ");
+      await this.git
+        .env({
+          ...process.env,
+          GIT_SEQUENCE_EDITOR: `"${process.execPath}" "${editor}"`,
+          ELECTRON_RUN_AS_NODE: "1",
+          GITGUD_REBASE_TODO: todoFile,
+          GIT_EDITOR: "true",
+        })
+        .raw(["rebase", "-i", "--autostash", isRoot ? "--root" : `${oldest}^`]);
+      return { success: true };
+    } catch (e: unknown) {
+      const conflict = (await this.getConflictState()).inRebase;
+      return { success: false, error: String(e), conflict };
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
   }
 
   async rebaseTo(sha: string): Promise<{ success: boolean; error?: string }> {

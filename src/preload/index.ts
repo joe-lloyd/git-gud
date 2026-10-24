@@ -357,6 +357,12 @@ const gitApi = {
   // Squash/drop operate on a contiguous range and may leave the repo mid-rebase
   // (conflict: true) so the conflict UI can take over. cherry-pick/revert-many
   // apply a set of commits in the safe order.
+  // Interactive rebase: the commits from a chosen one up to HEAD (newest first),
+  // then the plan the dialog built for them.
+  getRebaseCommits: (sha: string): Promise<{ commits?: { sha: string; shortSha: string; message: string }[]; error?: string }> =>
+    ipcRenderer.invoke('git:get-rebase-commits', sha),
+  interactiveRebase: (steps: { sha: string; action: 'pick' | 'reword' | 'squash' | 'fixup' | 'drop'; message?: string }[]): Promise<Result & { conflict?: boolean }> =>
+    ipcRenderer.invoke('git:interactive-rebase', steps),
   squashCommits: (shas: string[], message: string): Promise<Result & { conflict?: boolean }> =>
     ipcRenderer.invoke('git:squash-commits', shas, message),
   dropCommits: (shas: string[]): Promise<Result & { conflict?: boolean }> =>

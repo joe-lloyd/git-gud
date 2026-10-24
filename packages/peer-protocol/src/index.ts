@@ -129,6 +129,7 @@ export const READ_METHODS: ReadonlySet<string> = new Set([
   "buildWorkingPatch",
   "isBisecting",
   "gerritRefTarget",
+  "getRebaseCommits",
 ]);
 
 // Every mutating GitService method. Kept explicit (rather than "any function
@@ -140,7 +141,7 @@ export const WRITE_METHODS: ReadonlySet<string> = new Set([
   // commits
   "commit", "commitStreaming", "amendCommit", "setHeadAuthor",
   "revert", "revertMany", "cherryPick", "cherryPickMany", "squashCommits", "dropCommits",
-  "reset", "rebaseTo", "restoreFromReflog",
+  "interactiveRebase", "reset", "rebaseTo", "restoreFromReflog",
   // rebase / merge state machine
   "rebaseContinue", "rebaseAbort", "rebaseSkip", "mergeContinue", "mergeAbort",
   "operationContinue", "operationAbort", "operationSkip",
@@ -172,6 +173,7 @@ export const RESULT_SHAPED_METHODS: ReadonlySet<string> = new Set([
   "mergeCurrentInto",
   "squashCommits",
   "dropCommits",
+  "interactiveRebase",
   "cherryPickMany",
   "revertMany",
   "runDragAction",

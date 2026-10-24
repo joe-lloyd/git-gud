@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Icon } from '../Icons/Icon'
 import './InteractiveRebase.css'
 
@@ -10,8 +10,11 @@ interface RebaseCommit {
 }
 
 interface InteractiveRebaseProps {
-  commits: { sha: string; shortSha: string; message: string }[]
+  /** The oldest commit to rewrite; everything after it on the current branch comes too. */
+  fromSha: string
   onClose: () => void
+  /** Called with git's answer once the rebase ran (or stopped on a conflict). */
+  onDone: (result: { success: boolean; error?: string; conflict?: boolean }) => void
 }
 
 const ACTIONS: RebaseCommit['action'][] = ['pick', 'reword', 'squash', 'fixup', 'drop']
@@ -30,10 +33,18 @@ const ACTION_DESC: Record<RebaseCommit['action'], string> = {
   drop:   'Remove this commit',
 }
 
-export const InteractiveRebase: React.FC<InteractiveRebaseProps> = ({ commits, onClose }) => {
-  const [items, setItems] = useState<RebaseCommit[]>(() =>
-    commits.map((c) => ({ ...c, action: 'pick' }))
-  )
+export const InteractiveRebase: React.FC<InteractiveRebaseProps> = ({ fromSha, onClose, onDone }) => {
+  const [items, setItems] = useState<RebaseCommit[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    window.gitApi.getRebaseCommits(fromSha).then((r) => {
+      if (!live) return
+      if (r.commits) setItems(r.commits.map((c) => ({ ...c, action: 'pick' })))
+      else setLoadError(r.error ?? 'Could not list the commits to rebase.')
+    })
+    return () => { live = false }
+  }, [fromSha])
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
   const [isRunning, setIsRunning] = useState(false)
@@ -75,11 +86,11 @@ export const InteractiveRebase: React.FC<InteractiveRebaseProps> = ({ commits, o
 
   const handleApply = async () => {
     setIsRunning(true)
-    // In a real implementation this would write the rebase-todo and exec `git rebase -i`
-    // For now, show a "running" state for UX demo
-    await new Promise((r) => setTimeout(r, 1200))
+    const result = await window.gitApi.interactiveRebase(
+      items.map(({ sha, action, message }) => (action === 'reword' ? { sha, action, message } : { sha, action })),
+    )
     setIsRunning(false)
-    onClose()
+    onDone(result)
   }
 
   return (
@@ -92,6 +103,7 @@ export const InteractiveRebase: React.FC<InteractiveRebaseProps> = ({ commits, o
         </div>
 
         <div className="ir-body">
+          {loadError && <div className="ir-error">{loadError}</div>}
           {items.map((item, idx) => (
             <div
               key={item.sha}
@@ -142,7 +154,7 @@ export const InteractiveRebase: React.FC<InteractiveRebaseProps> = ({ commits, o
 
         <div className="ir-footer">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleApply} disabled={isRunning}>
+          <button className="btn btn-primary" onClick={handleApply} disabled={isRunning || items.length === 0}>
             {isRunning ? 'Applying…' : 'Start Rebase'}
           </button>
         </div>

@@ -5,7 +5,7 @@ import { defaultChannelFor, isUpdateChannel, type UpdateChannel } from './update
 import { basename, join } from 'path'
 import * as fs from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
-import { GitService, redactAuthArgs, scrubSecrets, isIndexLockError, type GitActivity, type ConflictOp } from './git-service'
+import { GitService, redactAuthArgs, scrubSecrets, isIndexLockError, type GitActivity, type ConflictOp, type RebaseStep } from './git-service'
 import { applyShellPath } from './shell-path'
 import { GitHubService } from './github-service'
 import { ProviderService, type HostedProvider } from './provider-service'
@@ -1096,6 +1096,16 @@ app.whenReady().then(async () => {
   ipcMain.handle('git:revert', async (_event, sha: string, opts?: { autoFix?: boolean }) => {
     if (!gitService) return { success: false, error: 'No repo' }
     return gitService.autoFix(`revert ${sha.slice(0, 7)}`, { method: 'revert', args: [sha] }, { enabled: opts?.autoFix ?? false })
+  })
+
+  ipcMain.handle('git:get-rebase-commits', async (_event, sha: string) => {
+    if (!gitService) return { error: 'No repo' }
+    return gitService.getRebaseCommits(sha)
+  })
+
+  ipcMain.handle('git:interactive-rebase', async (_event, steps: RebaseStep[]) => {
+    if (!gitService) return { success: false, error: 'No repo' }
+    return gitService.interactiveRebase(steps)
   })
 
   ipcMain.handle('git:squash-commits', async (_event, shas: string[], message: string) => {

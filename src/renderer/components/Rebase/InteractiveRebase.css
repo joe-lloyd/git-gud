@@ -109,3 +109,4 @@
   padding: 12px 20px;
   border-top: 1px solid var(--border);
 }
+.ir-error { padding: 12px 14px; font-size: 12px; color: var(--danger); }

@@ -1279,10 +1279,6 @@ export default function App() {
     ])
   }, [actions, repo, openCtx, opSelectedShas, selectedShas, openBulkCommitMenu, openSidePanel, remoteNames])
 
-  const rebaseCommits = repo.selectedSha
-    ? repo.commits.slice(0, repo.commits.findIndex(c => c.sha === repo.selectedSha) + 1).slice(0, 20)
-    : repo.commits.slice(0, 20)
-
   return (
     <div className="app">
       <div className="titlebar" />
@@ -1583,10 +1579,17 @@ export default function App() {
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
 
-      {modal === 'interactive-rebase' && (
+      {modal === 'interactive-rebase' && pendingSha && (
         <InteractiveRebase
-          commits={rebaseCommits.map(c => ({ sha: c.sha, shortSha: c.shortSha, message: c.message }))}
-          onClose={() => { closeModal(); repo.methods.refresh() }}
+          fromSha={pendingSha}
+          onClose={closeModal}
+          onDone={(r) => {
+            closeModal()
+            if (r.success) repo.toast.success('Rebased', 'History rewritten.')
+            else if (r.conflict) repo.toast.error('Rebase hit conflicts', 'Resolve them in the right panel, then continue.')
+            else repo.toast.error('Rebase failed', r.error ?? 'git refused the rebase.')
+            repo.methods.refresh()
+          }}
         />
       )}
       {modal === 'worktrees' && (
