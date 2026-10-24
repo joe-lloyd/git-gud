@@ -9,6 +9,9 @@
   border-radius: 8px;
   padding: 4px;
   min-width: 180px;
+  /* Taller than the window: scroll instead of hiding items. */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0,0,0,0.6);
 }
 .cm-item {

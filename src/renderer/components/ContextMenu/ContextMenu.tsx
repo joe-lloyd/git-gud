@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useLayoutEffect, useRef, useState } from 'react'
 import { Icon, IconName } from '../Icons/Icon'
 import './ContextMenu.css'
 
@@ -18,13 +18,30 @@ interface ContextMenuProps {
   onClose: () => void
 }
 
+// Gap kept between the menu and the window edge.
+const EDGE = 8
+
 export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, actions, onClose }) => {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
+  // Opened near the bottom or right edge, the menu would run off the window
+  // and hide its last items. Measure it before paint and shift it back in.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const { width, height } = el.getBoundingClientRect()
+    setPos({
+      left: Math.max(EDGE, Math.min(x, window.innerWidth - width - EDGE)),
+      top: Math.max(EDGE, Math.min(y, window.innerHeight - height - EDGE)),
+    })
+  }, [x, y, actions])
   return (
     <>
       <div className="cm-backdrop" onClick={onClose} />
       <div
+        ref={ref}
         className="cm-menu fade-in"
-        style={{ left: x, top: y }}
+        style={pos}
         onClick={onClose}
       >
         {actions.map((a, i) =>
