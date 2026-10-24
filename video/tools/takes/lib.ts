@@ -57,3 +57,13 @@ export const onlyBuildBox = (page: Page) =>
     new MutationObserver(hide).observe(document.body, { childList: true, subtree: true });
     hide();
   });
+
+/**
+ * Closes Settings without waiting. Escape usually closes it; clicking "Done" on a dialog that is
+ * already gone would sit out Playwright's 30-second timeout while the recorder keeps rolling.
+ */
+export async function closeSettings(page: Page) {
+  await page.keyboard.press("Escape");
+  const done = page.locator(".modal-panel").getByRole("button", { name: "Done" });
+  if (await done.isVisible()) await done.click();
+}

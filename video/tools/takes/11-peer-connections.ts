@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { launchGitGud } from "../app.ts";
 import type { TakeFn } from "../record.ts";
-import { callout, hideConsole, onlyBuildBox } from "./lib.ts";
+import { callout, hideConsole, onlyBuildBox, closeSettings } from "./lib.ts";
 
 export const takes: Record<string, TakeFn> = {
   // Both windows record at once; each narrated line plays over the window it talks about.
@@ -87,8 +87,7 @@ export const takes: Record<string, TakeFn> = {
       await c.moveTo(row);
     });
     await h.line("4.2", async () => {
-      await host.page.keyboard.press("Escape");
-      await settings.getByRole("button", { name: "Done" }).click().catch(() => {});
+      await closeSettings(host.page);
       // Committed from the laptop: stage everything and commit through the client window.
       await client.page.locator(".wt-header-btn", { hasText: "Stage all" }).click();
       await client.page.getByPlaceholder("Subject").fill("docs: note the build box edit");

@@ -1,6 +1,6 @@
 import { launchGitGud } from "../app.ts";
 import type { TakeFn } from "../record.ts";
-import { callout, hideConsole } from "./lib.ts";
+import { callout, hideConsole, closeSettings } from "./lib.ts";
 
 export const takes: Record<string, TakeFn> = {
   async settings(ctx) {
@@ -51,8 +51,7 @@ export const takes: Record<string, TakeFn> = {
       await callout(t, channel, "Stable or Dev (pre-release)", 3);
     });
     await t.line("2.2", async () => {
-      await page.keyboard.press("Escape");
-      await settings.getByRole("button", { name: "Done" }).click().catch(() => {});
+      await closeSettings(page);
       await t.cue("button");
       await updater("updater:status", { state: "available", version: "1.22.0" });
       for (const percent of [12, 38, 64, 91]) {
