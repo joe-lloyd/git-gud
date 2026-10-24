@@ -88,5 +88,10 @@
         }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Undo anything",
+    "thumbKicker": "Reflog and bisect",
+    "thumbFrom": "2.5"
+  }
 }

@@ -185,5 +185,10 @@
         }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Drive another machine",
+    "thumbKicker": "Peer connections",
+    "thumbFrom": "3.4"
+  }
 }

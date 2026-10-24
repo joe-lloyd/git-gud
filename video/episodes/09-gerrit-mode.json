@@ -6,7 +6,18 @@
       "title": "Gerrit is different",
       "intent": "Explain the Gerrit workflow.",
       "lines": [
-        { "say": "Gerrit is a code review server used by projects like Android and Chromium. It doesn't use pushed branches. You push your commit to a special ref, and every amend becomes a new patch set of the same change.", "fx": { "name": "GitGudCard", "props": { "kicker": "Gerrit", "title": "One commit, many patch sets", "layout": "steps", "items": "GitCommit | Commit | With a Change-Id trailer\nCloudUpload | Push for review | HEAD to refs/for/main\nPencil | Amend | Same Change-Id, new patch set\nCheck | Merged | Gerrit submits the change" } } }
+        {
+          "say": "Gerrit is a code review server used by projects like Android and Chromium. It doesn't use pushed branches. You push your commit to a special ref, and every amend becomes a new patch set of the same change.",
+          "fx": {
+            "name": "GitGudCard",
+            "props": {
+              "kicker": "Gerrit",
+              "title": "One commit, many patch sets",
+              "layout": "steps",
+              "items": "GitCommit | Commit | With a Change-Id trailer\nCloudUpload | Push for review | HEAD to refs/for/main\nPencil | Amend | Same Change-Id, new patch set\nCheck | Merged | Gerrit submits the change"
+            }
+          }
+        }
       ]
     },
     {
@@ -14,8 +25,12 @@
       "intent": "Detection banner and enable dialog.",
       "take": "gerrit",
       "lines": [
-        { "say": "Git Gud notices when a repository talks to Gerrit: a dot gitreview file, a Change-Id hook, or a Gerrit-looking host. It offers Gerrit mode in a banner." },
-        { "say": "Enable it and confirm the host, the project and the target branch. Nothing changes for repositories that don't use Gerrit." }
+        {
+          "say": "Git Gud notices when a repository talks to Gerrit: a dot gitreview file, a Change-Id hook, or a Gerrit-looking host. It offers Gerrit mode in a banner."
+        },
+        {
+          "say": "Enable it and confirm the host, the project and the target branch. Nothing changes for repositories that don't use Gerrit."
+        }
       ]
     },
     {
@@ -23,9 +38,15 @@
       "intent": "Open changes as nodes, patch sets.",
       "take": "gerrit",
       "lines": [
-        { "say": "Now the open changes on the server appear in the graph, each with a dashed pill and its change number." },
-        { "say": "Select one, and the detail panel lists every patch set: when it was uploaded and what kind of change it was. A button opens the change in your browser." },
-        { "say": "The toolbar switch shows only the latest patch set of each change, or all of them." }
+        {
+          "say": "Now the open changes on the server appear in the graph, each with a dashed pill and its change number."
+        },
+        {
+          "say": "Select one, and the detail panel lists every patch set: when it was uploaded and what kind of change it was. A button opens the change in your browser."
+        },
+        {
+          "say": "The toolbar switch shows only the latest patch set of each change, or all of them."
+        }
       ]
     },
     {
@@ -33,10 +54,21 @@
       "intent": "The push dialog.",
       "take": "gerrit",
       "lines": [
-        { "say": "Push for review becomes the main button. Choose the target branch, add a topic if you like, and mark it work in progress or private." },
-        { "say": "Git Gud pushes HEAD to refs for main. If Gerrit refuses, for example because the Change-Id is missing, you get a message that says how to fix it." },
-        { "say": "And amending is welcome here. Instead of a force-push warning, Git Gud tells you the amend will become a new patch set." }
+        {
+          "say": "Push for review becomes the main button. Choose the target branch, add a topic if you like, and mark it work in progress or private."
+        },
+        {
+          "say": "Git Gud pushes HEAD to refs for main. If Gerrit refuses, for example because the Change-Id is missing, you get a message that says how to fix it."
+        },
+        {
+          "say": "And amending is welcome here. Instead of a force-push warning, Git Gud tells you the amend will become a new patch set."
+        }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Gerrit mode",
+    "thumbKicker": "Push for review",
+    "thumbFrom": "3.2"
+  }
 }

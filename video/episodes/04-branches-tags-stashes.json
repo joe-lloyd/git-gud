@@ -7,11 +7,21 @@
       "intent": "Create, checkout, rename, delete.",
       "take": "branches",
       "lines": [
-        { "say": "The sidebar lists your local branches. The one with the tick is checked out." },
-        { "say": "Double-click a branch to check it out. The pill in the toolbar follows, and the graph moves the head marker." },
-        { "say": "The Branch button makes a new branch from where you are. Type a name, press Create, and you're on it." },
-        { "say": "Right-click a branch for everything else: rename it, merge it into your current branch, rebase onto it, push it, or delete it." },
-        { "say": "You can also right-click any commit in the graph and choose Create branch here, to start a branch from the past." }
+        {
+          "say": "The sidebar lists your local branches. The one with the tick is checked out."
+        },
+        {
+          "say": "Double-click a branch to check it out. The pill in the toolbar follows, and the graph moves the head marker."
+        },
+        {
+          "say": "The Branch button makes a new branch from where you are. Type a name, press Create, and you're on it."
+        },
+        {
+          "say": "Right-click a branch for everything else: rename it, merge it into your current branch, rebase onto it, push it, or delete it."
+        },
+        {
+          "say": "You can also right-click any commit in the graph and choose Create branch here, to start a branch from the past."
+        }
       ]
     },
     {
@@ -19,9 +29,15 @@
       "intent": "Drag one branch onto another.",
       "take": "branches",
       "lines": [
-        { "say": "Here's a shortcut. Drag one branch and drop it on another." },
-        { "say": "Git Gud asks what you meant: merge one into the other, rebase one onto the other, or just check out the target." },
-        { "say": "Pick merge, and the merge commit appears in the graph with both lanes joining." }
+        {
+          "say": "Here's a shortcut. Drag one branch and drop it on another."
+        },
+        {
+          "say": "Git Gud asks what you meant: merge one into the other, rebase one onto the other, or just check out the target."
+        },
+        {
+          "say": "Pick merge, and the merge commit appears in the graph with both lanes joining."
+        }
       ]
     },
     {
@@ -29,8 +45,12 @@
       "intent": "Create and manage tags.",
       "take": "branches",
       "lines": [
-        { "say": "To tag a release, right-click its commit and choose Create tag here. Git Gud makes an annotated tag." },
-        { "say": "Tags are listed in the sidebar too. Right-click one to push it to the remote, rename it, delete it, or start a branch from it." }
+        {
+          "say": "To tag a release, right-click its commit and choose Create tag here. Git Gud makes an annotated tag."
+        },
+        {
+          "say": "Tags are listed in the sidebar too. Right-click one to push it to the remote, rename it, delete it, or start a branch from it."
+        }
       ]
     },
     {
@@ -38,9 +58,15 @@
       "intent": "Stash and pop.",
       "take": "branches",
       "lines": [
-        { "say": "Stash puts all your uncommitted changes aside, including new files, and leaves a clean working tree. You can give it a message so you remember what it was." },
-        { "say": "The stash shows up as a diamond in the graph, and in the sidebar's stash list." },
-        { "say": "Pop brings the most recent stash back and removes it from the list. Right-click a stash to apply it but keep it, drop it, or turn it into a branch." }
+        {
+          "say": "Stash puts all your uncommitted changes aside, including new files, and leaves a clean working tree. You can give it a message so you remember what it was."
+        },
+        {
+          "say": "The stash shows up as a diamond in the graph, and in the sidebar's stash list."
+        },
+        {
+          "say": "Pop brings the most recent stash back and removes it from the list. Right-click a stash to apply it but keep it, drop it, or turn it into a branch."
+        }
       ]
     },
     {
@@ -48,10 +74,21 @@
       "intent": "Multiple checkouts.",
       "take": "branches",
       "lines": [
-        { "say": "A worktree is a second checkout of the same repository, in its own folder, on its own branch. It's handy for a hotfix while your feature work stays put." },
-        { "say": "Manage worktrees lists them and adds new ones. Give it a branch, and Git Gud suggests a folder next to your project." },
-        { "say": "Switch to a worktree from the sidebar, and the badge in the toolbar tells you which checkout you're looking at." }
+        {
+          "say": "A worktree is a second checkout of the same repository, in its own folder, on its own branch. It's handy for a hotfix while your feature work stays put."
+        },
+        {
+          "say": "Manage worktrees lists them and adds new ones. Give it a branch, and Git Gud suggests a folder next to your project."
+        },
+        {
+          "say": "Switch to a worktree from the sidebar, and the badge in the toolbar tells you which checkout you're looking at."
+        }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Branches and stashes",
+    "thumbKicker": "Sidebar",
+    "thumbFrom": "2.3"
+  }
 }

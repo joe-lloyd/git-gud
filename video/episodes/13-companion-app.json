@@ -7,9 +7,15 @@
       "intent": "QR pairing.",
       "take": "phone",
       "lines": [
-        { "say": "The companion app is Git Gud for your phone, on Android and iOS. It's for looking: checking what changed, reading a diff, following along while something runs." },
-        { "say": "To pair it, show the Q R code from the host's sharing settings, or from the daemon's pair command. The phone scans it, or you paste the link." },
-        { "say": "The Q R code carries the host's address and its certificate fingerprint, so the phone pins the certificate before its very first request." }
+        {
+          "say": "The companion app is Git Gud for your phone, on Android and iOS. It's for looking: checking what changed, reading a diff, following along while something runs."
+        },
+        {
+          "say": "To pair it, show the Q R code from the host's sharing settings, or from the daemon's pair command. The phone scans it, or you paste the link."
+        },
+        {
+          "say": "The Q R code carries the host's address and its certificate fingerprint, so the phone pins the certificate before its very first request."
+        }
       ]
     },
     {
@@ -17,29 +23,89 @@
       "intent": "Machines, repos, graph, working tree, diff.",
       "take": "phone",
       "lines": [
-        { "say": "Machines lists every paired computer and whether it's reachable right now. Tap one to see its repositories." },
-        { "say": "A repository opens on its graph. It's the same lane-colored graph, sized for a phone." },
-        { "say": "Tap a commit to read its message. The working tree tab shows uncommitted changes on the machine, and tapping a file shows its diff." },
-        { "say": "The activity tab shows the git commands the host is running." },
-        { "say": "It's all live. When the repository changes on the computer, the phone updates by itself." }
+        {
+          "say": "Machines lists every paired computer and whether it's reachable right now. Tap one to see its repositories."
+        },
+        {
+          "say": "A repository opens on its graph. It's the same lane-colored graph, sized for a phone."
+        },
+        {
+          "say": "Tap a commit to read its message. The working tree tab shows uncommitted changes on the machine, and tapping a file shows its diff."
+        },
+        {
+          "say": "The activity tab shows the git commands the host is running."
+        },
+        {
+          "say": "It's all live. When the repository changes on the computer, the phone updates by itself."
+        }
       ]
     },
     {
       "title": "Read-only by design",
       "intent": "Safety, scopes, notifications.",
       "lines": [
-        { "say": "The phone is read-only. Every pairing from a phone is marked read-only on the host, and the app itself refuses to send a write before it leaves the phone.", "fx": { "name": "GitGudCard", "props": { "kicker": "Companion", "title": "Read-only, with narrow exceptions", "layout": "list", "items": "Lock | Read-only pairing | The host marks every phone read-only\nShieldCheck | Refused on the phone | Writes never leave the device\nKey | Scopes | The host can allow fetch, pull or push, one at a time\nBell | Notifications | Optional: hear when a repository changes" } } },
-        { "say": "If you want a little more, the host can grant scopes. Allow fetch, and a Fetch button appears on the phone. Pulls are always fast-forward only, and pushes are never forced.", "take": "phone" },
-        { "say": "With notifications on, the host tells your phone when a repository changes. The notification has a Fetch now button when that scope is allowed. Only the machine, the repository and the kind of change are sent.", "fx": { "name": "GitGudCard", "props": { "kicker": "Notifications", "title": "Know when a repository changes", "layout": "steps", "items": "GitCommit | Something changes | A commit, a fetch, a checkout\nBell | Host notifies | Machine, repository and kind of event, nothing else\nSmartphone | Tap Fetch now | If the fetch scope is granted\nTimer | No spam | At most one per repository every thirty seconds" } } }
+        {
+          "say": "The phone is read-only. Every pairing from a phone is marked read-only on the host, and the app itself refuses to send a write before it leaves the phone.",
+          "fx": {
+            "name": "GitGudCard",
+            "props": {
+              "kicker": "Companion",
+              "title": "Read-only, with narrow exceptions",
+              "layout": "list",
+              "items": "Lock | Read-only pairing | The host marks every phone read-only\nShieldCheck | Refused on the phone | Writes never leave the device\nKey | Scopes | The host can allow fetch, pull or push, one at a time\nBell | Notifications | Optional: hear when a repository changes"
+            }
+          }
+        },
+        {
+          "say": "If you want a little more, the host can grant scopes. Allow fetch, and a Fetch button appears on the phone. Pulls are always fast-forward only, and pushes are never forced.",
+          "take": "phone"
+        },
+        {
+          "say": "With notifications on, the host tells your phone when a repository changes. The notification has a Fetch now button when that scope is allowed. Only the machine, the repository and the kind of change are sent.",
+          "fx": {
+            "name": "GitGudCard",
+            "props": {
+              "kicker": "Notifications",
+              "title": "Know when a repository changes",
+              "layout": "steps",
+              "items": "GitCommit | Something changes | A commit, a fetch, a checkout\nBell | Host notifies | Machine, repository and kind of event, nothing else\nSmartphone | Tap Fetch now | If the fetch scope is granted\nTimer | No spam | At most one per repository every thirty seconds"
+            }
+          }
+        }
       ]
     },
     {
       "title": "How it all fits",
       "intent": "Wrap up the series.",
       "lines": [
-        { "say": "That's the whole family. The desktop app for your work. The daemon for machines with no screen. The relay to reach them from anywhere. And the phone to keep an eye on things.", "fx": { "name": "GitGudDiagram", "props": { "focus": "family", "step": 4, "caption": "One protocol, four apps" } } },
-        { "say": "All four speak one protocol, with certificates pinned at pairing and every git command visible. Thanks for watching.", "fx": { "name": "GitGudTitle", "props": { "title": "Git Gud", "subtitle": "github.com/joe-lloyd/git-gud", "footer": "Thanks for watching" } } }
+        {
+          "say": "That's the whole family. The desktop app for your work. The daemon for machines with no screen. The relay to reach them from anywhere. And the phone to keep an eye on things.",
+          "fx": {
+            "name": "GitGudDiagram",
+            "props": {
+              "focus": "family",
+              "step": 4,
+              "caption": "One protocol, four apps"
+            }
+          }
+        },
+        {
+          "say": "All four speak one protocol, with certificates pinned at pairing and every git command visible. Thanks for watching.",
+          "fx": {
+            "name": "GitGudTitle",
+            "props": {
+              "title": "Git Gud",
+              "subtitle": "github.com/joe-lloyd/git-gud",
+              "footer": "Thanks for watching"
+            }
+          }
+        }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Git on your phone",
+    "thumbKicker": "Companion app",
+    "thumbFrom": "2.2"
+  }
 }

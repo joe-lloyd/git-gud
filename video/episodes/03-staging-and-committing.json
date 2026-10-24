@@ -99,5 +99,10 @@
         }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Stage one line",
+    "thumbKicker": "Staging",
+    "thumbFrom": "3.5"
+  }
 }

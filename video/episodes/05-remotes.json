@@ -107,5 +107,10 @@
         }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Fetch, pull, push",
+    "thumbKicker": "Remotes",
+    "thumbFrom": "2.1"
+  }
 }

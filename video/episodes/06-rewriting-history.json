@@ -72,5 +72,10 @@
         }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Rewrite history",
+    "thumbKicker": "Interactive rebase",
+    "thumbFrom": "3.2"
+  }
 }

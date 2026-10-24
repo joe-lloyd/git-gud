@@ -84,5 +84,10 @@
         }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "The commit graph",
+    "thumbKicker": "Read history",
+    "thumbFrom": "1.2"
+  }
 }

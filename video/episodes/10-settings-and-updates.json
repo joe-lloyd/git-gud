@@ -7,11 +7,21 @@
       "intent": "Walk the settings dialog.",
       "take": "settings",
       "lines": [
-        { "say": "The gear opens Settings. Text size scales the whole interface, from seventy to a hundred and eighty percent." },
-        { "say": "High contrast brightens text and borders, for glare or tired eyes." },
-        { "say": "Auto-fix blocked actions and reuse recorded resolutions are here, which we met in the conflicts episode." },
-        { "say": "Gerrit mode has its settings here per repository, along with the Gerrit login, which is stored encrypted." },
-        { "say": "Sharing with other Git Gud instances lives here too. That's the next episode." }
+        {
+          "say": "The gear opens Settings. Text size scales the whole interface, from seventy to a hundred and eighty percent."
+        },
+        {
+          "say": "High contrast brightens text and borders, for glare or tired eyes."
+        },
+        {
+          "say": "Auto-fix blocked actions and reuse recorded resolutions are here, which we met in the conflicts episode."
+        },
+        {
+          "say": "Gerrit mode has its settings here per repository, along with the Gerrit login, which is stored encrypted."
+        },
+        {
+          "say": "Sharing with other Git Gud instances lives here too. That's the next episode."
+        }
       ]
     },
     {
@@ -19,10 +29,21 @@
       "intent": "Channels and the update button.",
       "take": "settings",
       "lines": [
-        { "say": "Under Updates, choose a channel. Stable gets releases. Dev gets pre-releases as soon as they're built." },
-        { "say": "Git Gud checks for updates on its own. When one is ready, a button in the tab bar shows the download, and then offers to restart into the new version." },
-        { "say": "The version you're running is always in the corner of the tab bar." }
+        {
+          "say": "Under Updates, choose a channel. Stable gets releases. Dev gets pre-releases as soon as they're built."
+        },
+        {
+          "say": "Git Gud checks for updates on its own. When one is ready, a button in the tab bar shows the download, and then offers to restart into the new version."
+        },
+        {
+          "say": "The version you're running is always in the corner of the tab bar."
+        }
       ]
     }
-  ]
+  ],
+  "youtube": {
+    "thumbTitle": "Settings and updates",
+    "thumbKicker": "Make it yours",
+    "thumbFrom": "2.2"
+  }
 }
