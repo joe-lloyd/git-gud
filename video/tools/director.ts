@@ -18,7 +18,7 @@ export type TakeEvent =
   | { kind: "zoom"; from: number; to: number; center: [number, number]; zoom: number }
   | { kind: "callout"; at: number; duration: number; text: string; x: number; y: number };
 
-export type TakeResult = { name: string; video: string; duration: number; lines: { id: string; start: number }[]; events: TakeEvent[] };
+export type TakeResult = { name: string; video: string; duration: number; lines: { id: string; start: number; end?: number }[]; events: TakeEvent[] };
 
 const FFMPEG = process.env.FFMPEG ?? join(homedir(), ".neon-video", "tools", "ffmpeg");
 const FPS = 30;
@@ -49,7 +49,7 @@ const CURSOR_SCRIPT = (touch: boolean) => `(() => {
 export class Take {
   private frames: { t: number; data: Buffer }[] = [];
   private clockStart = 0;
-  private lineStarts: { id: string; start: number }[] = [];
+  private lineStarts: { id: string; start: number; end?: number }[] = [];
   private events: TakeEvent[] = [];
   private current: { line: VoLine; start: number } | undefined;
   private cursor = { x: 0, y: 0 };
@@ -99,10 +99,13 @@ export class Take {
     const line = this.vo.get(id);
     if (!line) throw new Error(`No narration for line ${id}`);
     const start = this.now();
-    this.lineStarts.push({ id, start });
+    const entry: { id: string; start: number; end?: number } = { id, start };
+    this.lineStarts.push(entry);
     this.current = { line, start };
     await act();
     await this.until(start + line.duration + LINE_GAP);
+    // Where the line really ends, so a take recorded alongside another can be cut without the other's turns.
+    entry.end = this.now();
     this.current = undefined;
   }
 

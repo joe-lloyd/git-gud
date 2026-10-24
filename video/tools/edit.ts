@@ -78,7 +78,10 @@ for (let i = 0; i < lines.length; ) {
     // A line ends where the take's next line starts, so the action after the words stays in.
     const endOf = (lineId: string) => {
       const after = take.lines.filter((l) => l.start > startOf(lineId)).sort((a, b) => a.start - b.start)[0];
-      return after?.start ?? take.duration;
+      const next = after?.start ?? take.duration;
+      // With two windows recording at once, the gap before this take's next line is the other window's turn.
+      const own = take.lines.find((l) => l.id === lineId)?.end;
+      return own !== undefined && next - own > 2 ? own + 0.3 : next;
     };
     const trim = startOf(run[0]!.id);
     const length = endOf(run.at(-1)!.id) - trim;
