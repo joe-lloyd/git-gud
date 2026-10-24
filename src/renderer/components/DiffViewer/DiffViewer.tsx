@@ -750,7 +750,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ filePath, staged = false
                 const html = (type === 'add' || type === 'remove' || (type === 'context' && !text.startsWith('\\')))
                   ? highlightHtml.get(i)
                   : undefined
-                const plainText = text.slice(type === 'context' ? 0 : 1)
+                // Only add/remove lines carry a sign column to drop; file and hunk
+                // headers render whole ("diff --git", "@@ -1,3 +1,4 @@").
+                const plainText = type === 'add' || type === 'remove' ? text.slice(1) : text
                 return (
                   <tr
                     key={i}
