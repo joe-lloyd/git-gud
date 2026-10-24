@@ -88,7 +88,10 @@ for (const file of episodeFiles) {
       },
     };
     try {
-      await fn(ctx);
+      // A hung take fails instead of blocking the run; no take is longer than a few minutes.
+      let timer: NodeJS.Timeout | undefined;
+      const limit = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${episode}:${name} ran over 8 minutes`)), 8 * 60_000); });
+      await Promise.race([fn(ctx), limit]).finally(() => clearTimeout(timer));
     } catch (error) {
       // What the screen showed when the take broke is usually the whole story.
       const debug = join(VIDEO, "build", "debug");
