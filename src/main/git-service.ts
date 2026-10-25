@@ -526,7 +526,11 @@ export class GitService {
       `--format=COMMIT_SEP%n%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}${TRAILER_FIELD}${FS}%s`,
       ...extraRefs,
     ]);
-    return parseRawLog(rawOutput);
+    const commits = parseRawLog(rawOutput);
+    // git before about 2.35 ignores the --decorate-refs filters for %D, so the
+    // exclude above does nothing there. Drop the same refs here, as the sidebar does.
+    if (gerritMode) for (const c of commits) c.refs = c.refs.filter((r) => !GERRIT_REMOTE_CHANGE_RE.test(r));
+    return commits;
   }
 
   /**
@@ -1647,7 +1651,8 @@ export class GitService {
       const msg = String(e);
       const kind = /non-fast-forward|\[rejected\]/i.test(msg) ? "not-ff"
         : /couldn't find remote ref|no such ref/i.test(msg) ? "no-remote-branch"
-        : /checked out/i.test(msg) ? "checked-out"
+        // Newer git: "…checked out at…"; older (before about 2.36): "Refusing to fetch into current branch".
+        : /checked out|fetch into current branch/i.test(msg) ? "checked-out"
         : classifyPullError(msg);
       return { success: false, error: msg, kind };
     }
@@ -2756,7 +2761,9 @@ export function classifyPullError(msg: string): string {
   if (/please commit your changes or stash them before you (merge|rebase|pull|switch)/i.test(msg)) return "dirty";
   if (/cannot (pull with rebase|rebase|cherry-pick|revert|merge)?:? ?you have (unstaged|uncommitted) changes/i.test(msg)) return "dirty";
   if (/(index|working tree) contains uncommitted changes/i.test(msg)) return "dirty";
-  if (/divergent branches|need to specify how to reconcile/i.test(msg)) return "diverged";
+  // git's refusal, not the "Pulling without specifying how to reconcile divergent branches is
+  // discouraged" warning that git 2.27 to 2.33 print on every pull, even one that fast-forwards.
+  if (/need to specify how to reconcile|you have divergent branches/i.test(msg)) return "diverged";
   if (/untracked working tree files? would be overwritten/i.test(msg)) return "untracked";
   if (/you have not concluded your merge|MERGE_HEAD exists|already in progress|in the middle of a|rebase.*in progress|Exiting because of an unresolved conflict|unmerged files/i.test(msg)) return "in-progress";
   if (/conflict.*merge|automatic merge failed|fix conflicts and then commit|CONFLICT \(|could not apply|after resolving the conflicts|could not revert|Resolve all conflicts manually/i.test(msg)) return "conflict";

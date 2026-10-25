@@ -29,6 +29,12 @@ describe('classifyPullError / parseOverwrittenFiles', () => {
     expect(classifyPullError('error: cannot pull with rebase: You have unstaged changes.')).toBe('dirty')
     expect(classifyPullError('error: The following untracked working tree files would be overwritten by checkout:\n\tn.txt')).toBe('untracked')
   })
+  it('ignores the "pulling without specifying" warning git 2.27 to 2.33 print on every pull', () => {
+    const warning = 'warning: Pulling without specifying how to reconcile divergent branches is\ndiscouraged. You can squelch this message by running one of the following\ncommands sometime before your next pull:\n'
+    expect(classifyPullError(`${warning}\nerror: The following untracked working tree files would be overwritten by merge:\n\tnotes.txt\nAborting`)).toBe('untracked')
+    expect(classifyPullError(`${warning}\nerror: Your local changes to the following files would be overwritten by merge:\n\ta.txt`)).toBe('dirty')
+    expect(classifyPullError('fatal: Need to specify how to reconcile divergent branches.')).toBe('diverged')
+  })
   it('classifies paused operations and conflicts', () => {
     expect(classifyPullError('error: You have not concluded your merge (MERGE_HEAD exists).')).toBe('in-progress')
     expect(classifyPullError('error: cherry-pick is already in progress')).toBe('in-progress')
@@ -49,7 +55,8 @@ describe('GitService.autoFix — pull', () => {
     server = mkdtempSync(join(tmpdir(), 'af-server-'))
     repo = mkdtempSync(join(tmpdir(), 'af-repo-'))
     other = mkdtempSync(join(tmpdir(), 'af-other-'))
-    await simpleGit(server).init(true)
+    // The remote's HEAD names main, so clones land on main on every git version.
+    await simpleGit(server).raw(['init', '--bare', '--initial-branch=main', server])
     const g = await initRepo(repo)
     write(repo, 'a.txt', 'base\n')
     write(repo, 'keep.txt', 'keep\n')
