@@ -1,7 +1,12 @@
 // Persistent state: paired machines (with bearer tokens → SecureStore) and
 // this phone's identity. Everything is keyed so a lost phone can be revoked
 // on each host independently (Settings → Paired devices → Revoke).
-import * as SecureStore from 'expo-secure-store'
+import * as NativeSecureStore from 'expo-secure-store'
+import { Platform } from 'react-native'
+// Web has no SecureStore; fall back to localStorage for development builds.
+const SecureStore = Platform.OS === 'web'
+  ? { getItemAsync: async (k: string) => localStorage.getItem(k), setItemAsync: async (k: string, v: string) => { localStorage.setItem(k, v) } }
+  : NativeSecureStore
 import type { Machine, Self } from '../net/peerClient'
 import { newSelf } from '../net/peerClient'
 
