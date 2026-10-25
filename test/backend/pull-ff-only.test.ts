@@ -25,7 +25,8 @@ describe('GitService.pull ff-only', () => {
     repo = mkdtempSync(join(tmpdir(), 'ff-repo-'))
     other = mkdtempSync(join(tmpdir(), 'ff-other-'))
 
-    await simpleGit(server).init(true)
+    // The remote's HEAD names main, so clones land on main on every git version.
+    await simpleGit(server).raw(['init', '--bare', '--initial-branch=main', server])
     const g = simpleGit(repo)
     await g.init(['-b', 'main'] as any)
     await g.addConfig('user.name', 'T').then(() => g.addConfig('user.email', 't@t.t'))

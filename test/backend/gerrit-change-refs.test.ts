@@ -22,7 +22,8 @@ describe('Gerrit change ref sync', () => {
     serverPath = mkdtempSync(join(tmpdir(), 'gerrit-server-'))
     repoPath = mkdtempSync(join(tmpdir(), 'gerrit-client-'))
 
-    await simpleGit(serverPath).init(true) // bare "Gerrit"
+    // A bare "Gerrit" whose HEAD names main, so clones land on main on every git version.
+    await simpleGit(serverPath).raw(['init', '--bare', '--initial-branch=main', serverPath])
     const git = simpleGit(repoPath)
     await git.init(['-b', 'main'] as any)
     await git.addConfig('user.name', 'T').then(() => git.addConfig('user.email', 't@t.t'))

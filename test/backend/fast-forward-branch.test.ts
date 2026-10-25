@@ -33,6 +33,8 @@ describe('GitService.fastForwardBranch', () => {
 
     await simpleGit(root).clone(barePath, otherPath)
     const other = simpleGit(otherPath)
+    // Cloning an empty repo lands on git's own default branch before 2.31, not the remote's.
+    await other.raw(['checkout', '-B', 'main'])
     await other.addConfig('user.name', 'Other')
     await other.addConfig('user.email', 'other@example.com')
     await commitIn(other, otherPath, 'a.txt', 'initial commit')
