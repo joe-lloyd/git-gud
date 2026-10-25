@@ -1,7 +1,17 @@
 // Persistent state: paired machines (with bearer tokens → SecureStore) and
 // this phone's identity. Everything is keyed so a lost phone can be revoked
 // on each host independently (Settings → Paired devices → Revoke).
-import * as SecureStore from 'expo-secure-store'
+import * as NativeSecureStore from 'expo-secure-store'
+import { Platform } from 'react-native'
+// Browser pairing lasts only until this page is reloaded. Never persist bearer
+// tokens in browser storage. Native devices keep using SecureStore.
+const webSession = new Map<string, string>()
+const SecureStore = Platform.OS === 'web'
+  ? {
+      getItemAsync: async (key: string) => webSession.get(key) ?? null,
+      setItemAsync: async (key: string, value: string) => { webSession.set(key, value) },
+    }
+  : NativeSecureStore
 import type { Machine, Self } from '../net/peerClient'
 import { newSelf } from '../net/peerClient'
 
