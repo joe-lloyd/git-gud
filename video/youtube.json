@@ -5,5 +5,93 @@
     "title": "Git Gud 01: Meet Git Gud",
     "privacy": "public",
     "uploadedAt": "2026-10-24T19:54:46.543Z"
+  },
+  "02-commit-graph": {
+    "videoId": "BiKA7ETGFLk",
+    "url": "https://youtu.be/BiKA7ETGFLk",
+    "title": "Git Gud 02: Reading the commit graph",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:56:04.683Z"
+  },
+  "03-staging-and-committing": {
+    "videoId": "VNzKclSPRJ0",
+    "url": "https://youtu.be/VNzKclSPRJ0",
+    "title": "Git Gud 03: Staging and committing",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:56:10.687Z"
+  },
+  "04-branches-tags-stashes": {
+    "videoId": "Ogxl12aFVQM",
+    "url": "https://youtu.be/Ogxl12aFVQM",
+    "title": "Git Gud 04: Branches, tags, stashes and worktrees",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:56:17.657Z"
+  },
+  "05-remotes": {
+    "videoId": "PBHql8kzv_4",
+    "url": "https://youtu.be/PBHql8kzv_4",
+    "title": "Git Gud 05: Working with remotes",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:56:24.122Z"
+  },
+  "06-rewriting-history": {
+    "videoId": "eqfL-kWlbGs",
+    "url": "https://youtu.be/eqfL-kWlbGs",
+    "title": "Git Gud 06: Rewriting history",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:56:32.097Z"
+  },
+  "07-conflicts-and-auto-fix": {
+    "videoId": "AfRs-afo72E",
+    "url": "https://youtu.be/AfRs-afo72E",
+    "title": "Git Gud 07: Conflicts and auto-fix",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:56:49.776Z"
+  },
+  "08-recovery-tools": {
+    "videoId": "FW7uov8b9Lc",
+    "url": "https://youtu.be/FW7uov8b9Lc",
+    "title": "Git Gud 08: Recovery and power tools",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:57:06.174Z"
+  },
+  "09-gerrit-mode": {
+    "videoId": "U2NBci8JhpA",
+    "url": "https://youtu.be/U2NBci8JhpA",
+    "title": "Git Gud 09: Gerrit mode",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:57:18.729Z"
+  },
+  "10-settings-and-updates": {
+    "videoId": "JBaA-BAnJwM",
+    "url": "https://youtu.be/JBaA-BAnJwM",
+    "title": "Git Gud 10: Settings and updates",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:57:33.642Z"
+  },
+  "11-peer-connections": {
+    "videoId": "P2V_DS75-ys",
+    "url": "https://youtu.be/P2V_DS75-ys",
+    "title": "Git Gud 11: Peer connections",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:57:53.378Z"
+  },
+  "12-headless-and-relay": {
+    "videoId": "FsGt9z2ekpI",
+    "url": "https://youtu.be/FsGt9z2ekpI",
+    "title": "Git Gud 12: The headless daemon and the relay",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:58:09.371Z"
+  },
+  "13-companion-app": {
+    "videoId": "0jjHVCg5ITY",
+    "url": "https://youtu.be/0jjHVCg5ITY",
+    "title": "Git Gud 13: The companion app",
+    "privacy": "public",
+    "uploadedAt": "2026-10-25T00:58:23.210Z"
+  },
+  "_playlist": {
+    "id": "PLfUmqo1_wsjo",
+    "url": "https://www.youtube.com/playlist?list=PLfUmqo1_wsjo"
   }
 }

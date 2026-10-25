@@ -93,7 +93,7 @@ ${[prev ? `Previous: [${mdx(prev.title)}](${slug(prev)})` : "", next ? `Next: [$
 
 ${series}
 
-Git Gud is open source. Get it from the [latest release](https://github.com/joe-lloyd/git-gud/releases/latest), or read [every feature in one list](https://github.com/joe-lloyd/git-gud/blob/main/docs/feature-list.md).
+Git Gud is open source. Get it from the [latest release](https://github.com/joe-lloyd/git-gud/releases/latest), or read [every feature in one list](https://github.com/joe-lloyd/git-gud/blob/565032efe6eb2646dbeab1235dc75429e700e3c6/docs/feature-list.md).
 `;
   await writeFile(join(blog, "content", "posts", `git-gud-${e.id}.mdx`), post);
   process.stdout.write(`${slug(e)}\n`);

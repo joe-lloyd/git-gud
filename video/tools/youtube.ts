@@ -73,7 +73,15 @@ async function description(e: Episode, uploaded: Uploaded): Promise<string> {
 
 const tags = (e: Episode) => ["Git Gud", "git", "git client", "git GUI", "developer tools", "Electron", e.title, e.subtitle].join(",");
 
-if (command === "describe") {
+if (command === "descriptions") {
+  // Rewrite every uploaded episode's description, so Previous and Next link to the videos once all exist.
+  const uploaded: Uploaded = JSON.parse(await readFile(RECORD, "utf8"));
+  await mkdir(join(BUILD, "youtube"), { recursive: true });
+  const out: Record<string, string> = {};
+  for (const e of chosen) if (uploaded[e.id]) out[uploaded[e.id]!.videoId] = await description(e, uploaded);
+  await writeFile(join(BUILD, "youtube", "descriptions.json"), JSON.stringify(out, null, 2));
+  process.stdout.write(`${Object.keys(out).length} descriptions → build/youtube/descriptions.json\n`);
+} else if (command === "describe") {
   const uploaded: Uploaded = existsSync(RECORD) ? JSON.parse(await readFile(RECORD, "utf8")) : {};
   for (const e of chosen) process.stdout.write(`${videoTitle(e)}\n\n${await description(e, uploaded)}\n\n`);
 } else if (command === "thumbs") {
