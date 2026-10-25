@@ -3,9 +3,14 @@
 // on each host independently (Settings → Paired devices → Revoke).
 import * as NativeSecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
-// Web has no SecureStore; fall back to localStorage for development builds.
+// Browser pairing lasts only until this page is reloaded. Never persist bearer
+// tokens in browser storage. Native devices keep using SecureStore.
+const webSession = new Map<string, string>()
 const SecureStore = Platform.OS === 'web'
-  ? { getItemAsync: async (k: string) => localStorage.getItem(k), setItemAsync: async (k: string, v: string) => { localStorage.setItem(k, v) } }
+  ? {
+      getItemAsync: async (key: string) => webSession.get(key) ?? null,
+      setItemAsync: async (key: string, value: string) => { webSession.set(key, value) },
+    }
   : NativeSecureStore
 import type { Machine, Self } from '../net/peerClient'
 import { newSelf } from '../net/peerClient'
