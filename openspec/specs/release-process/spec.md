@@ -19,7 +19,7 @@ release.
 
 #### Scenario: Tag push starts the release build
 - **GIVEN** `package.json` `version` is `0.2.0` on `main` and the tree is clean
-- **WHEN** a maintainer pushes commit + tag with `git push origin main --follow-tags` where the tag is `v0.2.0`
+- **WHEN** a maintainer runs `pnpm release:minor`, which merges the bump through a pull request and pushes the tag `v0.2.0` on the merged commit
 - **THEN** the `.github/workflows/release.yml` workflow starts within seconds
 - **AND** it runs one build job per OS in the matrix (macOS, Windows, Linux)
 

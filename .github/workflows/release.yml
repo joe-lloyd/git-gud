@@ -4,8 +4,8 @@ name: Release
 # installers and uploads them to a GitHub Release. electron-updater clients
 # poll that release, so users get the new build in-app.
 #
-# Workflow: bump `version` in package.json → commit → `git tag v0.2.0` →
-#           `git push --follow-tags`. CI takes it from there.
+# Workflow: `pnpm release:patch|minor|major` merges the version bump through a
+#           PR and pushes the tag on the merged commit. CI takes it from there.
 on:
   push:
     tags:

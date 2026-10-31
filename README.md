@@ -204,9 +204,9 @@ and the custom `src/main/mac-updater.ts` on macOS (Squirrel.Mac refuses to swap
 an unsigned bundle, so that path downloads, verifies, and replaces the app
 itself). To ship an update:
 
-1. Bump `version` in `package.json` (semver — `0.1.0` → `0.2.0`).
-2. Commit: `git commit -am "release: v0.2.0"`.
-3. Tag and push: `git tag v0.2.0 && git push --follow-tags`.
+1. From a clean, up-to-date `main`, run `pnpm release:patch` (or `release:minor` / `release:major`).
+2. The script bumps `version` in `package.json` on a `release/vX.Y.Z` branch, opens and merges a `release vX.Y.Z` pull request, then tags the merged commit and pushes the tag. `main` only accepts pull requests, so the bump cannot be pushed to it directly. The script needs an authenticated `gh`.
+3. For a dev build, run `pnpm release:dev` on a feature branch. It commits the bump to that branch and pushes the branch and a prerelease tag.
 4. GitHub Actions (`.github/workflows/release.yml`) builds macOS / Linux / Windows installers, the headless daemon + relay (`gitgud-headless-<v>.js`, `gitgud-relay-<v>.js`, with `.sha256`), and the Android companion APK, and publishes everything to the matching GitHub Release. The release notes get a **QR code of the APK's download URL** — scan it with your phone to sideload the companion app straight from the release.
 5. Running apps see the new version within ~5 seconds of launch, download in background, and the new binary swaps in on next quit. `gitgud-headless update` does the same for the daemon.
 
