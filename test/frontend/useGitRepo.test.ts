@@ -9,15 +9,17 @@ declare global {
   }
 }
 
-// Mock toast notifications
+// Mock toast notifications — one stable object, so tests can assert on calls
+// made from any render.
+const toastMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  toasts: [],
+  remove: vi.fn()
+}))
 vi.mock('../../src/renderer/components/Toast/Toast', () => ({
-  useToasts: () => ({
-    success: vi.fn(),
-    error: vi.fn(),
-    warning: vi.fn(),
-    toasts: [],
-    remove: vi.fn()
-  })
+  useToasts: () => toastMock
 }))
 
 describe('useGitRepo Hook', () => {
@@ -186,6 +188,34 @@ describe('single-tab worktrees', () => {
       tabs: [{ main: '/repo', worktree: '/repo' }],
       active: '/repo',
     })
+  })
+
+  it('overlapping refreshes recover from a deleted worktree once', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(async (p: string) => p === '/repo.worktrees/feat')
+    // Hold the switch to main open so the second refresh lands mid-recovery.
+    let releaseOpen!: (ok: boolean) => void
+    vi.mocked(window.gitApi.openPath).mockReset()
+      .mockImplementation(() => new Promise<boolean>((r) => { releaseOpen = r }))
+    toastMock.warning.mockClear()
+
+    await act(async () => {
+      const first = result.current.methods.refresh()
+      const second = result.current.methods.refresh()
+      await new Promise((r) => setTimeout(r, 0))
+      releaseOpen(true)
+      await Promise.all([first, second])
+    })
+
+    expect(window.gitApi.openPath).toHaveBeenCalledTimes(1)
+    expect(toastMock.warning).toHaveBeenCalledTimes(1)
+    expect(toastMock.warning).toHaveBeenCalledWith('Worktree removed', expect.stringContaining('feat'))
+    expect(result.current.repoPath).toBe('/repo')
   })
 
   it('leaves a live worktree alone on refresh', async () => {

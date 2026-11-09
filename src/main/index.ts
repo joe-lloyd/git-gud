@@ -145,8 +145,16 @@ function startRepoWatchers(repoPath: string) {
 // terminal, rm -rf, another tool). Its cached GitService would keep "opening"
 // fine while every git call fails, leaving the tab blank with no way back.
 // Peer paths never count as gone here — reachability is the peer's business.
+// Only ENOENT counts: a permission error or a briefly offline share must not
+// make the tab abandon (and persist away from) a worktree that still exists.
 function localPathGone(repoPath: string): boolean {
-  return !isPeerRepoPath(repoPath) && !fs.existsSync(repoPath)
+  if (isPeerRepoPath(repoPath)) return false
+  try {
+    fs.statSync(repoPath)
+    return false
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ENOENT'
+  }
 }
 
 // Forget a cached service whose folder vanished; returns true if it did.
