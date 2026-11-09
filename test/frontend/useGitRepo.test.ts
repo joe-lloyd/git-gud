@@ -9,15 +9,17 @@ declare global {
   }
 }
 
-// Mock toast notifications
+// Mock toast notifications — one stable object, so tests can assert on calls
+// made from any render.
+const toastMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  toasts: [],
+  remove: vi.fn()
+}))
 vi.mock('../../src/renderer/components/Toast/Toast', () => ({
-  useToasts: () => ({
-    success: vi.fn(),
-    error: vi.fn(),
-    warning: vi.fn(),
-    toasts: [],
-    remove: vi.fn()
-  })
+  useToasts: () => toastMock
 }))
 
 describe('useGitRepo Hook', () => {
@@ -87,6 +89,9 @@ describe('useGitRepo Hook', () => {
 describe('single-tab worktrees', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(window.gitApi.isPathGone).mockResolvedValue(false)
+    // Session restore runs on mount — keep earlier tests' saved tabs out of it.
+    vi.mocked(window.gitApi.getSavedTabs).mockResolvedValue({ tabs: [], active: null })
     vi.mocked(window.gitApi.openPath).mockResolvedValue(true)
     vi.mocked(window.gitApi.getLog).mockResolvedValue([])
     vi.mocked(window.gitApi.getBranches).mockResolvedValue({ local: [], remote: [] })
@@ -147,6 +152,7 @@ describe('single-tab worktrees', () => {
       active: '/repo',
     })
     vi.mocked(window.gitApi.addTab).mockImplementation(async (p: string) => p !== '/gone')
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(async (p: string) => p === '/gone')
     vi.mocked(window.gitApi.activatePath).mockResolvedValue(true)
 
     const { result } = renderHook(() => useGitRepo())
@@ -154,5 +160,205 @@ describe('single-tab worktrees', () => {
 
     expect(result.current.repoPath).toBe('/repo')
     expect(result.current.openTabs).toEqual([{ main: '/repo', worktree: '/repo' }])
+    // The correction is saved, so the next launch doesn't retry '/gone'.
+    expect(window.gitApi.saveTabs).toHaveBeenLastCalledWith({
+      tabs: [{ main: '/repo', worktree: '/repo' }],
+      active: '/repo',
+    })
+  })
+
+  it('a tab switch while main is opening re-activates where the user went', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/other', branch: 'main', sha: 'c', isMain: true },
+    ])
+    await act(async () => { await result.current.methods.loadRepo('/other') })
+    await act(async () => { await result.current.methods.switchTab('/repo') })
+
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(async (p: string) => p === '/repo.worktrees/feat')
+    let releaseMain!: (ok: boolean) => void
+    vi.mocked(window.gitApi.openPath).mockImplementation((p: string) =>
+      p === '/repo' ? new Promise<boolean>((r) => { releaseMain = r }) : Promise.resolve(true))
+    let staleRefresh!: Promise<void>
+    await act(async () => {
+      staleRefresh = result.current.methods.refresh()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    await act(async () => { await result.current.methods.switchTab('/other') })
+    vi.mocked(window.gitApi.openPath).mockClear()
+    await act(async () => { releaseMain(true); await staleRefresh })
+
+    // Main's late activation of /repo is undone by re-opening /other.
+    expect(window.gitApi.openPath).toHaveBeenLastCalledWith('/other')
+    expect(result.current.repoPath).toBe('/other')
+    expect(result.current.openTabs.find((t) => t.main === '/other')).toEqual({ main: '/other', worktree: '/other' })
+  })
+
+  it('keeps the saved worktree when it only failed its repo check', async () => {
+    vi.mocked(window.gitApi.getSavedTabs).mockResolvedValue({
+      tabs: [{ main: '/repo', worktree: '/flaky' }],
+      active: '/repo',
+    })
+    vi.mocked(window.gitApi.addTab).mockImplementation(async (p: string) => p !== '/flaky')
+    vi.mocked(window.gitApi.activatePath).mockResolvedValue(true)
+
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+
+    // Falls back for this session, but '/flaky' still exists → retried next launch.
+    expect(result.current.repoPath).toBe('/repo')
+    expect(window.gitApi.saveTabs).not.toHaveBeenCalled()
+  })
+
+  it('recovery stands down when the user switches tabs mid-check', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/other', branch: 'main', sha: 'c', isMain: true },
+    ])
+    await act(async () => { await result.current.methods.loadRepo('/other') })
+    await act(async () => { await result.current.methods.switchTab('/repo') })
+    expect(result.current.repoPath).toBe('/repo.worktrees/feat')
+
+    // The liveness check hangs; the user switches to /other meanwhile.
+    let releaseGone!: (gone: boolean) => void
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(
+      () => new Promise<boolean>((r) => { releaseGone = r }))
+    let staleRefresh!: Promise<void>
+    await act(async () => {
+      staleRefresh = result.current.methods.refresh()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    await act(async () => { await result.current.methods.switchTab('/other') })
+    vi.mocked(window.gitApi.openPath).mockClear()
+    toastMock.warning.mockClear()
+    await act(async () => { releaseGone(true); await staleRefresh })
+
+    expect(window.gitApi.openPath).not.toHaveBeenCalledWith('/repo')
+    expect(toastMock.warning).not.toHaveBeenCalled()
+    expect(result.current.repoPath).toBe('/other')
+    expect(result.current.mainPath).toBe('/other')
+  })
+
+  it('drops back to main when the active worktree is deleted mid-session', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+      { path: '/repo.worktrees/feat', branch: 'feat', sha: 'b', isMain: false },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+    expect(result.current.repoPath).toBe('/repo.worktrees/feat')
+
+    // Folder removed outside the app; the next refresh (focus / watcher) notices.
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(async (p: string) => p === '/repo.worktrees/feat')
+    vi.mocked(window.gitApi.openPath).mockClear()
+    await act(async () => { await result.current.methods.refresh() })
+
+    expect(window.gitApi.openPath).toHaveBeenCalledWith('/repo')
+    expect(result.current.repoPath).toBe('/repo')
+    expect(result.current.mainPath).toBe('/repo')
+    expect(result.current.openTabs).toEqual([{ main: '/repo', worktree: '/repo' }])
+    expect(window.gitApi.saveTabs).toHaveBeenLastCalledWith({
+      tabs: [{ main: '/repo', worktree: '/repo' }],
+      active: '/repo',
+    })
+  })
+
+  it('overlapping refreshes recover from a deleted worktree once', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(async (p: string) => p === '/repo.worktrees/feat')
+    // Hold the switch to main open so the second refresh lands mid-recovery.
+    let releaseOpen!: (ok: boolean) => void
+    vi.mocked(window.gitApi.openPath).mockReset()
+      .mockImplementation(() => new Promise<boolean>((r) => { releaseOpen = r }))
+    toastMock.warning.mockClear()
+
+    await act(async () => {
+      const first = result.current.methods.refresh()
+      const second = result.current.methods.refresh()
+      await new Promise((r) => setTimeout(r, 0))
+      releaseOpen(true)
+      await Promise.all([first, second])
+    })
+
+    expect(window.gitApi.openPath).toHaveBeenCalledTimes(1)
+    expect(toastMock.warning).toHaveBeenCalledTimes(1)
+    expect(toastMock.warning).toHaveBeenCalledWith('Worktree removed', expect.stringContaining('feat'))
+    expect(result.current.repoPath).toBe('/repo')
+  })
+
+  it('a read of the deleted worktree finishing after recovery is discarded', async () => {
+    const commit = (sha: string) => ({ sha, shortSha: sha, message: sha, author: '', email: '', date: '', timestamp: 0, parents: [], refs: [] })
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    vi.mocked(window.gitApi.getLog).mockResolvedValue([commit('feat-tip')])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+
+    // Refresh A starts while the folder still exists; its log read hangs.
+    let releaseStaleLog!: (log: unknown[]) => void
+    vi.mocked(window.gitApi.getLog).mockImplementationOnce(
+      () => new Promise((r) => { releaseStaleLog = r }) as any)
+    let staleRefresh!: Promise<void>
+    await act(async () => {
+      staleRefresh = result.current.methods.refresh()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    // Folder deleted; refresh B recovers onto main and loads main's history.
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(async (p: string) => p === '/repo.worktrees/feat')
+    vi.mocked(window.gitApi.getLog).mockResolvedValue([commit('main-tip')])
+    await act(async () => { await result.current.methods.refresh() })
+    expect(result.current.repoPath).toBe('/repo')
+    expect(result.current.commits.map((c) => c.sha)).toEqual(['main-tip'])
+
+    // A finally returns an empty read of the vanished folder — it must not land.
+    await act(async () => { releaseStaleLog([]); await staleRefresh })
+    expect(result.current.commits.map((c) => c.sha)).toEqual(['main-tip'])
+  })
+
+  it('leaves a live worktree alone on refresh', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+    vi.mocked(window.gitApi.openPath).mockClear()
+    await act(async () => { await result.current.methods.refresh() })
+
+    expect(window.gitApi.openPath).not.toHaveBeenCalled()
+    expect(result.current.repoPath).toBe('/repo.worktrees/feat')
+  })
+
+  it('switching to a tab whose worktree vanished lands on main', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/other', branch: 'main', sha: 'c', isMain: true },
+    ])
+    await act(async () => { await result.current.methods.loadRepo('/other') })
+
+    // Main now refuses the deleted worktree (its cached service is dropped).
+    vi.mocked(window.gitApi.openPath).mockImplementation(async (p: string) => p !== '/repo.worktrees/feat')
+    await act(async () => { await result.current.methods.switchTab('/repo') })
+
+    expect(result.current.repoPath).toBe('/repo')
+    expect(result.current.openTabs.find((t) => t.main === '/repo')).toEqual({ main: '/repo', worktree: '/repo' })
   })
 })

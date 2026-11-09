@@ -240,6 +240,8 @@ const gitApi = {
   closeTab: (path: string, extraPaths?: string[]): Promise<boolean> =>
     ipcRenderer.invoke('git:close-tab', path, extraPaths ?? []),
   getActivePath: (): Promise<string | null> => ipcRenderer.invoke('git:active-path'),
+  // True when a local repo/worktree folder no longer exists on disk.
+  isPathGone: (path: string): Promise<boolean> => ipcRenderer.invoke('git:path-gone', path),
   getOpenTabs: (): Promise<string[]> => ipcRenderer.invoke('git:open-tabs'),
   // One tab per repository: main worktree path (identity) + active worktree.
   getSavedTabs: (): Promise<{ tabs: SavedTab[]; active: string | null }> =>
