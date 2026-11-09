@@ -69,6 +69,9 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
     // the close-tab IPC on a no-op… actually we leave services alone too;
     // worst case the watcher keeps polling a repo while the user is on home,
     // which is cheap.
+    // Clearing the read path also stands down any in-flight fetch or
+    // deleted-worktree recovery, so they can't pull the user back in.
+    fetchPathRef.current = null
     setRepoPath(null)
     setMainPath(null)
     setSelectedSha(null)
@@ -284,11 +287,23 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
       // on the main worktree instead. Focus / FS-watcher refreshes reach here.
       if (mainPath && repoPath !== mainPath && !isPeerPath(repoPath) &&
           await window.gitApi.isPathGone?.(repoPath).catch(() => false)) {
+        // A tab/worktree switch (or Go Home) landed while we checked — the
+        // vanished worktree is no longer what's on screen; leave it be.
+        if (fetchPathRef.current !== repoPath) return
         // Focus + watcher refreshes can race; recover (and toast) once.
         if (recoveringRef.current === repoPath) return
         recoveringRef.current = repoPath
         try {
-          if (!(await window.gitApi.openPath(mainPath))) {
+          const ok = await window.gitApi.openPath(mainPath)
+          if (fetchPathRef.current !== repoPath) {
+            // Switched away while main was opening: our openPath may have made
+            // this tab's main the active service behind the user's back, so
+            // hand activation back to wherever they went.
+            const now = fetchPathRef.current
+            if (ok && now) await window.gitApi.openPath(now).catch(() => false)
+            return
+          }
+          if (!ok) {
             setError(`The worktree "${repoPath}" was removed and the main worktree "${mainPath}" can't be opened.`)
             return
           }
@@ -361,7 +376,9 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
             loaded.push(tab)
           } else if (tab.worktree !== tab.main && await window.gitApi.addTab(tab.main).catch(() => false)) {
             loaded.push({ main: tab.main, worktree: tab.main })
-            fellBack.add(tab.main)
+            // Only rewrite the saved worktree when its folder is really gone;
+            // a one-off failed repo check should be retried next launch.
+            if (await window.gitApi.isPathGone?.(tab.worktree).catch(() => false)) fellBack.add(tab.main)
           }
         }
         if (loaded.length === 0) return
