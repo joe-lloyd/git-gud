@@ -218,6 +218,37 @@ describe('single-tab worktrees', () => {
     expect(result.current.repoPath).toBe('/repo')
   })
 
+  it('a read of the deleted worktree finishing after recovery is discarded', async () => {
+    const commit = (sha: string) => ({ sha, shortSha: sha, message: sha, author: '', email: '', date: '', timestamp: 0, parents: [], refs: [] })
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    vi.mocked(window.gitApi.getLog).mockResolvedValue([commit('feat-tip')])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+
+    // Refresh A starts while the folder still exists; its log read hangs.
+    let releaseStaleLog!: (log: unknown[]) => void
+    vi.mocked(window.gitApi.getLog).mockImplementationOnce(
+      () => new Promise((r) => { releaseStaleLog = r }) as any)
+    let staleRefresh!: Promise<void>
+    await act(async () => {
+      staleRefresh = result.current.methods.refresh()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    // Folder deleted; refresh B recovers onto main and loads main's history.
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(async (p: string) => p === '/repo.worktrees/feat')
+    vi.mocked(window.gitApi.getLog).mockResolvedValue([commit('main-tip')])
+    await act(async () => { await result.current.methods.refresh() })
+    expect(result.current.repoPath).toBe('/repo')
+    expect(result.current.commits.map((c) => c.sha)).toEqual(['main-tip'])
+
+    // A finally returns an empty read of the vanished folder — it must not land.
+    await act(async () => { releaseStaleLog([]); await staleRefresh })
+    expect(result.current.commits.map((c) => c.sha)).toEqual(['main-tip'])
+  })
+
   it('leaves a live worktree alone on refresh', async () => {
     vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
       { path: '/repo', branch: 'main', sha: 'a', isMain: true },

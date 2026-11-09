@@ -92,6 +92,11 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
   // Fetch every piece of repo state. Used by both initial load and refresh.
   // Doesn't touch loading state — caller decides whether to show a spinner.
   const fetchAll = useCallback(async () => {
+    // The path these reads are for. If the tab moves to another path while
+    // they're in flight (tab/worktree switch, deleted-worktree recovery), the
+    // results are stale — possibly empty reads of a vanished folder — and
+    // must not overwrite the new path's state.
+    const startPath = fetchPathRef.current
     const [log, branchData, stashData, tagData, st, wt, rmts, otherRefs] = await Promise.all([
       window.gitApi.getLog(2000, {
         includeOtherRefs: logOptionsRef.current.includeOtherRefs,
@@ -107,6 +112,7 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
       // simply reports no extra namespaces instead of failing the whole load.
       Promise.resolve(window.gitApi.getOtherRefNamespaces?.() ?? []).catch(() => [] as OtherRefNamespace[]),
     ])
+    if (fetchPathRef.current !== startPath) return
     // Keep the same array reference when the log is truly unchanged — a fresh
     // array every refresh would needlessly re-run the (worker-based) graph
     // layout. But the comparison must include refs and parents, not just SHAs:

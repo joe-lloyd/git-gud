@@ -141,12 +141,16 @@ function startRepoWatchers(repoPath: string) {
   })
 }
 
-// A local worktree folder deleted from under us (`git worktree remove` in a
-// terminal, rm -rf, another tool). Its cached GitService would keep "opening"
-// fine while every git call fails, leaving the tab blank with no way back.
-// Peer paths never count as gone here — reachability is the peer's business.
-// Only ENOENT counts: a permission error or a briefly offline share must not
-// make the tab abandon (and persist away from) a worktree that still exists.
+/**
+ * Whether a local repo/worktree folder was deleted from under us (`git
+ * worktree remove` in a terminal, rm -rf, another tool). Its cached GitService
+ * would keep "opening" fine while every git call fails, leaving the tab blank
+ * with no way back.
+ *
+ * Peer paths never count as gone — reachability is the peer's business. Only
+ * ENOENT counts: a permission error or a briefly offline share must not make
+ * the tab abandon (and persist away from) a worktree that still exists.
+ */
 function localPathGone(repoPath: string): boolean {
   if (isPeerRepoPath(repoPath)) return false
   try {
@@ -157,7 +161,10 @@ function localPathGone(repoPath: string): boolean {
   }
 }
 
-// Forget a cached service whose folder vanished; returns true if it did.
+/**
+ * Forget the cached service for a folder that vanished, stopping its watcher
+ * if it was the active one. Returns true when the path was gone.
+ */
 function dropIfGone(repoPath: string): boolean {
   if (!localPathGone(repoPath)) return false
   services.delete(repoPath)
