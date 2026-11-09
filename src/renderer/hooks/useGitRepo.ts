@@ -44,6 +44,8 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
   // The path fetchAll is currently reading — set before the fetch (repoPath
   // state lags behind) so failures can name the right repo / peer.
   const fetchPathRef = useRef<string | null>(null)
+  // Worktree path currently being abandoned because its folder vanished.
+  const recoveringRef = useRef<string | null>(null)
 
   const toast = useToasts()
 
@@ -269,12 +271,40 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
     if (!repoPath) return
     refreshCount.current += 1
     setRefreshing(true)
-    try { await fetchAll() } catch { /* keep prior state on transient failure */ }
+    try {
+      // The active linked worktree was deleted from under the tab (terminal
+      // `git worktree remove`, another tool, rm -rf). Every git call against
+      // it fails, which used to leave the tab blank with no way back — land
+      // on the main worktree instead. Focus / FS-watcher refreshes reach here.
+      if (mainPath && repoPath !== mainPath && !isPeerPath(repoPath) &&
+          await window.gitApi.isPathGone?.(repoPath).catch(() => false)) {
+        // Focus + watcher refreshes can race; recover (and toast) once.
+        if (recoveringRef.current === repoPath) return
+        recoveringRef.current = repoPath
+        try {
+          if (!(await window.gitApi.openPath(mainPath))) {
+            setError(`The worktree "${repoPath}" was removed and the main worktree "${mainPath}" can't be opened.`)
+            return
+          }
+          setSelectedSha(null)
+          setRepoPath(mainPath)
+          fetchPathRef.current = mainPath
+          setOpenTabs((prev) => {
+            const next = prev.map((t) => (t.main === mainPath ? { ...t, worktree: mainPath } : t))
+            persistTabs(next, mainPath)
+            return next
+          })
+          toast.warning('Worktree removed',
+            `${repoPath.split('/').pop() ?? repoPath} no longer exists — switched to the main worktree.`)
+        } finally { recoveringRef.current = null }
+      }
+      await fetchAll()
+    } catch { /* keep prior state on transient failure */ }
     finally {
       refreshCount.current -= 1
       if (refreshCount.current === 0) setRefreshing(false)
     }
-  }, [repoPath, fetchAll])
+  }, [repoPath, mainPath, fetchAll, persistTabs, toast])
 
   // Always call the *latest* refresh from listeners — avoids stale closures
   const refreshRef = useRef(refresh)
@@ -319,16 +349,27 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
         // Load each tab headlessly, preferring its saved worktree and falling
         // back to the main worktree when the worktree folder is gone.
         const loaded: SavedTab[] = []
+        const fellBack = new Set<string>()
         for (const tab of saved.tabs) {
           if (await window.gitApi.addTab(tab.worktree).catch(() => false)) {
             loaded.push(tab)
           } else if (tab.worktree !== tab.main && await window.gitApi.addTab(tab.main).catch(() => false)) {
             loaded.push({ main: tab.main, worktree: tab.main })
+            fellBack.add(tab.main)
           }
         }
         if (loaded.length === 0) return
         setOpenTabs(loaded)
         const target = loaded.find((t) => t.main === saved.active) ?? loaded[loaded.length - 1]
+        // Write the worktree fallback back to disk, or every launch retries
+        // the deleted folder. Tabs that didn't load at all stay saved as-is
+        // (an unmounted drive may come back).
+        if (fellBack.size > 0) {
+          persistTabs(
+            saved.tabs.map((t) => (fellBack.has(t.main) ? { main: t.main, worktree: t.main } : t)),
+            target.main,
+          )
+        }
         const ok = await window.gitApi.activatePath(target.worktree).catch(() => false)
         if (!ok) return
         setRepoPath(target.worktree)
@@ -341,7 +382,7 @@ export function useGitRepo(logOptions: GraphLogOptions = DEFAULT_LOG_OPTIONS) {
         setLoading(false)
       }
     })()
-  }, [fetchAll])
+  }, [fetchAll, persistTabs])
 
   const handleOpenRepo = useCallback(async () => {
     const path = await window.gitApi.openDialog()

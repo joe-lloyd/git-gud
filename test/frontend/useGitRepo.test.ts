@@ -87,6 +87,9 @@ describe('useGitRepo Hook', () => {
 describe('single-tab worktrees', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(window.gitApi.isPathGone).mockResolvedValue(false)
+    // Session restore runs on mount — keep earlier tests' saved tabs out of it.
+    vi.mocked(window.gitApi.getSavedTabs).mockResolvedValue({ tabs: [], active: null })
     vi.mocked(window.gitApi.openPath).mockResolvedValue(true)
     vi.mocked(window.gitApi.getLog).mockResolvedValue([])
     vi.mocked(window.gitApi.getBranches).mockResolvedValue({ local: [], remote: [] })
@@ -154,5 +157,66 @@ describe('single-tab worktrees', () => {
 
     expect(result.current.repoPath).toBe('/repo')
     expect(result.current.openTabs).toEqual([{ main: '/repo', worktree: '/repo' }])
+    // The correction is saved, so the next launch doesn't retry '/gone'.
+    expect(window.gitApi.saveTabs).toHaveBeenLastCalledWith({
+      tabs: [{ main: '/repo', worktree: '/repo' }],
+      active: '/repo',
+    })
+  })
+
+  it('drops back to main when the active worktree is deleted mid-session', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+      { path: '/repo.worktrees/feat', branch: 'feat', sha: 'b', isMain: false },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+    expect(result.current.repoPath).toBe('/repo.worktrees/feat')
+
+    // Folder removed outside the app; the next refresh (focus / watcher) notices.
+    vi.mocked(window.gitApi.isPathGone).mockImplementation(async (p: string) => p === '/repo.worktrees/feat')
+    vi.mocked(window.gitApi.openPath).mockClear()
+    await act(async () => { await result.current.methods.refresh() })
+
+    expect(window.gitApi.openPath).toHaveBeenCalledWith('/repo')
+    expect(result.current.repoPath).toBe('/repo')
+    expect(result.current.mainPath).toBe('/repo')
+    expect(result.current.openTabs).toEqual([{ main: '/repo', worktree: '/repo' }])
+    expect(window.gitApi.saveTabs).toHaveBeenLastCalledWith({
+      tabs: [{ main: '/repo', worktree: '/repo' }],
+      active: '/repo',
+    })
+  })
+
+  it('leaves a live worktree alone on refresh', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+    vi.mocked(window.gitApi.openPath).mockClear()
+    await act(async () => { await result.current.methods.refresh() })
+
+    expect(window.gitApi.openPath).not.toHaveBeenCalled()
+    expect(result.current.repoPath).toBe('/repo.worktrees/feat')
+  })
+
+  it('switching to a tab whose worktree vanished lands on main', async () => {
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/repo', branch: 'main', sha: 'a', isMain: true },
+    ])
+    const { result } = renderHook(() => useGitRepo())
+    await act(async () => { await result.current.methods.loadRepo('/repo.worktrees/feat') })
+    vi.mocked(window.gitApi.getWorktrees).mockResolvedValue([
+      { path: '/other', branch: 'main', sha: 'c', isMain: true },
+    ])
+    await act(async () => { await result.current.methods.loadRepo('/other') })
+
+    // Main now refuses the deleted worktree (its cached service is dropped).
+    vi.mocked(window.gitApi.openPath).mockImplementation(async (p: string) => p !== '/repo.worktrees/feat')
+    await act(async () => { await result.current.methods.switchTab('/repo') })
+
+    expect(result.current.repoPath).toBe('/repo')
+    expect(result.current.openTabs.find((t) => t.main === '/repo')).toEqual({ main: '/repo', worktree: '/repo' })
   })
 })

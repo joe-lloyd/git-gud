@@ -141,6 +141,26 @@ function startRepoWatchers(repoPath: string) {
   })
 }
 
+// A local worktree folder deleted from under us (`git worktree remove` in a
+// terminal, rm -rf, another tool). Its cached GitService would keep "opening"
+// fine while every git call fails, leaving the tab blank with no way back.
+// Peer paths never count as gone here — reachability is the peer's business.
+function localPathGone(repoPath: string): boolean {
+  return !isPeerRepoPath(repoPath) && !fs.existsSync(repoPath)
+}
+
+// Forget a cached service whose folder vanished; returns true if it did.
+function dropIfGone(repoPath: string): boolean {
+  if (!localPathGone(repoPath)) return false
+  services.delete(repoPath)
+  if (activeRepoPath === repoPath) {
+    stopRepoWatchers()
+    gitService = null
+    activeRepoPath = null
+  }
+  return true
+}
+
 // Activate (or create) the GitService for a repo path. Flips the watcher to
 // follow this path. Used by tab-switching and by initial open.
 function activateRepo(repoPath: string): GitService {
@@ -457,6 +477,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('git:open-path', async (_event, repoPath: string) => {
     try {
+      if (dropIfGone(repoPath)) return false
       // Already loaded? Just re-activate.
       if (services.has(repoPath)) {
         activateRepo(repoPath)
@@ -543,7 +564,7 @@ app.whenReady().then(async () => {
 
   // Flip the active tab. Returns false if the path isn't loaded yet.
   ipcMain.handle('git:activate-path', async (_event, repoPath: string) => {
-    if (!services.has(repoPath)) return false
+    if (dropIfGone(repoPath) || !services.has(repoPath)) return false
     activateRepo(repoPath)
     return true
   })
@@ -565,6 +586,9 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('git:active-path', async () => activeRepoPath)
+  // Cheap liveness probe the renderer runs before refreshing a linked
+  // worktree, so a folder deleted mid-session drops the tab back to main.
+  ipcMain.handle('git:path-gone', async (_event, repoPath: string) => localPathGone(repoPath))
   ipcMain.handle('git:open-tabs', async () => Array.from(services.keys()))
 
   // ── Session: persisted tabs ─────────────────────────────────────────────────
@@ -614,6 +638,7 @@ app.whenReady().then(async () => {
   // no longer a valid repo (silently dropped from the restored list).
   ipcMain.handle('git:add-tab', async (_event, repoPath: string) => {
     try {
+      if (dropIfGone(repoPath)) return false
       if (services.has(repoPath)) return true
       const candidate = makeService(repoPath)
       // A remote tab is restored as long as the peer is *known*; reachability
